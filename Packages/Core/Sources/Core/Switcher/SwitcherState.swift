@@ -13,7 +13,8 @@
 // - `fade` sin Preview o con Preview == Programa no hace nada. La duración se limita a
 //   0,1…5 s; una duración no finita se ignora. `fade` durante un fade se ignora; durante una
 //   T-bar manual toma el control y completa desde el progreso actual en el tiempo restante
-//   proporcional (`duración × (1 − progreso)`).
+//   proporcional (`duración × (1 − progreso)`). Ese traspaso T-bar→fade no emite ningún efecto
+//   (ni un nuevo transitionStarted): los siguientes `tick` siguen emitiendo transitionProgress.
 // - `tbar(x)`: x se limita a 0…1 (no finito → se ignora). En reposo, x > 0 inicia una
 //   transición manual (x ≥ 1 la completa al instante). En manual, x ≥ 1 completa y x ≤ 0
 //   cancela (progress 0 + completed, sin cambio de buses). Durante un fade temporizado se ignora.
