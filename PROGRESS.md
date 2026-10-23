@@ -7,7 +7,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | Ola | Estado |
 |---|---|
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
-| 1 · A, B, C, E, G(mocks), H | 🟦 lanzada 2026-10-23 |
+| 1 · A, B, C, E, G(mocks), H | 🟦 lanzada 2026-10-23 · A integrado |
 | 2 · D, F, G-real, ORQ T80 | ⬜ |
 | 3 · H rendimiento, E sync, G pulido | ⬜ |
 | 4 · T99 release | ⬜ |
@@ -19,9 +19,9 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T00 | ORQ | Andamiaje SwiftPM, 7 paquetes, sandbox, SwiftLint, CI | ✅ | main | CI local verde; CI de GitHub sin verificar (sin push) |
 | T01 | ORQ | Contracts.swift + tipos base + CoreMocks | ✅ | main | Aprobado por el usuario 2026-10-23 · tag `contracts-v1` |
 | T02 | ORQ | CLAUDE.md | ✅ | main | |
-| T10 | A | Modelos Codable + versión de esquema | 🟦 | feat/a-core | |
-| T11 | A | SwitcherState | 🟦 | feat/a-core | |
-| T12 | A | PlaylistSequencer | 🟦 | feat/a-core | |
+| T10 | A | Modelos Codable + versión de esquema | ✅ | feat/a-core → main | |
+| T11 | A | SwitcherState | ✅ | feat/a-core → main | 34 tests · cobertura 98,95 % |
+| T12 | A | PlaylistSequencer | ✅ | feat/a-core → main | 100 % cobertura · seguimiento de revisión en feat/a-core-fixes 🟦 |
 | T20 | B | MetalContext, TexturePool, MonitorView | 🟦 | feat/b-render | |
 | T21 | B | Compositor + shaders | 🟦 | feat/b-render | |
 | T22 | B | ImageInput → textura | 🟦 | feat/b-render | |
@@ -42,6 +42,16 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T90 | H | Estrés 1 h / 2 h | ⬜ | | Ola 3 |
 | T91 | G | Pulido UI | ⬜ | | Ola 3 |
 | T99 | ORQ | Firma, notarización, DMG | ⬜ | | Ola 4 |
+
+## Peticiones de contrato (pendientes de decisión del usuario)
+
+- **PC1** (A) · `Effect.transitionCancelled` para distinguir la cancelación de T-bar de una transición completada. Hoy se señala con `transitionProgress(0)` + `transitionCompleted` sin `busesChanged`. Candidata a contracts-v2; no bloquea.
+
+## Revisiones
+
+- **R-A** (feat/a-core, 55368f3): APROBAR CON CAMBIOS MENORES, 0 bloqueantes. Integrado en main. Devuelto a A en `feat/a-core-fixes`:
+  reajuste del secuenciador al borrar varios items, `SwitcherState.removeInput`, señal explícita de «reiniciar item» para D,
+  validación de colores no finitos/canvas/frameRate, tolerancia en fin de fade, acotar `supportedVersion`, hex con saltos de línea.
 
 ## Bloqueos
 

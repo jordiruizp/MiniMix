@@ -9,3 +9,4 @@ TestMedia/**/*
 !TestMedia/README.md
 !TestMedia/manifest.json
 Tools/reports/
+.claude/worktrees/
