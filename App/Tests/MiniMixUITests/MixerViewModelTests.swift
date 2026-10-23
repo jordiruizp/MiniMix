@@ -52,7 +52,7 @@ struct MixerViewModelTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         #expect(harness.app.mixer.masterLevels == [-6, -6])
-        #expect(harness.app.mixer.channels.last?.levels == [-12, -10])
+        #expect(harness.app.mixer.levels(for: harness.music) == [-12, -10])
     }
 
     @Test func meterScale() {

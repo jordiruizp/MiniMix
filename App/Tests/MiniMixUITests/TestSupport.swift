@@ -58,17 +58,21 @@ struct Harness {
     let sequencerLog: SpySequencer.Log
     let output: MockOutputPresenter
     let time: TestTime
+    let clock: MockClock
 
-    init(project: Project = SampleData.project) {
+    /// `spySequencer: false` usa el `PlaylistSequencer` real de `AppServices.mocks()`.
+    init(project: Project = SampleData.project, spySequencer: Bool = true) {
         let audio = MockAudioMixer()
         let inputs = MockInputManager()
         let log = SpySequencer.Log()
         let output = MockOutputPresenter()
         let time = TestTime()
+        let clock = MockClock()
         var services = AppServices.mocks(project: project, audio: audio, demo: false)
         services.inputs = inputs
         services.output = output
-        services.makeSequencer = { SpySequencer(playlist: $0, log: log) }
+        services.clock = clock
+        if spySequencer { services.makeSequencer = { SpySequencer(playlist: $0, log: log) } }
         services.uptime = { time.seconds }
         self.app = AppViewModel(services: services)
         self.audio = audio
@@ -76,6 +80,7 @@ struct Harness {
         self.sequencerLog = log
         self.output = output
         self.time = time
+        self.clock = clock
     }
 
     var project: Project { app.project }

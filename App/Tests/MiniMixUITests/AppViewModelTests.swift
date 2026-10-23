@@ -85,14 +85,61 @@ struct AppViewModelTests {
         #expect(harness.input(3).content == .color(red))
     }
 
-    @Test func removeInputRefusesProgram() {
+    @Test func removeInputClearsBusesThroughSwitcher() {
         let harness = Harness()
         let count = harness.project.inputs.count
-        harness.app.removeInput(harness.video) // en Programa
-        #expect(harness.project.inputs.count == count)
-        #expect(harness.app.errorMessage != nil)
-        harness.app.removeInput(harness.color)
+        harness.app.removeInput(harness.image) // en Preview
         #expect(harness.project.inputs.count == count - 1)
+        #expect(harness.project.preview == nil)
+        harness.app.send(.cut) // sin Preview: no hace nada (no queda un bus colgando)
+        #expect(harness.project.program == harness.video)
+        harness.app.removeInput(harness.video) // en Programa
+        #expect(harness.project.program == nil)
+        #expect(harness.project.inputs.count == count - 2)
+    }
+
+    @Test func removeInputRefusedDuringTransition() {
+        let harness = Harness()
+        harness.app.send(.fade(duration: 1))
+        #expect(harness.app.transitionProgress != nil)
+        harness.app.removeInput(harness.image)
+        harness.app.removeInput(harness.video)
+        #expect(harness.project.inputs.count == 5)
+        #expect(harness.app.errorMessage != nil)
+        harness.app.removeInput(harness.color) // no participa
+        #expect(harness.project.inputs.count == 4)
+    }
+
+    @Test func fadeRunsOnClockTicks() {
+        let harness = Harness()
+        harness.app.send(.fade(duration: 1))
+        harness.app.tick(at: HostTime(seconds: 0.5))
+        #expect(harness.app.transitionProgress == 0.5)
+        #expect(harness.audio.recorded.current.lastTransition?.progress == 0.5)
+        harness.app.tick(at: HostTime(seconds: 1))
+        #expect(harness.app.transitionProgress == nil)
+        #expect(harness.project.program == harness.image)
+    }
+
+    @Test func openProjectResetsTransition() async {
+        let harness = Harness()
+        let url = URL(fileURLWithPath: "/tmp/reset.minimix")
+        harness.app.saveProject(to: url)
+        harness.app.moveTBar(to: 0.4)
+        #expect(harness.app.transitionProgress != nil)
+        await harness.app.openProject(from: url)
+        #expect(harness.app.transition == .idle)
+        #expect(harness.app.tbarPosition == 0)
+        harness.app.releaseTBar()
+        harness.app.moveTBar(to: 0.3) // la T-bar sigue viva con el switcher nuevo
+        #expect(harness.app.transitionProgress == 0.3)
+    }
+
+    @Test func seekCountsFromInPoint() {
+        let harness = Harness()
+        harness.app.updateInput(harness.video) { $0.inPoint = 10 }
+        harness.app.send(.seek(harness.video, seconds: 30))
+        #expect(harness.app.remaining(for: harness.video) == 65)
     }
 
     @Test func addColorAndPlaylistInputs() {
@@ -140,7 +187,8 @@ struct UtilityTests {
         let color = try #require(RGBAColor(hex: "#FF8000"))
         #expect(color.red == 1 && color.blue == 0 && abs(color.green - 128.0 / 255) < 1e-9)
         #expect(color.hexString == "#FF8000")
-        #expect(RGBAColor(hex: "0f0")?.hexString == "#00FF00")
+        #expect(RGBAColor(hex: "0f0") == nil) // Core no acepta #RGB
+        #expect(RGBAColor(hex: "00ff00")?.hexString == "#00FF00")
         #expect(RGBAColor(hex: "#00000080")?.hexString == "#00000080")
         #expect(RGBAColor(hex: "zzz") == nil)
         #expect(RGBAColor(hex: "#12345") == nil)
