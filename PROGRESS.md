@@ -8,7 +8,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 |---|---|
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | 🟦 A, B, E, G, H integrados · C en curso (T31/T32) |
-| 2 · D, F, G-real, ORQ T80 | ⬜ |
+| 2 · D, F, G-real, ORQ T80 | 🟦 F lanzado (T81/T82) · D y G-real esperan a Media · T80 espera decisiones de contrato |
 | 3 · H rendimiento, E sync, G pulido | ⬜ |
 | 4 · T99 release | ⬜ |
 
@@ -37,8 +37,8 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T70 | D | PlaylistInput A/B | ⬜ | | Ola 2 |
 | T71 | D | Fundido entre items + hold | ⬜ | | Ola 2 |
 | T80 | ORQ | Integración switcher | ⬜ | | Ola 2 |
-| T81 | F | Output externo | ⬜ | | Ola 2 |
-| T82 | F | Persistence | ⬜ | | Ola 2 |
+| T81 | F | Output externo | 🟦 | feat/f-output-persistence | |
+| T82 | F | Persistence | 🟦 | feat/f-output-persistence | |
 | T90 | H | Estrés 1 h / 2 h | ⬜ | | Ola 3 |
 | T91 | G | Pulido UI | ⬜ | | Ola 3 |
 | T99 | ORQ | Firma, notarización, DMG | ⬜ | | Ola 4 |
@@ -81,12 +81,15 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | #1 | feat/e-audio-fixes | ✅ integrado (4dd30c8) · re-revisión APROBAR · CI verde Swift 6.3 |
 | #2 | feat/b-render-fixes | ✅ integrado (ffddbab) |
 | #5 | feat/b-render-fixes2 | ✅ integrado (8b4a90e) |
+| #6 | feat/c-media (T30–T32) | R: APROBAR CON MENORES · importantes 1–5 (vida de CVMetalTexture, carreras en InputManager, watchdog del display link, Swift 6.3) → C corrigiendo |
+| #7 | feat/b-render-ci | benchmark solo exige fuera de CI · CI en curso |
 | #3 | feat/h-qa (T60, T61) | ✅ integrado · Core/Render/Audio verificados en local (Actions sin minutos) |
 | #4 | feat/g-ui-mocks (T50, T51) | ✅ integrado (5b3c5a3) |
 
 ## GitHub Actions
 
 - ~~2026-10-23: jobs no arrancados por límite de facturación~~ → resuelto: el usuario hizo público el repo.
+- **D13** · Tests de rendimiento: miden siempre y exigen objetivos solo fuera de CI (runners macOS = VM con GPU paravirtualizada).
 - **D12** · CI reducido: un solo job macOS (`scripts/ci.sh` + bundle) en push a main y PRs no borrador, más `core-linux`.
 
 ## Deuda menor (no bloqueante, para Ola 3)
