@@ -48,6 +48,24 @@ struct TBarTests {
         #expect(harness.app.tbarPosition == 0)
     }
 
+    @Test func leverGrabbedDuringAutoFadeIsIgnoredUntilRelease() {
+        let harness = Harness()
+        let (preview, program) = (harness.project.preview, harness.project.program)
+        harness.app.send(.fade(duration: 1))
+        harness.app.moveTBar(to: 0.3) // agarrada durante el fundido: SwitcherState la ignora
+        harness.app.tick(at: HostTime(seconds: 1))
+        #expect(harness.project.program == preview)
+        harness.app.moveTBar(to: 0.6) // sin el bloqueo, arrancaría otra transición
+        #expect(harness.app.transitionProgress == nil)
+        #expect(harness.project.program == preview)
+        harness.app.releaseTBar()
+        #expect(harness.app.tbarPosition == 0)
+        harness.app.moveTBar(to: 0.5)
+        #expect(harness.app.transitionProgress == 0.5)
+        harness.app.moveTBar(to: 1)
+        #expect(harness.project.program == program)
+    }
+
     @Test func relativeDragMath() {
         #expect(TBar.position(start: 0.25, delta: 50, length: 100) == 0.75)
         #expect(TBar.position(start: 0.9, delta: 50, length: 100) == 1)

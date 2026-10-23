@@ -54,6 +54,9 @@ public final class AppViewModel {
     public private(set) var tbarPosition: Double = 0
     /// La palanca está agarrada (arrastre en curso): el rearme espera a `releaseTBar()`.
     public private(set) var isDraggingTBar = false
+    /// Una transición se completó con la palanca agarrada (p. ej. un fundido automático): se
+    /// ignoran sus valores hasta `releaseTBar()` para que no arranque otra transición.
+    @ObservationIgnored private var tbarLockedUntilRelease = false
 
     public let mixer: MixerViewModel
     public let playlists: PlaylistViewModel
@@ -148,6 +151,7 @@ public final class AppViewModel {
     public func moveTBar(to position: Double) {
         guard position.isFinite else { return }
         isDraggingTBar = true
+        guard !tbarLockedUntilRelease else { return }
         tbarPosition = min(max(position, 0), 1)
         send(.tbar(tbarPosition))
     }
@@ -156,6 +160,7 @@ public final class AppViewModel {
     /// Si queda una transición manual a medias, la palanca se queda donde está.
     public func releaseTBar() {
         isDraggingTBar = false
+        tbarLockedUntilRelease = false
         if transitionProgress == nil, tbarPosition > 0 { rearmTBar() }
     }
 
@@ -166,6 +171,7 @@ public final class AppViewModel {
             handle(effect)
         }
         transition = switcher.transition
+        if completed, isDraggingTBar { tbarLockedUntilRelease = true }
         if completed, tbarPosition > 0, !isDraggingTBar { rearmTBar() }
     }
 
@@ -213,6 +219,7 @@ public final class AppViewModel {
         transition = switcher.transition
         tbarPosition = 0
         isDraggingTBar = false
+        tbarLockedUntilRelease = false
     }
 
     func updateVisibility() {
