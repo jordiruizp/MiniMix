@@ -46,6 +46,26 @@ public final class MonitorRenderer: @unchecked Sendable {
     /// Fotogramas codificados en un formato no preparado (se limpiaron a negro).
     public var missingPipelineFrames: Int { pipelines.missCount }
 
+    private static let sharedRenderers = UnfairLocked<[ObjectIdentifier: MonitorRenderer]>([:])
+
+    /// Renderer compartido por todos los monitores de `context` (BGRA8 preparado).
+    /// Devuelve nil y lo registra en el log si no se puede crear.
+    public static func shared(for context: MetalContext) -> MonitorRenderer? {
+        let key = ObjectIdentifier(context)
+        if let cached = sharedRenderers.withLock({ $0[key] }) { return cached }
+        do {
+            let renderer = try MonitorRenderer(context: context)
+            return sharedRenderers.withLock { cache in
+                if let existing = cache[key] { return existing }
+                cache[key] = renderer
+                return renderer
+            }
+        } catch {
+            renderLog.error("MonitorRenderer: cannot create renderer: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
     /// Rectángulo (x, y, ancho, alto) en píxeles donde se dibuja una textura
     /// `source` en un destino `destination` con un borde de `borderWidth` píxeles.
     public static func contentRect(source: PixelSize, destination: PixelSize, borderWidth: Float) -> SIMD4<Float> {

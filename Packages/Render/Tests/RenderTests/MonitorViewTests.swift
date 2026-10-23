@@ -33,4 +33,23 @@ struct MonitorViewTests {
         MonitorView.dismantleNSView(viewB, coordinator: coordB)
         #expect(feed.observerCount == 0)
     }
+
+    @Test func sharedRendererPerContextAndSwitching() throws {
+        let shared = try #require(MonitorRenderer.shared(for: GPU.context))
+        #expect(MonitorRenderer.shared(for: GPU.context) === shared)
+        #expect(MonitorView(feed: MonitorFeed(), context: GPU.context).renderer === shared)
+
+        let otherContext = try #require(MetalContext(device: GPU.context.device))
+        let other = try #require(MonitorRenderer.shared(for: otherContext))
+        #expect(other !== shared)
+
+        let view = MTKView(frame: .zero, device: nil)
+        let coordinator = MonitorView.Coordinator(feed: MonitorFeed(), renderer: nil)
+        coordinator.use(renderer: shared, in: view)
+        #expect(coordinator.renderer === shared && view.device === GPU.context.device)
+        coordinator.use(renderer: other, in: view)
+        #expect(coordinator.renderer === other && view.device === otherContext.device)
+        coordinator.use(renderer: nil, in: view)
+        #expect(coordinator.renderer == nil)
+    }
 }

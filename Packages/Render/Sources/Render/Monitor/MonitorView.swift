@@ -7,29 +7,42 @@ import SwiftUI
 /// Monitor (Preview/Programa) basado en `MTKView`: muestra la textura de un
 /// `MonitorFeed` con letterbox y un borde opcional (el color lo decide la UI:
 /// verde PVW, rojo PGM). Dibuja solo cuando el feed recibe un fotograma.
+///
+/// El `MonitorRenderer` se inyecta o se comparte por `MetalContext`
+/// (`MonitorRenderer.shared(for:)`); si cambia el renderer/contexto, la vista
+/// cambia de dispositivo sin recrearse. Sin renderer no dibuja y lo registra en el log.
 public struct MonitorView: NSViewRepresentable {
     public var feed: MonitorFeed
-    public var context: MetalContext
+    public var renderer: MonitorRenderer?
     public var borderColor: RGBAColor?
     /// Ancho del borde en puntos.
     public var borderWidth: CGFloat
 
-    public init(feed: MonitorFeed, context: MetalContext, borderColor: RGBAColor? = nil, borderWidth: CGFloat = 3) {
+    public init(feed: MonitorFeed, renderer: MonitorRenderer?, borderColor: RGBAColor? = nil, borderWidth: CGFloat = 3) {
         self.feed = feed
-        self.context = context
+        self.renderer = renderer
         self.borderColor = borderColor
         self.borderWidth = borderWidth
     }
 
+    /// Usa el renderer compartido de `context`.
+    public init(feed: MonitorFeed, context: MetalContext, borderColor: RGBAColor? = nil, borderWidth: CGFloat = 3) {
+        self.init(feed: feed, renderer: MonitorRenderer.shared(for: context), borderColor: borderColor,
+                  borderWidth: borderWidth)
+    }
+
+    public var context: MetalContext? { renderer?.context }
+
     public func makeCoordinator() -> Coordinator {
-        Coordinator(feed: feed, renderer: try? MonitorRenderer(context: context))
+        Coordinator(feed: feed, renderer: renderer)
     }
 
     public func makeNSView(context ctx: Context) -> MTKView {
-        let view = MTKView(frame: .zero, device: context.device)
+        let view = MTKView(frame: .zero, device: renderer?.context.device)
         Self.configure(view)
         view.delegate = ctx.coordinator
         ctx.coordinator.attach(view: view)
+        ctx.coordinator.use(renderer: renderer, in: view)
         apply(to: ctx.coordinator)
         return view
     }
@@ -40,6 +53,7 @@ public struct MonitorView: NSViewRepresentable {
             ctx.coordinator.feed = feed
             ctx.coordinator.attach(view: view)
         }
+        ctx.coordinator.use(renderer: renderer, in: view)
         apply(to: ctx.coordinator)
         view.needsDisplay = true
     }
@@ -71,7 +85,8 @@ public struct MonitorView: NSViewRepresentable {
     @MainActor
     public final class Coordinator: NSObject, MTKViewDelegate {
         var feed: MonitorFeed
-        let renderer: MonitorRenderer?
+        private(set) var renderer: MonitorRenderer?
+        private var loggedMissingRenderer = false
         var borderColor: RGBAColor?
         var borderWidth: CGFloat = 3
         /// Registro de esta vista en `feed`; solo se da de baja a sí misma.
@@ -92,6 +107,17 @@ public struct MonitorView: NSViewRepresentable {
             }
         }
 
+        /// Cambia de renderer (y de dispositivo si cambia el contexto).
+        func use(renderer newRenderer: MonitorRenderer?, in view: MTKView) {
+            if newRenderer !== renderer {
+                renderer = newRenderer
+                loggedMissingRenderer = false
+            }
+            if let device = newRenderer?.context.device, view.device !== device {
+                view.device = device
+            }
+        }
+
         func detach() {
             if let token { feed.removeObserver(token) }
             token = nil
@@ -104,7 +130,15 @@ public struct MonitorView: NSViewRepresentable {
         public func draw(in view: MTKView) {
             guard let token else { return }
             let lease = feed.acquireForDrawing(token)
-            guard let renderer, let pass = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
+            guard let renderer else {
+                lease?.release()
+                if !loggedMissingRenderer {
+                    loggedMissingRenderer = true
+                    renderLog.error("MonitorView: no MonitorRenderer available; monitor will stay blank")
+                }
+                return
+            }
+            guard let pass = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
                   let commandBuffer = renderer.context.commandQueue.makeCommandBuffer() else {
                 lease?.release()
                 return
