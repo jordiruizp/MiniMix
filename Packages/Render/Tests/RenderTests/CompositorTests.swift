@@ -221,8 +221,7 @@ struct CompositorTests {
                                      commandBuffer: $0) }
         }
         // El completion handler se ejecuta tras waitUntilCompleted; se da margen.
-        for _ in 0..<100 where tracked.stats.gpuTimeMs == 0 { usleep(1_000) }
-        #expect(tracked.stats.gpuTimeMs > 0)
+        #expect(waitUntil { tracked.stats.gpuTimeMs > 0 })
         #expect(tracked.stats.fps > 0)
     }
 

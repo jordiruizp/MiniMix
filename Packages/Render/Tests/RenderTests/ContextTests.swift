@@ -113,24 +113,34 @@ struct ContextTests {
             commandBuffer.makeBlitCommandEncoder()!.endEncoding()
             pool.recycle(texture, after: commandBuffer)
         }
-        for _ in 0..<100 where pool.cachedCount == 0 { usleep(1_000) }
-        #expect(pool.cachedCount == 1)
+        #expect(waitUntil { pool.cachedCount == 1 })
         pool.purge()
         #expect(pool.cachedCount == 0 && pool.cachedBytes == 0)
     }
 
     @Test func poolIsThreadSafe() async throws {
         let pool = TexturePool(device: GPU.context.device)
+        // Ninguna textura puede estar entregada a dos dueños a la vez.
+        let inUse = InUseTracker()
         await withTaskGroup(of: Void.self) { group in
             for _ in 0..<8 {
                 group.addTask {
                     for _ in 0..<50 {
-                        if let texture = pool.dequeue(width: 32, height: 32) { pool.recycle(texture) }
+                        guard let texture = pool.dequeue(width: 32, height: 32) else { continue }
+                        inUse.checkOut(texture)
+                        inUse.checkIn(texture)
+                        pool.recycle(texture)
                     }
                 }
             }
         }
-        #expect(pool.cachedCount <= 8)
+        #expect(inUse.violations == 0)
+        #expect(inUse.checkouts == 400)
+        // Como mucho una textura por tarea concurrente; contabilidad de bytes coherente.
+        #expect((1...8).contains(pool.cachedCount))
+        #expect(inUse.distinct <= 8)
+        let bytesPerTexture = try #require(pool.dequeue(width: 32, height: 32)).allocatedSize
+        #expect(pool.cachedBytes == pool.cachedCount * bytesPerTexture)
     }
 }
 
@@ -270,4 +280,29 @@ final class Counter: @unchecked Sendable {
     private var count = 0
     func increment() { lock.withLock { count += 1 } }
     var value: Int { lock.withLock { count } }
+}
+
+final class InUseTracker: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = Set<ObjectIdentifier>()
+    private var seen = Set<ObjectIdentifier>()
+    private var violationCount = 0
+    private var checkoutCount = 0
+
+    func checkOut(_ texture: MTLTexture) {
+        lock.withLock {
+            let id = ObjectIdentifier(texture)
+            if !current.insert(id).inserted { violationCount += 1 }
+            seen.insert(id)
+            checkoutCount += 1
+        }
+    }
+
+    func checkIn(_ texture: MTLTexture) {
+        _ = lock.withLock { current.remove(ObjectIdentifier(texture)) }
+    }
+
+    var violations: Int { lock.withLock { violationCount } }
+    var checkouts: Int { lock.withLock { checkoutCount } }
+    var distinct: Int { lock.withLock { seen.count } }
 }
