@@ -78,17 +78,23 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 
 | PR | Rama | Estado |
 |---|---|---|
-| #1 | feat/e-audio-fixes | CI ✅ (Swift 6.3) · R: DEVOLVER (test VU intermitente, rearranque sin lock, desmontaje por reloj) → E corrigiendo |
-| #2 | feat/b-render-fixes | ✅ integrado (ffddbab) · menores en feat/b-render-fixes2 🟦 |
+| #1 | feat/e-audio-fixes | ✅ integrado (4dd30c8) · re-revisión APROBAR · CI verde Swift 6.3 |
+| #2 | feat/b-render-fixes | ✅ integrado (ffddbab) |
+| #5 | feat/b-render-fixes2 | menores de R-B2 · CI en curso |
 | #3 | feat/h-qa (T60, T61) | R: APROBAR CON MENORES · H corrigiendo · espera a #1 (Tests depende de Audio) |
-| #4 | feat/g-ui-mocks (T50, T51) | R: APROBAR CON MENORES · G corrigiendo · espera a #1 para CI de App |
+| #4 | feat/g-ui-mocks (T50, T51) | R: APROBAR CON MENORES · menores hechos (682b156) · CI en curso |
+
+## Deuda menor (no bloqueante, para Ola 3)
+
+- Audio: `renderBlockOutlivesUnit` depende de comportamiento no documentado del framework (usar autoreleasepool o deallocate explícito);
+  `drainLifecycleQueue()` sin `dispatchPrecondition(.notOnQueue)`; test de retiro por reloj de pared.
 
 ## Bloqueos
 
 - ~~Sin Xcode~~ → resuelto 2026-10-23: Xcode 27.1 instalado. `xcode-select` sigue en CLT (cambiarlo requiere sudo);
   los scripts usan Xcode vía `scripts/env.sh`. CI local verde con Xcode.
 - ~~Sin push a GitHub~~ → resuelto: `gh` autenticado; main y tag `contracts-v1` subidos. CI de Actions en `macos-26` (Swift 6.3.3) + Linux (`swift:latest`).
-- **CI rojo en Audio/App/Tests**: `AudioEngine.swift` no compila con Swift 6.3 (aislamiento de regiones en `Mutex.withLock`). Asignado a E (feat/e-audio-fixes, punto 7).
+- ~~CI rojo en Audio/App/Tests~~ → resuelto con PR #1 (LockedState en lugar de Mutex).
 
 ## Decisiones
 
