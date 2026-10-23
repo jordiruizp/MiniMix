@@ -48,7 +48,9 @@ done
 
 if [[ $MANIFEST_ONLY -eq 0 ]]; then
   [[ -x "$FFMPEG" ]] || { echo "ffmpeg no encontrado en $FFMPEG (brew install ffmpeg)" >&2; exit 1; }
-  FFMPEG_VERSION="$("$FFMPEG" -version | head -1)"
+  # Sin tubería a head: con pipefail, el SIGPIPE de ffmpeg abortaría el script.
+  FFMPEG_VERSION="$("$FFMPEG" -version)"
+  FFMPEG_VERSION="${FFMPEG_VERSION%%$'\n'*}"
 else
   FFMPEG_VERSION="n/a"
 fi
@@ -246,17 +248,17 @@ image_entry() {
 
 # audio REL FORMAT RATE CHANNELS DUR
 audio() {
-  local rel="$1" format="$2" rate="$3" ch="$4" dur="$5" enc=()
+  local rel="$1" format="$2" rate="$3" ch="$4" dur="$5" enc=() codec
+  # `codec` es el nombre del formato en el manifiesto (no el del codificador de ffmpeg).
   case "$format" in
-    wav) enc=(-c:a pcm_s16le) ;;
-    aiff) enc=(-c:a pcm_s16be) ;;
-    mp3) enc=(-c:a libmp3lame -b:a 192k -write_xing 0) ;;
-    m4a) enc=(-c:a aac -b:a 192k) ;;
+    wav) enc=(-c:a pcm_s16le); codec=pcm_s16le ;;
+    aiff) enc=(-c:a pcm_s16be); codec=pcm_s16be ;;
+    mp3) enc=(-c:a libmp3lame -b:a 192k -write_xing 0); codec=mp3 ;;
+    m4a) enc=(-c:a aac -b:a 192k); codec=aac ;;
     *) echo "formato desconocido $format" >&2; exit 1 ;;
   esac
   produce "$rel" "$FFMPEG" "${FF[@]}" -f lavfi -i "aevalsrc=exprs='$(audio_expr "$ch")':s=$rate:d=$dur" \
     "${enc[@]}" "${BITEXACT[@]}" __OUT__
-  local codec="${enc[1]}"
   ENTRIES+=("$(jq -cn --arg file "$rel" --arg fmt "$format" --argjson dur "$dur" \
     --argjson audio "$(json_audio "$codec" "$rate" "$ch")" \
     '{file: $file, kind: "audio", codec: $fmt, duration: $dur, alpha: false, audio: $audio, clapper: true,

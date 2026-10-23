@@ -3,6 +3,13 @@ import Foundation
 import Testing
 @testable import TestSupport
 
+/// El manifiesto está versionado: se comprueba aunque TestMedia no esté generado.
+@Test func manifestAudioCodecsUseFormatNames() throws {
+    let codecs = Set(try TestMediaLocator.manifest().files.compactMap { $0.audio?.codec })
+    #expect(codecs.isSubset(of: ["aac", "mp3", "pcm_s16le", "pcm_s16be"]), "\(codecs)")
+    #expect(codecs.contains("mp3"))
+}
+
 /// Comprueba TestMedia generado (T60) con los lectores de TestSupport (T61).
 /// Se desactiva si no se ha ejecutado `Tools/generate-testmedia.sh`.
 @Suite("TestMedia", .enabled(if: TestMediaLocator.isGenerated, "TestMedia sin generar"))

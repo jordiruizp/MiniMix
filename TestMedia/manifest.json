@@ -617,7 +617,7 @@
       "duration": 4,
       "alpha": false,
       "audio": {
-        "codec": "libmp3lame",
+        "codec": "mp3",
         "sampleRate": 44100,
         "channels": 1
       },
@@ -631,7 +631,7 @@
       "duration": 4,
       "alpha": false,
       "audio": {
-        "codec": "libmp3lame",
+        "codec": "mp3",
         "sampleRate": 44100,
         "channels": 2
       },
@@ -645,7 +645,7 @@
       "duration": 4,
       "alpha": false,
       "audio": {
-        "codec": "libmp3lame",
+        "codec": "mp3",
         "sampleRate": 48000,
         "channels": 1
       },
@@ -659,7 +659,7 @@
       "duration": 4,
       "alpha": false,
       "audio": {
-        "codec": "libmp3lame",
+        "codec": "mp3",
         "sampleRate": 48000,
         "channels": 2
       },

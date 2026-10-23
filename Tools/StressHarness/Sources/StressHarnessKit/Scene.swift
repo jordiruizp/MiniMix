@@ -16,22 +16,23 @@ struct Scene {
 
     static func make(config: ScenarioConfig, factory: PipelineFactory) async throws -> Scene {
         var scene = Scene(config: config, factory: factory, switcher: factory.makeSwitcher())
-        for index in 0..<max(config.inputs, 2) {
+        // En `playlist`, la playlist es la primera entrada (Programa): no se crea fuente de color para ella.
+        if case .playlist(let items, let itemSeconds, let loop) = config.kind {
+            let state = PlaylistState(items: items, itemSeconds: itemSeconds, loop: loop, factory: factory,
+                                      canvas: config.canvas.size)
+            scene.playlist = state
+            scene.order.append(state.inputID)
+        }
+        let count = max(config.inputs, 2)
+        for index in scene.order.count..<count {
             let id = InputID()
-            let hue = Double(index) / Double(max(config.inputs, 2))
+            let hue = Double(index) / Double(count)
             let source = factory.makeSource(id: id, content: .color(RGBAColor(red: hue, green: 1 - hue, blue: 0.5)),
                                             canvas: config.canvas.size)
             try await source.prepare()
             source.play()
             scene.sources[id] = source
             scene.order.append(id)
-        }
-        if case .playlist(let items, let itemSeconds, let loop) = config.kind {
-            let state = PlaylistState(items: items, itemSeconds: itemSeconds, loop: loop, factory: factory,
-                                      canvas: config.canvas.size)
-            scene.playlist = state
-            // La playlist sustituye a la primera entrada como Programa.
-            scene.order[0] = state.inputID
         }
         _ = scene.switcher.apply(.selectPreview(scene.order[0]), at: .zero)
         _ = scene.switcher.apply(.cut, at: .zero)
@@ -43,6 +44,9 @@ struct Scene {
         }
         return scene
     }
+
+    /// Fuentes de entradas normales (sin contar la playlist ni sus items).
+    var inputSourceCount: Int { sources.count }
 
     private init(config: ScenarioConfig, factory: PipelineFactory, switcher: any SwitcherStateMachine) {
         self.config = config

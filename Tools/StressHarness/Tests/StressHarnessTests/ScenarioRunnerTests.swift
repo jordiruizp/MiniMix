@@ -42,6 +42,14 @@ struct ScenarioRunnerTests {
         #expect(report.events.playlistNotReadyFrames <= 6, "precarga A/B: \(report.events.playlistNotReadyFrames)")
     }
 
+    @Test func playlistReplacesFirstInputWithoutExtraSource() async throws {
+        let config = ScenarioConfig(name: "test-inputs", kind: .playlist(items: 3, itemSeconds: 1, loop: false),
+                                    durationSeconds: 1, canvas: Self.canvas, inputs: 3)
+        let scene = try await Scene.make(config: config, factory: MockPipelineFactory())
+        #expect(scene.inputSourceCount == 2)
+        scene.tearDown()
+    }
+
     @Test func reportRoundTripsThroughJSON() async throws {
         let config = ScenarioConfig(name: "test-json", kind: .switchEvery(seconds: 1, transition: .cut, fadeSeconds: 0),
                                     durationSeconds: 0.5, canvas: Self.canvas, sampleIntervalSeconds: 0.2)
