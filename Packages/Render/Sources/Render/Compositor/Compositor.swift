@@ -19,7 +19,9 @@ struct CompositorUniforms {
 /// premultiplicado), los mezcla según `kind` (cut, fade con `mix` ya curvado,
 /// wipe horizontal) y compone el resultado sobre `backgroundColor`. Una entrada
 /// `nil` es transparente. No espera a la GPU ni bloquea: los pipelines se
-/// compilan en `init` (y se cachean por formato de píxel).
+/// compilan en `init`/`prepare(pixelFormat:)`, nunca en `encode`. Si se codifica
+/// en un formato no preparado, el destino se limpia con `backgroundColor` y se
+/// cuenta en `missingPipelineFrames` (y se registra en el log una vez).
 public final class Compositor: Compositing, @unchecked Sendable {
     public let context: MetalContext
     public var device: MTLDevice { context.device }
@@ -33,7 +35,7 @@ public final class Compositor: Compositing, @unchecked Sendable {
     }
 
     private let settings = UnfairLocked(Settings())
-    private let pipelines = UnfairLocked<[UInt: MTLRenderPipelineState]>([:])
+    private let pipelines: PipelineCache
     /// Textura 1×1 transparente que se enlaza cuando una entrada es `nil`.
     private let emptyTexture: MTLTexture
 
@@ -43,6 +45,10 @@ public final class Compositor: Compositing, @unchecked Sendable {
     public init(context: MetalContext, pixelFormats: [MTLPixelFormat] = [.bgra8Unorm],
                 frameRate: FrameRate = .fps60, collectsStats: Bool = true) throws {
         self.context = context
+        self.pipelines = PipelineCache(name: "Compositor") { format in
+            try context.makeFullscreenPipeline(
+                fragment: "minimix_compositor_fragment", pixelFormat: format, label: "MiniMix.Compositor")
+        }
         self.statsCollector = RenderStatsCollector(frameRate: frameRate)
         self.collectsStats = collectsStats
         let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: 1, height: 1,
@@ -53,8 +59,17 @@ public final class Compositor: Compositing, @unchecked Sendable {
         let zero: [UInt8] = [0, 0, 0, 0]
         empty.replace(region: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0, withBytes: zero, bytesPerRow: 4)
         self.emptyTexture = empty
-        for format in pixelFormats { _ = try pipeline(for: format) }
+        for format in pixelFormats { try prepare(pixelFormat: format) }
     }
+
+    /// Compila y cachea el pipeline para destinos `pixelFormat`. Llamar en la
+    /// configuración (puede tardar); `encode` nunca compila.
+    public func prepare(pixelFormat: MTLPixelFormat) throws {
+        try pipelines.prepare(pixelFormat)
+    }
+
+    /// Fotogramas codificados en un formato no preparado (se limpiaron con el fondo).
+    public var missingPipelineFrames: Int { pipelines.missCount }
 
     /// Color sobre el que se compone (lo que se ve donde no hay fuente). Por defecto negro opaco;
     /// `.clear` deja el lienzo transparente.
@@ -72,7 +87,10 @@ public final class Compositor: Compositing, @unchecked Sendable {
     public var stats: RenderStats { statsCollector.stats }
 
     public func encode(_ frame: CompositorFrame, into target: MTLTexture, commandBuffer: MTLCommandBuffer) {
-        guard let pipeline = try? pipeline(for: target.pixelFormat) else { return }
+        guard let pipeline = pipelines.pipeline(for: target.pixelFormat) else {
+            commandBuffer.encodeClear(target, color: backgroundColor.premultipliedSIMD)
+            return
+        }
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = target
         pass.colorAttachments[0].loadAction = .dontCare
@@ -121,14 +139,6 @@ public final class Compositor: Compositing, @unchecked Sendable {
         case .fade: 1
         case .wipe: 2
         }
-    }
-
-    private func pipeline(for format: MTLPixelFormat) throws -> MTLRenderPipelineState {
-        if let cached = pipelines.withLock({ $0[format.rawValue] }) { return cached }
-        let state = try context.makeFullscreenPipeline(
-            fragment: "minimix_compositor_fragment", pixelFormat: format, label: "MiniMix.Compositor")
-        pipelines.withLock { $0[format.rawValue] = state }
-        return state
     }
 }
 

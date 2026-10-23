@@ -158,6 +158,31 @@ struct CompositorTests {
         #expect(result.maxDeltaE < 1, "\(result)")
     }
 
+    // MARK: Pipelines no preparados
+
+    @Test func unpreparedFormatClearsWithoutCompiling() throws {
+        let local = try Compositor(context: GPU.context, collectsStats: false)
+        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: 16, height: 9,
+                                                            mipmapped: false)
+        desc.usage = [.renderTarget, .shaderRead]
+        desc.storageMode = .shared
+        let target = try #require(GPU.context.device.makeTexture(descriptor: desc))
+        let frame = CompositorFrame(a: redSource, b: nil, mix: 0, kind: .cut)
+
+        GPU.run { local.encode(frame, into: target, commandBuffer: $0) }
+        #expect(local.missingPipelineFrames == 1)
+        // Respaldo: fondo negro (rgba8: bytes R,G,B,A).
+        var bytes = [UInt8](repeating: 9, count: 4)
+        target.getBytes(&bytes, bytesPerRow: 16 * 4, from: MTLRegionMake2D(8, 4, 1, 1), mipmapLevel: 0)
+        #expect(bytes == [0, 0, 0, 255])
+
+        try local.prepare(pixelFormat: .rgba8Unorm)
+        GPU.run { local.encode(frame, into: target, commandBuffer: $0) }
+        #expect(local.missingPipelineFrames == 1)
+        target.getBytes(&bytes, bytesPerRow: 16 * 4, from: MTLRegionMake2D(8, 4, 1, 1), mipmapLevel: 0)
+        #expect(bytes == [255, 0, 0, 255])
+    }
+
     // MARK: Color sólido
 
     @Test func solidColorTextureCoversCanvas() {

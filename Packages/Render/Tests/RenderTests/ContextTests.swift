@@ -155,6 +155,27 @@ struct MonitorRendererTests {
         #expect(result.maxDeltaE < 1, "\(result)")
     }
 
+    @Test func unpreparedFormatClearsToBlack() throws {
+        let renderer = try MonitorRenderer(context: GPU.context)
+        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: 8, height: 8,
+                                                            mipmapped: false)
+        desc.usage = [.renderTarget, .shaderRead]
+        desc.storageMode = .shared
+        let target = try #require(GPU.context.device.makeTexture(descriptor: desc))
+        let source = GPU.solid(width: 4, height: 4, Pixel(red: 255, green: 0, blue: 0, alpha: 255))
+        GPU.run { renderer.encode(source, into: target, border: nil, commandBuffer: $0) }
+        #expect(renderer.missingPipelineFrames == 1)
+        var bytes = [UInt8](repeating: 9, count: 4)
+        target.getBytes(&bytes, bytesPerRow: 8 * 4, from: MTLRegionMake2D(4, 4, 1, 1), mipmapLevel: 0)
+        #expect(bytes == [0, 0, 0, 255])
+
+        try renderer.prepare(pixelFormat: .rgba8Unorm)
+        GPU.run { renderer.encode(source, into: target, border: nil, commandBuffer: $0) }
+        target.getBytes(&bytes, bytesPerRow: 8 * 4, from: MTLRegionMake2D(4, 4, 1, 1), mipmapLevel: 0)
+        #expect(bytes == [255, 0, 0, 255])
+        #expect(renderer.missingPipelineFrames == 1)
+    }
+
     @Test func noTextureNoBorderIsBlack() throws {
         let renderer = try MonitorRenderer(context: GPU.context)
         let target = GPU.target(width: 32, height: 18)

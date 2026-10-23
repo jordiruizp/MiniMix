@@ -26,13 +26,25 @@ public struct MonitorBorder: Hashable, Sendable {
 /// No es `@MainActor`: lo usa `MonitorView` y también los tests sin ventana.
 public final class MonitorRenderer: @unchecked Sendable {
     public let context: MetalContext
-    private let pipelines = UnfairLocked<[UInt: MTLRenderPipelineState]>([:])
+    private let pipelines: PipelineCache
 
     /// Precompila el pipeline para `pixelFormat` (el del drawable).
     public init(context: MetalContext, pixelFormat: MTLPixelFormat = .bgra8Unorm) throws {
         self.context = context
-        _ = try pipeline(for: pixelFormat)
+        self.pipelines = PipelineCache(name: "MonitorRenderer") { format in
+            try context.makeFullscreenPipeline(
+                fragment: "minimix_monitor_fragment", pixelFormat: format, label: "MiniMix.Monitor")
+        }
+        try prepare(pixelFormat: pixelFormat)
     }
+
+    /// Compila y cachea el pipeline para destinos `pixelFormat` (configuración; `encode` nunca compila).
+    public func prepare(pixelFormat: MTLPixelFormat) throws {
+        try pipelines.prepare(pixelFormat)
+    }
+
+    /// Fotogramas codificados en un formato no preparado (se limpiaron a negro).
+    public var missingPipelineFrames: Int { pipelines.missCount }
 
     /// Rectángulo (x, y, ancho, alto) en píxeles donde se dibuja una textura
     /// `source` en un destino `destination` con un borde de `borderWidth` píxeles.
@@ -59,9 +71,14 @@ public final class MonitorRenderer: @unchecked Sendable {
     /// el tamaño y el formato salen de su textura de color 0.
     public func encode(_ texture: MTLTexture?, pass: MTLRenderPassDescriptor, border: MonitorBorder?,
                        commandBuffer: MTLCommandBuffer) {
-        guard let target = pass.colorAttachments[0].texture,
-              let pipeline = try? pipeline(for: target.pixelFormat),
-              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass) else { return }
+        guard let target = pass.colorAttachments[0].texture else { return }
+        guard let pipeline = pipelines.pipeline(for: target.pixelFormat) else {
+            pass.colorAttachments[0].loadAction = .clear
+            pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+            commandBuffer.makeRenderCommandEncoder(descriptor: pass)?.endEncoding()
+            return
+        }
+        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass) else { return }
         let targetSize = PixelSize(width: target.width, height: target.height)
         let width = max(0, border?.width ?? 0)
         let source = texture.map { PixelSize(width: $0.width, height: $0.height) } ?? targetSize
@@ -77,14 +94,6 @@ public final class MonitorRenderer: @unchecked Sendable {
         encoder.setFragmentTexture(texture, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
-    }
-
-    private func pipeline(for format: MTLPixelFormat) throws -> MTLRenderPipelineState {
-        if let cached = pipelines.withLock({ $0[format.rawValue] }) { return cached }
-        let state = try context.makeFullscreenPipeline(
-            fragment: "minimix_monitor_fragment", pixelFormat: format, label: "MiniMix.Monitor")
-        pipelines.withLock { $0[format.rawValue] = state }
-        return state
     }
 }
 
