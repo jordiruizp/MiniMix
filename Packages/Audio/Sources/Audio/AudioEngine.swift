@@ -376,6 +376,9 @@ public final class AudioEngine: AudioMixing, Sendable {
         state.withLock { $0.channels[id]?.programGate.control.applied }
     }
 
+    /// Emisiones automáticas de vúmetros desde que se creó el motor (diagnóstico y tests).
+    var meterTimerFires: Int { meterPublisher.timerFires }
+
     /// Fuerza una emisión de vúmetros (tests).
     func publishMetersNow() { meterPublisher.publish() }
 

@@ -41,21 +41,23 @@ import Testing
         #expect(try #require(await nextLevels(engine)).keys.contains(b.id) == false)
     }
 
-    /// Cuenta las emisiones durante ~1 s (tolerancia amplia: la máquina de CI está compartida).
+    /// Cuenta las emisiones en el productor (disparos del temporizador) durante ~1 s. No cuenta
+    /// despertares del consumidor: con `bufferingNewest(1)` y el pool cooperativo ocupado por otros
+    /// tests, el consumidor puede saltarse mensajes sin que el ritmo de publicación cambie.
     @Test func metersArePublishedAbout30TimesPerSecond() async throws {
         let engine = try makeOfflineEngine(meterRate: 30)
         try engine.attach(makeSource(.sine(frequency: 1_000, amplitude: 0.5)))
-        let count = Locked(0)
-        let consumer = Task {
-            for await _ in engine.meters { count.withLock { $0 += 1 } }
-        }
+        let clock = ContinuousClock()
+        let begin = clock.now
         try engine.start()
         try await Task.sleep(for: .seconds(1))
         engine.stop()
-        let emitted = count.current
-        consumer.cancel()
-        print("[T40] meters: \(emitted) emisiones en ~1 s")
-        #expect((20...40).contains(emitted))
+        let elapsed = begin.duration(to: clock.now)
+        let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) * 1e-18
+        let fires = engine.meterTimerFires
+        let rate = Double(fires) / seconds
+        print("[T40] meters: \(fires) emisiones en \(seconds) s → \(rate) Hz")
+        #expect(rate > 24 && rate < 36)
     }
 
     @Test func decibelConversion() {
