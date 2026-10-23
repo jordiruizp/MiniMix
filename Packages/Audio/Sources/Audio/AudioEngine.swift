@@ -55,10 +55,16 @@ public final class AudioEngine: AudioMixing, Sendable {
         var nextRetiringKey = 0
         /// Muestras renderizadas en modo offline (reloj de las bajas diferidas).
         var renderedFrames = 0
+        /// Tests: en offline, usar también la ruta de tiempo real (temporizador) para las bajas.
+        var wallClockRetirement = false
     }
 
     /// Margen tras la rampa antes de desmontar un canal (cubre el búfer de E/S en tiempo real).
     static let retireMargin: Double = 0.05
+    /// Tiempo real: si al vencer el plazo la ganancia aplicada aún no es 0 (búferes de E/S grandes,
+    /// Bluetooth…), se reintenta cada `retireRetryInterval` hasta `retireMaxAttempts` veces (~2 s).
+    static let retireRetryInterval: Double = 0.05
+    static let retireMaxAttempts = 40
 
     public let configuration: AudioEngineConfiguration
     private let state: LockedState<State>
@@ -411,23 +417,41 @@ public final class AudioEngine: AudioMixing, Sendable {
         let key = state.nextRetiringKey
         state.nextRetiringKey += 1
         let delay = configuration.rampDuration + Self.retireMargin
-        if state.engine.isInManualRenderingMode {
+        if state.engine.isInManualRenderingMode && !state.wallClockRetirement {
             let frames = Int((delay * state.format.sampleRate).rounded(.up))
             state.retiring[key] = RetiringChannel(channel: channel, deadlineFrame: state.renderedFrames + frames)
         } else {
             state.retiring[key] = RetiringChannel(channel: channel, deadlineFrame: nil)
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.finishRetiring(key)
-            }
+            scheduleFinishRetiring(key, attempt: 0, after: delay)
         }
     }
 
-    private func finishRetiring(_ key: Int) {
-        state.withLock { state in
-            guard let entry = state.retiring.removeValue(forKey: key) else { return }
-            Self.teardown(entry.channel, in: state.engine)
+    private func scheduleFinishRetiring(_ key: Int, attempt: Int, after delay: Double) {
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.finishRetiring(key, attempt: attempt)
         }
     }
+
+    /// Desmonta solo cuando el hilo de audio ya ha aplicado ganancia 0 (el reloj de pared no
+    /// garantiza que la rampa haya sonado). Con el motor parado no hay render: se desmonta ya.
+    private func finishRetiring(_ key: Int, attempt: Int) {
+        let retry = state.withLock { state -> Bool in
+            guard let entry = state.retiring[key] else { return false }
+            let silent = entry.channel.fader.control.applied == 0
+            guard silent || !state.engine.isRunning || attempt >= Self.retireMaxAttempts else { return true }
+            if !silent && state.engine.isRunning {
+                Self.logger.warning("Canal desmontado sin llegar a ganancia 0 tras \(attempt) reintentos")
+            }
+            state.retiring[key] = nil
+            Self.teardown(entry.channel, in: state.engine)
+            return false
+        }
+        if retry { scheduleFinishRetiring(key, attempt: attempt + 1, after: Self.retireRetryInterval) }
+    }
+
+    /// Tests: las bajas en offline siguen la ruta de tiempo real (temporizador + comprobación de
+    /// ganancia aplicada) en lugar del reloj de muestras renderizadas.
+    func useWallClockRetirement() { state.withLock { $0.wallClockRetirement = true } }
 
     private static func clampGain(_ value: Float) -> Float {
         value.isFinite ? min(max(value, 0), 2) : 0

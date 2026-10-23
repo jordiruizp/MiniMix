@@ -75,4 +75,33 @@ import Testing
         #expect(engine.retiringCount == 0)
         #expect(source.node?.engine == nil)
     }
+
+    /// Ruta de tiempo real de las bajas (temporizador de pared + `finishRetiring`). No hay
+    /// dispositivo en CI, así que se fuerza esa ruta en un motor offline: mientras no se renderiza,
+    /// la ganancia aplicada no llega a 0 y el canal no se desmonta (como con un búfer de E/S
+    /// enorme); al renderizar la rampa, se desmonta en el siguiente reintento.
+    @Test func wallClockRetirementWaitsForAppliedSilence() async throws {
+        let engine = try makeOfflineEngine()
+        engine.useWallClockRetirement()
+        let source = makeSource(.sine(frequency: 1_000, amplitude: Self.amplitude))
+        engine.setAudioFollowsProgram(false, for: source.id)
+        try engine.attach(source)
+        try engine.start()
+        _ = try render(engine, frames: 2_048)
+
+        engine.detach(source.id)
+        // Plazo nominal 70 ms; se espera el triple sin renderizar.
+        try await Task.sleep(for: .milliseconds(210))
+        #expect(engine.retiringCount == 1)
+
+        let samples = try render(engine, frames: 2_048)
+        #expect(peak(samples, last: 480) == 0)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while engine.retiringCount > 0, clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(engine.retiringCount == 0)
+        #expect(source.node?.engine == nil)
+    }
 }
