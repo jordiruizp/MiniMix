@@ -31,6 +31,13 @@ public enum ValidationIssue: Hashable, Sendable, CustomStringConvertible {
     case duplicateInputID(InputID)
     /// Preview/Programa apunta a una entrada que no existe.
     case unknownBusInput(InputID)
+    /// Color con componentes no finitos o fuera de 0…1.
+    case invalidInputColor(InputID, RGBAColor)
+    case invalidItemColor(ItemID, RGBAColor)
+    /// Lienzo con ancho o alto ≤ 0.
+    case invalidCanvasSize(PixelSize)
+    /// Frecuencia con numerador o denominador ≤ 0.
+    case invalidFrameRate(FrameRate)
 
     public var description: String {
         switch self {
@@ -45,6 +52,10 @@ public enum ValidationIssue: Hashable, Sendable, CustomStringConvertible {
         case let .volumeOutOfRange(id, value): "Volumen \(value) fuera de 0…2 (\(id.map(\.description) ?? "Master"))"
         case .duplicateInputID(let id): "Id de entrada duplicado \(id)"
         case .unknownBusInput(let id): "Bus apunta a entrada inexistente \(id)"
+        case let .invalidInputColor(id, color): "Entrada \(id): color inválido \(color)"
+        case let .invalidItemColor(id, color): "Item \(id): color inválido \(color)"
+        case .invalidCanvasSize(let size): "Lienzo inválido \(size.width)×\(size.height)"
+        case .invalidFrameRate(let rate): "Frecuencia inválida \(rate.numerator)/\(rate.denominator)"
         }
     }
 }
@@ -77,6 +88,48 @@ private func clampedVolume(_ volume: Float) -> Float {
     volume.isFinite ? clamped(volume, to: ModelLimits.volume) : 1
 }
 
+// MARK: - Color y formato
+
+extension RGBAColor {
+    /// Todos los componentes finitos y en 0…1.
+    public var isValid: Bool {
+        [red, green, blue, alpha].allSatisfy { $0.isFinite && (0...1).contains($0) }
+    }
+
+    /// Componentes limitados a 0…1; un componente no finito pasa a 0 (alpha a 1).
+    public func normalized() -> RGBAColor {
+        func fix(_ value: Double, fallback: Double) -> Double {
+            value.isFinite ? clamped(value, to: 0...1) : fallback
+        }
+        return RGBAColor(red: fix(red, fallback: 0), green: fix(green, fallback: 0),
+                         blue: fix(blue, fallback: 0), alpha: fix(alpha, fallback: 1))
+    }
+}
+
+extension PixelSize {
+    public var isValid: Bool { width > 0 && height > 0 }
+}
+
+extension FrameRate {
+    public var isValid: Bool { numerator > 0 && denominator > 0 }
+}
+
+extension CanvasFormat {
+    public func validationIssues() -> [ValidationIssue] {
+        var issues: [ValidationIssue] = []
+        if !size.isValid { issues.append(.invalidCanvasSize(size)) }
+        if !frameRate.isValid { issues.append(.invalidFrameRate(frameRate)) }
+        return issues
+    }
+
+    /// Tamaño o frecuencia inválidos → los valores por defecto (1080p, 60 fps).
+    public func normalized() -> CanvasFormat {
+        let defaults = CanvasFormat()
+        return CanvasFormat(size: size.isValid ? size : defaults.size,
+                            frameRate: frameRate.isValid ? frameRate : defaults.frameRate)
+    }
+}
+
 // MARK: - PlaylistItem
 
 extension ItemSource {
@@ -107,6 +160,7 @@ extension PlaylistItem {
         if !trimIsValid(inPoint: inPoint, outPoint: outPoint) {
             issues.append(.invalidItemTrim(id, inPoint: inPoint, outPoint: outPoint))
         }
+        if case .color(let color) = source, !color.isValid { issues.append(.invalidItemColor(id, color)) }
         return issues
     }
 
@@ -120,6 +174,7 @@ extension PlaylistItem {
             item.inPoint = nil
             item.outPoint = nil
         }
+        if case .color(let color) = source { item.source = .color(color.normalized()) }
         return item
     }
 }
@@ -161,7 +216,11 @@ extension InputDescriptor {
             issues.append(.invalidInputTrim(id, inPoint: inPoint, outPoint: outPoint))
         }
         if !volumeIsValid(volume) { issues.append(.volumeOutOfRange(id, volume)) }
-        if case .playlist(let playlist) = content { issues += playlist.validationIssues() }
+        switch content {
+        case .playlist(let playlist): issues += playlist.validationIssues()
+        case .color(let color) where !color.isValid: issues.append(.invalidInputColor(id, color))
+        default: break
+        }
         return issues
     }
 
@@ -172,7 +231,11 @@ extension InputDescriptor {
             input.outPoint = nil
         }
         input.volume = clampedVolume(volume)
-        if case .playlist(let playlist) = content { input.content = .playlist(playlist.normalized()) }
+        switch content {
+        case .playlist(let playlist): input.content = .playlist(playlist.normalized())
+        case .color(let color): input.content = .color(color.normalized())
+        default: break
+        }
         return input
     }
 }
@@ -182,7 +245,7 @@ extension InputDescriptor {
 extension Project {
     /// Todos los problemas del proyecto, en orden de aparición.
     public func validationIssues() -> [ValidationIssue] {
-        var issues: [ValidationIssue] = []
+        var issues = canvas.validationIssues()
         var seen = Set<InputID>()
         for input in inputs {
             if !seen.insert(input.id).inserted { issues.append(.duplicateInputID(input.id)) }
@@ -208,6 +271,7 @@ extension Project {
     /// los ids inexistentes. Las entradas con id duplicado se conservan (solo se informan).
     public func normalized() -> Project {
         var project = self
+        project.canvas = canvas.normalized()
         project.inputs = inputs.map { $0.normalized() }
         let ids = Set(inputs.map(\.id))
         if let preview, !ids.contains(preview) { project.preview = nil }

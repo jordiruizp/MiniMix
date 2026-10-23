@@ -259,6 +259,32 @@ struct ValidationTests {
         #expect(fixed.itemTransition == .fade(seconds: 2))
     }
 
+    @Test func colorsAndCanvasAreValidated() throws {
+        let nanColor = RGBAColor(red: .nan, green: 2, blue: -1, alpha: .infinity)
+        let item = PlaylistItem(source: .color(nanColor), duration: 1)
+        let colorInput = InputDescriptor(name: "c", content: .color(nanColor))
+        let playlistInput = InputDescriptor(name: "p", content: .playlist(Playlist(items: [item])))
+        let project = Project(canvas: CanvasFormat(size: PixelSize(width: 0, height: 720), frameRate: FrameRate(30, 0)),
+                              inputs: [colorInput, playlistInput])
+        let issues = project.validationIssues()
+        // NaN != NaN: los colores se comparan por id, no por valor.
+        #expect(issues.count == 4)
+        #expect(Array(issues.prefix(2)) == [.invalidCanvasSize(PixelSize(width: 0, height: 720)),
+                                            .invalidFrameRate(FrameRate(30, 0))])
+        #expect(issues.contains { if case .invalidInputColor(colorInput.id, _) = $0 { true } else { false } })
+        #expect(issues.contains { if case .invalidItemColor(item.id, _) = $0 { true } else { false } })
+        #expect(issues.allSatisfy { !$0.description.isEmpty })
+        #expect(throws: (any Error).self) { try ProjectEncoder().encode(project) }
+
+        let fixed = project.normalized()
+        #expect(fixed.validationIssues().isEmpty)
+        #expect(fixed.canvas == CanvasFormat(size: .hd1080, frameRate: .fps60))
+        #expect(fixed.inputs[0].content == .color(RGBAColor(red: 0, green: 1, blue: 0, alpha: 1)))
+        let data = try ProjectEncoder().encode(fixed)
+        #expect(try ProjectDecoder().decode(data) == fixed)
+        #expect(FrameRate(-1).isValid == false && PixelSize.hd720.isValid)
+    }
+
     @Test func lookupHelpers() throws {
         var project = SampleData.project
         let video = project.inputs[0], playlistInput = project.inputs[3]
