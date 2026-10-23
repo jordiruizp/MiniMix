@@ -46,10 +46,15 @@ public final class MonitorFeed: @unchecked Sendable {
     /// fuera del cerrojo. Con `pool`, la textura anterior vuelve al pool cuando ya
     /// nadie la usa (ver la regla de propiedad arriba).
     public func display(_ texture: MTLTexture?, returningTo pool: TexturePool? = nil) {
-        let lease = texture.map { TextureLease(texture: $0, pool: pool) }
         let (previous, handlers): (TextureLease?, [@Sendable () -> Void]) = state.withLock { st in
-            let previous = st.lease
-            st.lease = lease
+            // La misma textura otra vez: se conserva su lease (y su pool) y solo se notifica.
+            let previous: TextureLease?
+            if let current = st.lease, current.texture === texture {
+                previous = nil
+            } else {
+                previous = st.lease
+                st.lease = texture.map { TextureLease(texture: $0, pool: pool) }
+            }
             var due: [@Sendable () -> Void] = []
             for (id, observer) in st.observers where !observer.pending {
                 st.observers[id]?.pending = true
@@ -61,7 +66,9 @@ public final class MonitorFeed: @unchecked Sendable {
         for handler in handlers { handler() }
     }
 
-    /// Última textura publicada.
+    /// Última textura publicada. Solo informativa: **no** pasa por el lease, así
+    /// que no debe usarse para dibujar (puede volver al pool en cualquier momento);
+    /// para dibujar, `acquireForDrawing(_:)`.
     public var currentTexture: MTLTexture? { state.withLock { $0.lease?.texture } }
 
     /// Registra un observador; `handler` se llama (en cualquier hilo) cuando hay

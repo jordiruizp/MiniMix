@@ -244,6 +244,22 @@ struct MonitorRendererTests {
         #expect(pool.dequeue(width: 16, height: 16) === second)
     }
 
+    @Test func displayingSameTextureTwiceKeepsOneLease() throws {
+        let pool = TexturePool(device: GPU.context.device)
+        let feed = MonitorFeed()
+        let calls = Counter()
+        let token = feed.addObserver { calls.increment() }
+        let texture = try #require(pool.dequeue(width: 16, height: 16))
+        feed.display(texture, returningTo: pool)
+        feed.acquireForDrawing(token)?.release()
+        feed.display(texture, returningTo: pool)
+        // Sigue siendo la actual: no vuelve al pool, pero sí se notifica.
+        #expect(pool.cachedCount == 0)
+        #expect(calls.value == 2)
+        feed.display(nil, returningTo: pool)
+        #expect(pool.cachedCount == 1) // una sola entrada en la lista libre
+    }
+
     @Test func textureWithoutPoolIsNotRecycled() throws {
         let pool = TexturePool(device: GPU.context.device)
         let feed = MonitorFeed()
@@ -306,3 +322,17 @@ final class InUseTracker: @unchecked Sendable {
     var checkouts: Int { lock.withLock { checkoutCount } }
     var distinct: Int { lock.withLock { seen.count } }
 }
+
+#if DEBUG
+@Suite("TexturePool debug checks", .enabled(if: hasGPU))
+struct TexturePoolDebugTests {
+    @Test func doubleRecycleTraps() async {
+        await #expect(processExitsWith: .failure) {
+            let pool = TexturePool(device: MTLCreateSystemDefaultDevice()!)
+            let texture = pool.dequeue(width: 4, height: 4)!
+            pool.recycle(texture)
+            pool.recycle(texture)
+        }
+    }
+}
+#endif

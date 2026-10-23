@@ -117,6 +117,8 @@ public final class TexturePool: @unchecked Sendable {
         let bytes = texture.allocatedSize
         return state.withLock { st in
             guard bytes <= st.memoryLimit else { return false }
+            assert(!(st.free[key]?.contains { $0.texture === texture } ?? false),
+                   "TexturePool.recycle: texture already in the free list (double recycle)")
             st.clock &+= 1
             st.free[key, default: []].append(Entry(texture: texture, bytes: bytes, stamp: st.clock))
             st.freeBytes += bytes
