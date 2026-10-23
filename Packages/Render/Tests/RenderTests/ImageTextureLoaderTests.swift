@@ -143,6 +143,22 @@ struct ImageTextureLoaderTests {
         #expect(center.green > 230 && center.red < 30 && center.blue < 30 && center.alpha == 255, "\(type): \(center)")
     }
 
+    @Test func decodesOffTheCooperativePool() async throws {
+        let image = Self.makeImage(width: 64, height: 64) { Self.fill($0, [1, 1, 0, 1], CGRect(x: 0, y: 0, width: 64, height: 64)) }
+        let url = try #require(Self.write(image, type: .png))
+        defer { try? FileManager.default.removeItem(at: url) }
+        let before = ImageTextureLoader.dedicatedDecodes.withLock { $0 }
+        // Varias cargas concurrentes: se serializan en la cola de decodificación.
+        let sizes = try await withThrowingTaskGroup(of: Int.self) { group in
+            for _ in 0..<4 {
+                group.addTask { try await loader.loadTexture(from: url, maxSize: .hd1080).width }
+            }
+            return try await group.reduce(into: [Int]()) { $0.append($1) }
+        }
+        #expect(sizes == [64, 64, 64, 64])
+        #expect(ImageTextureLoader.dedicatedDecodes.withLock { $0 } >= before + 4)
+    }
+
     @Test func missingFileThrows() async {
         let url = Self.tempURL("png")
         await #expect(throws: ImageTextureLoaderError.self) {

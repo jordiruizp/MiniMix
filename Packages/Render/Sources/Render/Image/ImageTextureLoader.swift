@@ -21,17 +21,39 @@ public enum ImageTextureLoaderError: Error, Equatable, Sendable {
 /// - Sube los píxeles una sola vez a una textura `.private` / `.shaderRead` con un blit,
 ///   esperando la GPU de forma asíncrona (sin `waitUntilCompleted`).
 ///
-/// Es E/S: no llamar desde el hilo de render.
+/// Es E/S: no llamar desde el hilo de render. La decodificación y la conversión
+/// (bloqueantes) se hacen en una cola serie propia, fuera del pool cooperativo de
+/// Swift Concurrency; al ser serie, como mucho hay una imagen grande en
+/// memoria de paso a la vez.
 public final class ImageTextureLoader: Sendable {
     public let context: MetalContext
 
+    static let decodeQueue = DispatchQueue(label: "MiniMix.ImageDecode", qos: .userInitiated)
+    private static let decodeQueueKey = DispatchSpecificKey<Bool>()
+    /// Decodificaciones hechas en `decodeQueue` (para tests).
+    static let dedicatedDecodes = UnfairLocked(0)
+
+    /// Píxeles BGRA premultiplicados en un buffer compartido, listos para el blit.
+    private struct Staged: @unchecked Sendable {
+        let buffer: MTLBuffer
+        let width: Int
+        let height: Int
+        let bytesPerRow: Int
+    }
+
     public init(context: MetalContext) {
         self.context = context
+        Self.decodeQueue.setSpecific(key: Self.decodeQueueKey, value: true)
     }
 
     public func loadTexture(from url: URL, maxSize: PixelSize) async throws -> MTLTexture {
-        let image = try Self.decode(url: url, maxSize: maxSize)
-        return try await upload(image)
+        let device = context.device
+        let staged: Staged = try await withCheckedThrowingContinuation { continuation in
+            Self.decodeQueue.async {
+                continuation.resume(with: Result { try Self.decodeAndStage(url: url, maxSize: maxSize, device: device) })
+            }
+        }
+        return try await upload(staged)
     }
 
     /// Tamaño (ya orientado) que tendrá la imagen al cargarla con `maxSize`.
@@ -87,8 +109,9 @@ public final class ImageTextureLoader: Sendable {
 
     // MARK: - Subida a GPU
 
-    private func upload(_ image: CGImage) async throws -> MTLTexture {
-        let device = context.device
+    private static func decodeAndStage(url: URL, maxSize: PixelSize, device: MTLDevice) throws -> Staged {
+        if DispatchQueue.getSpecific(key: decodeQueueKey) == true { dedicatedDecodes.withLock { $0 += 1 } }
+        let image = try decode(url: url, maxSize: maxSize)
         let width = image.width
         let height = image.height
         let bytesPerRow = (width * 4 + 255) & ~255
@@ -103,7 +126,12 @@ public final class ImageTextureLoader: Sendable {
         cg.clear(rect)
         cg.interpolationQuality = .high
         cg.draw(image, in: rect)
+        return Staged(buffer: staging, width: width, height: height, bytesPerRow: bytesPerRow)
+    }
 
+    private func upload(_ staged: Staged) async throws -> MTLTexture {
+        let device = context.device
+        let (staging, width, height, bytesPerRow) = (staged.buffer, staged.width, staged.height, staged.bytesPerRow)
         let desc = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
         desc.usage = .shaderRead
