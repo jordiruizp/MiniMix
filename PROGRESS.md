@@ -78,7 +78,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 
 | PR | Rama | Estado |
 |---|---|---|
-| #1 | feat/e-audio-fixes | CI ✅ (Swift 6.3) · en revisión |
+| #1 | feat/e-audio-fixes | CI ✅ (Swift 6.3) · R: DEVOLVER (test VU intermitente, rearranque sin lock, desmontaje por reloj) → E corrigiendo |
 | #2 | feat/b-render-fixes | CI en curso · en revisión |
 | #3 | feat/h-qa (T60, T61) | CI en curso · en revisión |
 | #4 | feat/g-ui-mocks (T50, T51) | CI en curso · re-revisión |
