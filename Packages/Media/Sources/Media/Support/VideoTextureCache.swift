@@ -37,6 +37,6 @@ public final class VideoTextureCache: Sendable {
 
     /// Libera las texturas de la caché que ya nadie usa.
     public func flush() {
-        CVMetalTextureCacheFlush(context.textureCache, 0)
+        context.flushTextureCache()
     }
 }

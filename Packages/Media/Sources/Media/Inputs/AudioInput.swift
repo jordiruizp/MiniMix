@@ -35,6 +35,10 @@ public final class AudioInput: FrameSource, AudioSource {
     public let events: AsyncStream<SourceEvent>
     private let continuation: AsyncStream<SourceEvent>.Continuation
     private let player = AVAudioPlayerNode()
+    /// Las finalizaciones de segmento se procesan aquí, nunca dentro del callback:
+    /// AVAudioPlayerNode puede invocarlo con el cerrojo del motor tomado (stop,
+    /// desmontaje) y volver a programar desde ahí produce un interbloqueo.
+    private let completionQueue = DispatchQueue(label: "minimix.audioinput.completion", qos: .userInitiated)
     private let visual: FrameSource?
     private let state: LockedState<State>
 
@@ -162,9 +166,13 @@ public final class AudioInput: FrameSource, AudioSource {
             return Segment(file: file, start: start, count: AVAudioFrameCount(end - start))
         }
         guard let segment else { return }
+        guard player.engine != nil else {
+            state.withLock { $0.queuedSegments -= 1 }
+            return
+        }
         player.scheduleSegment(segment.file, startingFrame: segment.start, frameCount: segment.count, at: nil,
                                completionCallbackType: .dataRendered) { [weak self] _ in
-            self?.segmentFinished(generation: generation)
+            self?.completionQueue.async { [weak self] in self?.segmentFinished(generation: generation) }
         }
     }
 
