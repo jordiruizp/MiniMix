@@ -280,6 +280,18 @@ struct MonitorRendererTests {
         #expect(pool.cachedCount == 1)
     }
 
+    @Test func droppedLeaseReleasesItsReference() throws {
+        let pool = TexturePool(device: GPU.context.device)
+        let feed = MonitorFeed()
+        let token = feed.addObserver {}
+        feed.display(pool.dequeue(width: 16, height: 16)!, returningTo: pool)
+        var lease = feed.acquireForDrawing(token)
+        feed.display(nil, returningTo: pool)
+        #expect(lease != nil && pool.cachedCount == 0)
+        lease = nil // olvidado sin release(): deinit lo suelta
+        #expect(pool.cachedCount == 1)
+    }
+
     @Test func textureWithoutPoolIsNotRecycled() throws {
         let pool = TexturePool(device: GPU.context.device)
         let feed = MonitorFeed()

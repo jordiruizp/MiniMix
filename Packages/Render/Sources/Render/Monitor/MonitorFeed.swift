@@ -113,6 +113,12 @@ final class PublishedTexture: @unchecked Sendable {
         self.pool = pool
     }
 
+    deinit {
+        // El feed suelta su referencia al sustituirla y cada lease la suya al soltarse
+        // o destruirse: si llega aquí con referencias, hay un desequilibrio.
+        assert(refs.withLock { $0 } == 0, "PublishedTexture deallocated with outstanding references")
+    }
+
     func retain() {
         refs.withLock { $0 += 1 }
     }
@@ -131,13 +137,19 @@ final class PublishedTexture: @unchecked Sendable {
 
 /// Préstamo de **una** adquisición (`MonitorFeed.acquireForDrawing`) de la textura
 /// publicada. Soltarlo es idempotente: un consumidor solo puede soltar su propia
-/// referencia, nunca la de otro monitor.
+/// referencia, nunca la de otro monitor. Si se destruye sin soltarlo, `deinit` lo
+/// suelta (red de seguridad; lo correcto es `release(after:)` con el command buffer
+/// que lee la textura, porque soltarlo antes permitiría reciclarla en uso).
 public final class TextureLease: @unchecked Sendable {
     private let published: PublishedTexture
     private let released = UnfairLocked(false)
 
     init(_ published: PublishedTexture) {
         self.published = published
+    }
+
+    deinit {
+        release()
     }
 
     public var texture: MTLTexture { published.texture }
