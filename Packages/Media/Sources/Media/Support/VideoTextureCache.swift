@@ -1,54 +1,42 @@
 import CoreVideo
 import Metal
+import Render
+import Synchronization
 
-/// Envoltorio de `CVMetalTextureCache`: CVPixelBuffer (IOSurface) → `MTLTexture`
-/// sin copias.
+/// CVPixelBuffer (IOSurface) → `MTLTexture` sin copias, sobre la
+/// `CVMetalTextureCache` compartida de `MetalContext`.
 ///
-/// **Punto de inyección (Render · MetalContext):** cuando B integre
-/// `MetalContext(device, commandQueue, textureCache)`, el orquestador pasará su
-/// caché con `VideoTextureCache(device:cache:)`, y todas las entradas compartirán
-/// una sola caché. Mientras tanto cada `InputManager` crea la suya con
-/// `VideoTextureCache(device:)`.
-///
-/// `@unchecked Sendable` justificado: `CVMetalTextureCache` no está anotado como
-/// `Sendable`; cada uso pasa por un cerrojo corto (crear una textura es O(µs),
-/// sin E/S), así que es seguro llamarlo desde varios hilos de render.
-public final class VideoTextureCache: @unchecked Sendable {
-    public let device: MTLDevice
-    private let cache: LockedState<CVMetalTextureCache>
+/// Añade el vaciado periódico de la caché (Render no lo hace): cada
+/// `flushInterval` texturas creadas se llama a `CVMetalTextureCacheFlush`, que
+/// libera las entradas que ya nadie retiene. Es barato y no bloquea.
+public final class VideoTextureCache: Sendable {
+    public let context: MetalContext
+    private let created = Atomic<Int>(0)
+    private let flushInterval: Int
 
-    /// Crea una caché propia para `device`.
-    public convenience init(device: MTLDevice) throws {
-        var cache: CVMetalTextureCache?
-        let attrs = [kCVMetalTextureCacheMaximumTextureAgeKey as String: 0.5] as CFDictionary
-        let status = CVMetalTextureCacheCreate(kCFAllocatorDefault, attrs, device, nil, &cache)
-        guard status == kCVReturnSuccess, let cache else {
-            throw MediaError.metal("CVMetalTextureCacheCreate: \(status)")
-        }
-        self.init(device: device, cache: cache)
+    public init(context: MetalContext, flushInterval: Int = 120) {
+        self.context = context
+        self.flushInterval = max(1, flushInterval)
     }
 
-    /// Usa una caché existente (p. ej. la de `MetalContext`).
-    public init(device: MTLDevice, cache: CVMetalTextureCache) {
-        self.device = device
-        self.cache = LockedState(cache)
-    }
+    public var device: MTLDevice { context.device }
 
-    /// Envuelve un CVPixelBuffer BGRA (o de un plano) como textura Metal, sin copiar.
+    /// Envuelve un CVPixelBuffer BGRA como textura Metal, sin copiar.
     /// Hay que retener el `CVMetalTexture` devuelto mientras la GPU use la textura.
     func makeTexture(from pixelBuffer: CVPixelBuffer, pixelFormat: MTLPixelFormat = .bgra8Unorm) -> CVMetalTexture? {
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
-        return cache.withLock { cache in
-            var texture: CVMetalTexture?
-            let status = CVMetalTextureCacheCreateTextureFromImage(
-                kCFAllocatorDefault, cache, pixelBuffer, nil, pixelFormat, width, height, 0, &texture)
-            return status == kCVReturnSuccess ? texture : nil
-        }
+        var texture: CVMetalTexture?
+        // CVMetalTextureCache es segura entre hilos (la comparte todo el render).
+        let status = CVMetalTextureCacheCreateTextureFromImage(
+            kCFAllocatorDefault, context.textureCache, pixelBuffer, nil, pixelFormat, width, height, 0, &texture)
+        let count = created.wrappingAdd(1, ordering: .relaxed).newValue
+        if count % flushInterval == 0 { flush() }
+        return status == kCVReturnSuccess ? texture : nil
     }
 
-    /// Libera las texturas que ya nadie usa (llamar de vez en cuando, no por fotograma).
+    /// Libera las texturas de la caché que ya nadie usa.
     public func flush() {
-        cache.withLock { CVMetalTextureCacheFlush($0, 0) }
+        CVMetalTextureCacheFlush(context.textureCache, 0)
     }
 }

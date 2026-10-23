@@ -3,10 +3,11 @@ import Darwin
 import Foundation
 import Metal
 @testable import Media
+import Render
 
 enum GPU {
-    static let device: MTLDevice? = MTLCreateSystemDefaultDevice()
-    static var available: Bool { device != nil }
+    static let context: MetalContext? = MetalContext.shared
+    static var available: Bool { context != nil }
 }
 
 /// Espera el primer evento que cumpla `predicate` (o nil si vence el plazo).

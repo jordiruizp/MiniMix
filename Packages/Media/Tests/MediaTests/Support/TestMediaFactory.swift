@@ -85,14 +85,18 @@ actor TestMediaFactory {
 
     // MARK: Vídeo
 
-    private static func writeVideo(_ spec: VideoSpec, to url: URL) async throws {
-        let writer = try AVAssetWriter(outputURL: url, fileType: spec.container)
-        let codec: AVVideoCodecType = switch spec.codec {
+    private static func codecType(_ codec: VideoSpec.Codec) -> AVVideoCodecType {
+        switch codec {
         case .h264: .h264
         case .hevc: .hevc
         case .hevcAlpha: .hevcWithAlpha
         case .proRes422: .proRes422
         }
+    }
+
+    private static func writeVideo(_ spec: VideoSpec, to url: URL) async throws {
+        let writer = try AVAssetWriter(outputURL: url, fileType: spec.container)
+        let codec = codecType(spec.codec)
         let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: codec, AVVideoWidthKey: spec.width, AVVideoHeightKey: spec.height
         ])
@@ -115,32 +119,41 @@ actor TestMediaFactory {
         guard writer.startWriting() else { throw writer.error ?? CocoaError(.fileWriteUnknown) }
         writer.startSession(atSourceTime: .zero)
 
+        // Escritura entrelazada: AVAssetWriter deja de aceptar vídeo si el audio
+        // se queda atrás (y viceversa).
         let frames = Int(Double(spec.fps) * spec.seconds)
-        for frame in 0..<frames {
-            while !videoInput.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(2)) }
-            guard let pool = adaptor.pixelBufferPool else { throw CocoaError(.fileWriteUnknown) }
-            var buffer: CVPixelBuffer?
-            CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
-            guard let buffer else { throw CocoaError(.fileWriteUnknown) }
-            fill(buffer, frame: frame, alpha: spec.codec == .hevcAlpha)
-            adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: spec.fps))
-        }
-        videoInput.markAsFinished()
-
-        if let audioInput {
-            let sampleRate = 48_000
-            let total = Int(spec.seconds * Double(sampleRate))
-            var written = 0
-            while written < total {
-                while !audioInput.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(2)) }
-                let count = min(1024, total - written)
+        let sampleRate = 48_000
+        let totalSamples = audioInput == nil ? 0 : Int(spec.seconds * Double(sampleRate))
+        var frame = 0
+        var written = 0
+        while frame < frames || written < totalSamples {
+            var progressed = false
+            if frame < frames, videoInput.isReadyForMoreMediaData {
+                try appendFrame(frame, spec: spec, to: adaptor)
+                frame += 1
+                if frame == frames { videoInput.markAsFinished() }
+                progressed = true
+            }
+            if let audioInput, written < totalSamples, audioInput.isReadyForMoreMediaData {
+                let count = min(1024, totalSamples - written)
                 audioInput.append(try sineSampleBuffer(start: written, count: count, sampleRate: sampleRate))
                 written += count
+                if written == totalSamples { audioInput.markAsFinished() }
+                progressed = true
             }
-            audioInput.markAsFinished()
+            if !progressed { try await Task.sleep(for: .milliseconds(1)) }
         }
         await writer.finishWriting()
         if writer.status != .completed { throw writer.error ?? CocoaError(.fileWriteUnknown) }
+    }
+
+    private static func appendFrame(_ frame: Int, spec: VideoSpec, to adaptor: AVAssetWriterInputPixelBufferAdaptor) throws {
+        guard let pool = adaptor.pixelBufferPool else { throw CocoaError(.fileWriteUnknown) }
+        var buffer: CVPixelBuffer?
+        CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
+        guard let buffer else { throw CocoaError(.fileWriteUnknown) }
+        fill(buffer, frame: frame, alpha: spec.codec == .hevcAlpha)
+        adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: spec.fps))
     }
 
     /// Color plano que cambia con el fotograma (escritura CPU solo para generar el medio de prueba).

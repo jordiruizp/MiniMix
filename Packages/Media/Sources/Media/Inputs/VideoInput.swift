@@ -92,6 +92,7 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
     public var duration: Double? { state.withLock { $0.duration } }
     public var node: AVAudioNode? { state.withLock { $0.audioTap?.node } }
     public var usesVideoDecoder: Bool { true }
+    var audioTapForTesting: PlayerAudioTap? { state.withLock { $0.audioTap } }
 
     public func prepare() async throws {
         if state.withLock({ $0.prepared }) { return }
@@ -131,9 +132,13 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
             return ended
         }
         if restart {
-            Task { await self.seekToStart() }
+            Task {
+                await self.seekToStart()
+                self.applyRate()
+            }
+        } else {
+            applyRate()
         }
-        applyRate()
     }
 
     public func pause() {
@@ -248,10 +253,12 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
 
     private func observe(_ item: AVPlayerItem) {
         let center = NotificationCenter.default
-        let ended = center.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: nil) { [weak self] _ in
+        let ended = center.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
+                                       object: item, queue: nil) { [weak self] _ in
             self?.handleEnd()
         }
-        let failed = center.addObserver(forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: nil) { [weak self] _ in
+        let failed = center.addObserver(forName: AVPlayerItem.failedToPlayToEndTimeNotification,
+                                        object: item, queue: nil) { [weak self] _ in
             self?.fail("No se pudo reproducir hasta el final")
         }
         let status = item.observe(\.status, options: [.new]) { [weak self] item, _ in

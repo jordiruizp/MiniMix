@@ -11,8 +11,8 @@ typealias Spec = TestMediaFactory.VideoSpec
 struct VideoInputTests {
     let cache: VideoTextureCache
 
-    init() throws {
-        cache = try VideoTextureCache(device: GPU.device!)
+    init() {
+        cache = VideoTextureCache(context: GPU.context!)
     }
 
     static let formats: [Spec] = [
@@ -130,13 +130,14 @@ struct VideoInputTests {
         let input = VideoInput(url: url, textureCache: cache)
         try await input.prepare()
         let node = try #require(input.node as? AVAudioSourceNode)
-        #expect(node.outputFormat(forBus: 0).sampleRate == 48_000)
 
+        // Como AudioEngine (E): conectar en el formato canónico de salida (aquí 44,1 kHz,
+        // distinto del de la pista: el nodo convierte).
         let engine = AVAudioEngine()
-        let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!
+        let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
         try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 4096)
         engine.attach(node)
-        engine.connect(node, to: engine.mainMixerNode, format: node.outputFormat(forBus: 0))
+        engine.connect(node, to: engine.mainMixerNode, format: format)
         try engine.start()
         input.play()
         try await Task.sleep(for: .milliseconds(500))
@@ -148,5 +149,8 @@ struct VideoInputTests {
         let samples = UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength))
         let peak = samples.map(abs).max() ?? 0
         #expect(peak > 0.1)
+        let tap = try #require(input.audioTapForTesting)
+        let mismatch = tap.ring.formatMismatch.load(ordering: .relaxed)
+        #expect(!mismatch)
     }
 }

@@ -66,6 +66,8 @@ private func tapPrepare(_ tap: MTAudioProcessingTap, _ maxFrames: CMItemCount,
         .sourceFormat = format.pointee
 }
 
+// Firma impuesta por MTAudioProcessingTapProcessCallback (C).
+// swiftlint:disable:next function_parameter_count
 private func tapProcess(_ tap: MTAudioProcessingTap, _ frames: CMItemCount, _ flags: MTAudioProcessingTapFlags,
                         _ bufferList: UnsafeMutablePointer<AudioBufferList>,
                         _ framesOut: UnsafeMutablePointer<CMItemCount>,
