@@ -49,7 +49,15 @@ public final class AudioEngine: AudioMixing, Sendable {
         /// `start()` llamado y sin `stop()`: tras un cambio de configuración se rearranca.
         var wantsRunning = false
         var configurationObserver: (any NSObjectProtocol)?
+        /// Canales dados de baja que aún bajan con rampa antes de desmontarse.
+        var retiring: [Int: RetiringChannel] = [:]
+        var nextRetiringKey = 0
+        /// Muestras renderizadas en modo offline (reloj de las bajas diferidas).
+        var renderedFrames = 0
     }
+
+    /// Margen tras la rampa antes de desmontar un canal (cubre el búfer de E/S en tiempo real).
+    static let retireMargin: Double = 0.05
 
     public let configuration: AudioEngineConfiguration
     private let state: Mutex<State>
@@ -126,6 +134,8 @@ public final class AudioEngine: AudioMixing, Sendable {
         state.withLock { state in
             state.wantsRunning = false
             state.engine.stop()
+            for entry in state.retiring.values { Self.teardown(entry.channel, in: state.engine) }
+            state.retiring.removeAll()
         }
     }
 
@@ -151,7 +161,14 @@ public final class AudioEngine: AudioMixing, Sendable {
                               to buffer: AVAudioPCMBuffer) throws -> AVAudioEngineManualRenderingStatus {
         try state.withLock { state in
             guard state.engine.isInManualRenderingMode else { throw AudioEngineError.notInManualRenderingMode }
-            return try state.engine.renderOffline(frameCount, to: buffer)
+            let status = try state.engine.renderOffline(frameCount, to: buffer)
+            state.renderedFrames += Int(buffer.frameLength)
+            let now = state.renderedFrames
+            for (key, entry) in state.retiring where (entry.deadlineFrame ?? .max) <= now {
+                state.retiring[key] = nil
+                Self.teardown(entry.channel, in: state.engine)
+            }
+            return status
         }
     }
 
@@ -170,8 +187,26 @@ public final class AudioEngine: AudioMixing, Sendable {
             if let owner = sourceNode.engine, owner !== state.engine {
                 throw AudioEngineError.nodeAttachedToAnotherEngine
             }
-            if let previous = state.channels.removeValue(forKey: id) {
-                Self.teardown(previous, in: state.engine)
+            if let previous = state.channels[id] {
+                if previous.source === sourceNode {
+                    // Misma fuente: nada que reconectar.
+                    meterPublisher.register(previous.fader.control, for: id)
+                    return
+                }
+                state.channels[id] = nil
+                retire(previous, in: &state)
+            }
+            // Re-attach de un nodo que aún se está dando de baja: se recupera el canal y la rampa
+            // vuelve a subir desde donde esté (sin desconectar → sin clic).
+            for (key, entry) in state.retiring where entry.channel.source === sourceNode {
+                state.retiring[key] = nil
+                if entry.channel.id == id {
+                    state.channels[id] = entry.channel
+                    Self.applyGains(&state)
+                    meterPublisher.register(entry.channel.fader.control, for: id)
+                    return
+                }
+                Self.teardown(entry.channel, in: state.engine)
             }
             let channel = Channel(
                 id: id,
@@ -191,15 +226,23 @@ public final class AudioEngine: AudioMixing, Sendable {
         }
     }
 
-    /// Desconecta y elimina el canal. Los ajustes (volumen, mute…) se conservan.
+    /// Da de baja el canal. Los ajustes (volumen, mute…) se conservan.
+    ///
+    /// Sin clic: el canal baja a 0 con rampa y los nodos se desconectan después de
+    /// `rampDuration + retireMargin` (en tiempo real con un temporizador; en offline al
+    /// renderizar esas muestras; con el motor parado, en el acto). `attachedInputs` ya no lo
+    /// incluye desde la llamada.
     public func detach(_ id: InputID) {
         state.withLock { state in
             meterPublisher.unregister(id)
             guard let channel = state.channels.removeValue(forKey: id) else { return }
-            Self.teardown(channel, in: state.engine)
+            retire(channel, in: &state)
             Self.applyGains(&state)
         }
     }
+
+    /// Canales pendientes de desmontar (tests).
+    var retiringCount: Int { state.withLock { $0.retiring.count } }
 
     public var attachedInputs: Set<InputID> { state.withLock { Set($0.channels.keys) } }
 
@@ -287,6 +330,36 @@ public final class AudioEngine: AudioMixing, Sendable {
         state.withLock { state in
             change(&state.settings[id, default: ChannelSettings()])
             Self.applyGains(&state)
+        }
+    }
+
+    /// Pone el canal a 0 con rampa y programa su desmontaje.
+    private func retire(_ channel: Channel, in state: inout State) {
+        channel.fader.control.target = 0
+        channel.programGate.control.target = 0
+        channel.soloGate.control.target = 0
+        guard state.engine.isRunning else {
+            Self.teardown(channel, in: state.engine)
+            return
+        }
+        let key = state.nextRetiringKey
+        state.nextRetiringKey += 1
+        let delay = configuration.rampDuration + Self.retireMargin
+        if state.engine.isInManualRenderingMode {
+            let frames = Int((delay * state.format.sampleRate).rounded(.up))
+            state.retiring[key] = RetiringChannel(channel: channel, deadlineFrame: state.renderedFrames + frames)
+        } else {
+            state.retiring[key] = RetiringChannel(channel: channel, deadlineFrame: nil)
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.finishRetiring(key)
+            }
+        }
+    }
+
+    private func finishRetiring(_ key: Int) {
+        state.withLock { state in
+            guard let entry = state.retiring.removeValue(forKey: key) else { return }
+            Self.teardown(entry.channel, in: state.engine)
         }
     }
 

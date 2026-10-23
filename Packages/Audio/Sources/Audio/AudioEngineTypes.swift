@@ -68,6 +68,13 @@ struct Channel {
     var nodes: [AVAudioNode] { [input, fader.node, programGate.node, soloGate.node] }
 }
 
+/// Canal dado de baja que espera a que termine su rampa a 0 para desmontarse.
+struct RetiringChannel {
+    let channel: Channel
+    /// Offline: muestra renderizada a partir de la cual se desmonta; nil = temporizador (tiempo real).
+    let deadlineFrame: Int?
+}
+
 /// Ganancias objetivo de las etapas de un canal (diagnóstico y tests).
 struct ChannelGains: Equatable {
     var fader: Float
