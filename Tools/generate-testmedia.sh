@@ -68,7 +68,8 @@ frames_of() { awk -v d="$1" -v f="$2" 'BEGIN { printf "%d", d * f + 0.5 }'; }
 cell_of() { awk -v w="$1" -v h="$2" 'BEGIN { m = (w < h ? w : h); printf "%d", m / 45 }'; }
 
 # Ejecuta "$@" para producir $1 (ruta relativa a OUT) salvo que el sello coincida.
-# El comando recibe la ruta temporal en lugar de __OUT__.
+# El comando recibe la ruta temporal en lugar de __OUT__ y el directorio de salida en lugar de
+# __OUTDIR__; el sello se calcula con los marcadores, así que no depende de --out.
 produce() {
   local rel="$1"; shift
   local dest="$OUT/$rel"
@@ -82,7 +83,7 @@ produce() {
   fi
   local tmp; tmp="$(dirname "$dest")/.partial-$(basename "$dest")"
   local args=() a
-  for a in "$@"; do args+=("${a//__OUT__/$tmp}"); done
+  for a in "$@"; do a="${a//__OUTDIR__/$OUT}"; args+=("${a//__OUT__/$tmp}"); done
   echo "▶ $rel"
   "${args[@]}" > /dev/null
   mv -f "$tmp" "$dest"
@@ -224,8 +225,12 @@ image() {
 heic() {
   local rel="$1" src="$2" w="$3" h="$4" clip="$5" purpose="$6"
   local src_stamp="$OUT/.stamps/${src//\//__}"
+  if [[ $MANIFEST_ONLY -eq 0 && ( -z "$ONLY" || "$rel" =~ $ONLY ) && ! -f "$OUT/$src" ]]; then
+    echo "$rel: falta la fuente $src en $OUT; genérala antes (p. ej. --only '$(basename "$src")|$(basename "$rel")')" >&2
+    exit 1
+  fi
   KEY_EXTRA="src=$(cat "$src_stamp" 2>/dev/null || echo none)" \
-    produce "$rel" /usr/bin/sips -s format heic -s formatOptions 80 "$OUT/$src" --out __OUT__
+    produce "$rel" /usr/bin/sips -s format heic -s formatOptions 80 "__OUTDIR__/$src" --out __OUT__
   image_entry "$rel" heic "$w" "$h" "$clip" false "$purpose"
 }
 
