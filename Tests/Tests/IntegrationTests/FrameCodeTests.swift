@@ -154,6 +154,23 @@ struct FrameSequenceAnalysisTests {
         #expect(analysis.clipChanges.map(\.index) == [6])
     }
 
+    @Test func boundarySkipsAndColorFiller() {
+        // Clip 1 → item de color (sin código, luma 0,3) → clip 2 empezando en su frame 3.
+        var readings = [2048, 2049].map { reading($0) }
+        readings += Array(repeating: FrameCodeReading(code: nil, clapLit: false, averageLuma: 0.3, contrast: 0), count: 3)
+        readings += [4099, 4100].map { reading($0) }
+        let strict = FrameSequenceAnalysis(readings)
+        #expect(strict.unreadable == 3 && !strict.isGapless)
+        let analysis = FrameSequenceAnalysis(readings, isFiller: FrameSequenceAnalysis.filler(averageLuma: 0.3))
+        #expect(analysis.filler == 3 && analysis.unreadable == 0)
+        #expect(analysis.boundarySkips == 3)
+        #expect(!analysis.isGapless)
+        var clean = readings
+        clean[5] = reading(4096)
+        clean[6] = reading(4097)
+        #expect(FrameSequenceAnalysis(clean, isFiller: FrameSequenceAnalysis.filler(averageLuma: 0.3)).isGapless)
+    }
+
     @Test func detectsSkipsBlacksAndBackwardJumps() {
         var readings = [2048, 2049, 2052, 2051].map { reading($0) }
         readings.append(FrameCodeReading(code: nil, clapLit: false, averageLuma: 0, contrast: 0))

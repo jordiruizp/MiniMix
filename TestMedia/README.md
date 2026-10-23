@@ -19,7 +19,7 @@ Requisitos: `ffmpeg` (`brew install ffmpeg`, se usa `/opt/homebrew/bin/ffmpeg` o
 | `video/` | H.264 (23,976/25/29,97/50/59,94; 1080p, 720p, vertical 1080×1920; clip de 60 s), HEVC, HEVC con alfa, ProRes 422, ProRes 4444 con alfa |
 | `image/` | PNG con alfa (horizontal y vertical), JPEG (1080p y 6000×4000), TIFF, HEIC |
 | `audio/` | WAV, AIFF, MP3, M4A × 44,1/48 kHz × mono/estéreo |
-| `playlist_mixed/` | vídeo 25p (4 s) → imagen (5 s) → vídeo 30p (4 s) → color (3 s, solo en el manifiesto) |
+| `playlist_mixed/` | vídeo 25p (4 s) → imagen (5 s) → vídeo 30p (4 s) → color (3 s, solo en el manifiesto; **sin código de fotograma**: en los tests gapless usa `FrameSequenceAnalysis(…, isFiller:)`) |
 
 Todos los vídeos e imágenes llevan:
 
