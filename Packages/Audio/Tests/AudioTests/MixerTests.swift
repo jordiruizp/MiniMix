@@ -125,6 +125,26 @@ import Testing
         }
     }
 
+    /// La línea de retardo da muchas vueltas al anillo (2 401 muestras para 50 ms) sin errores.
+    @Test(arguments: [30.0, 50.0])
+    func latencyRingWrapsCorrectly(milliseconds: Double) throws {
+        let engine = try makeOfflineEngine(maxLatency: 0.05)
+        let signal = TestSignal.sine(frequency: 1_000, amplitude: 0.5)
+        let source = makeSource(signal)
+        engine.setAudioFollowsProgram(false, for: source.id)
+        engine.setLatencyCompensation(milliseconds: milliseconds)
+        try engine.attach(source)
+        try engine.start()
+        let samples = try render(engine, frames: 20_000)
+        let delay = Int(milliseconds / 1_000 * testSampleRate)
+        var worst: Float = 0
+        for (index, sample) in samples.enumerated() {
+            let expected = index >= delay ? signal.value(at: index - delay) : 0
+            worst = max(worst, abs(sample - expected))
+        }
+        #expect(worst < 1e-5)
+    }
+
     @Test func latencyChangeWhileRunningHasNoClicks() throws {
         let engine = try makeOfflineEngine()
         let source = makeSource(.sine(frequency: 1_000, amplitude: 0.5))

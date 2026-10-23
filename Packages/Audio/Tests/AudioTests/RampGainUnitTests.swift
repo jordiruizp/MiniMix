@@ -56,4 +56,25 @@ import Testing
         #expect(Self.renderDirect(unit, frames: 64, value: 0.5, into: buffer) == noErr)
         #expect(buffer.floatChannelData![0][63] == 0.5)
     }
+
+    /// Rama `OutputIsSilence`: la entrada marcada como silencio se trata como ceros aunque el búfer
+    /// traiga basura, y no cuenta para el vúmetro.
+    @Test func silenceFlagZeroesOutputAndMeter() throws {
+        let unit = try Self.makeUnit()
+        unit.kernel.metering = true
+        unit.kernel.control.target = 0.5
+        try unit.allocateRenderResources()
+        defer { unit.deallocateRenderResources() }
+        let buffer = AVAudioPCMBuffer(pcmFormat: Self.stereo, frameCapacity: 256)!
+
+        #expect(Self.renderDirect(unit, frames: 256, value: 1, silent: true, into: buffer) == noErr)
+        for channel in 0..<2 {
+            #expect(UnsafeBufferPointer(start: buffer.floatChannelData![channel], count: 256).allSatisfy { $0 == 0 })
+        }
+        #expect(unit.kernel.control.takePeaks() == [0, 0])
+
+        #expect(Self.renderDirect(unit, frames: 256, value: 1, into: buffer) == noErr)
+        #expect(buffer.floatChannelData![1][255] == 0.5)
+        #expect(unit.kernel.control.takePeaks() == [0.5, 0.5])
+    }
 }
