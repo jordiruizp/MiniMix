@@ -1,6 +1,5 @@
 import Core
 import Dispatch
-import Synchronization
 
 /// Publica los picos (dBFS) de los vúmetros a frecuencia fija desde una cola propia.
 ///
@@ -13,7 +12,7 @@ final class MeterPublisher: Sendable {
         var timer: DispatchSourceTimer?
     }
 
-    private let state = Mutex(State())
+    private let state = LockedState(State())
     private let continuation: AsyncStream<[InputID?: [Float]]>.Continuation
     private let queue = DispatchQueue(label: "minimix.audio.meters", qos: .userInteractive)
     private let interval: Double

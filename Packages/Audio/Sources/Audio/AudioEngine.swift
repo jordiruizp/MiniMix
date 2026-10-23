@@ -1,7 +1,6 @@
 import AVFAudio
 import Core
 import os
-import Synchronization
 
 /// Mezclador de audio de MiniMix sobre `AVAudioEngine` (T40/T41).
 ///
@@ -28,7 +27,7 @@ import Synchronization
 /// Vúmetros (`meters`, ~30 Hz): pico dBFS por canal de audio [L, R] de cada entrada (post-fader,
 /// pre-gate) y de Master (`nil`, post-Master). Silencio = `Decibels.silenceFloor`.
 ///
-/// Concurrencia: el `AVAudioEngine` y los nodos (no `Sendable`) solo se tocan bajo `state` (Mutex);
+/// Concurrencia: el `AVAudioEngine` y los nodos (no `Sendable`) solo se tocan bajo `state` (`LockedState`);
 /// el hilo de audio solo lee/escribe atómicos (`RampGainControl`). Todos los métodos son seguros
 /// desde cualquier hilo y no bloquean el hilo de audio.
 public final class AudioEngine: AudioMixing, Sendable {
@@ -61,9 +60,9 @@ public final class AudioEngine: AudioMixing, Sendable {
     static let retireMargin: Double = 0.05
 
     public let configuration: AudioEngineConfiguration
-    private let state: Mutex<State>
+    private let state: LockedState<State>
     private let meterPublisher: MeterPublisher
-    /// Mismo `AVAudioEngine` que `state.engine`, para arrancarlo sin retener el Mutex.
+    /// Mismo `AVAudioEngine` que `state.engine`, para arrancarlo sin retener el cerrojo.
     private let engineHandle: EngineHandle
     /// Cola serie de rearranques (no se bloquea a quien recibe la notificación).
     private let lifecycleQueue = DispatchQueue(label: "minimix.audio.lifecycle", qos: .userInitiated)
@@ -109,7 +108,7 @@ public final class AudioEngine: AudioMixing, Sendable {
         Self.buildBusGraph(&initial)
         meterPublisher.register(initial.masterFader.control, for: nil)
         engineHandle = EngineHandle(engine)
-        state = Mutex(initial)
+        state = LockedState(initial)
         (events, eventContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(16))
 
         if configuration.renderMode == .realtime {
