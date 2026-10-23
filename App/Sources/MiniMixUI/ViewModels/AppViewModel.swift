@@ -176,7 +176,7 @@ public final class AppViewModel {
     }
 
     /// Lanza una tarea de alta/baja de entradas y la guarda para poder cancelarla.
-    func track(_ body: @escaping @MainActor (AppViewModel) async -> Void) {
+    func track(_ body: @escaping @MainActor @Sendable (AppViewModel) async -> Void) {
         pendingTasks.removeAll { $0.isCancelled }
         pendingTasks.append(Task { [weak self] in
             guard let self else { return }
