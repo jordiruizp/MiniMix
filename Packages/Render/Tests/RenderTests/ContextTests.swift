@@ -183,18 +183,38 @@ struct MonitorRendererTests {
         #expect(compare(target) { _, _ in .black }.maxDeltaE < 1)
     }
 
-    @Test func feedCoalescesRedraws() {
+    @Test func feedCoalescesRedrawsPerObserver() {
         let feed = MonitorFeed()
-        let calls = Counter()
-        feed.setInvalidationHandler { calls.increment() }
+        let callsA = Counter()
+        let callsB = Counter()
+        let tokenA = feed.addObserver { callsA.increment() }
+        let tokenB = feed.addObserver { callsB.increment() }
         let texture = GPU.solid(width: 2, height: 2, Pixel(red: 1, green: 2, blue: 3, alpha: 255))
         feed.display(texture)
         feed.display(texture)
-        #expect(calls.value == 1)
-        #expect(feed.takeForDrawing() === texture)
+        #expect(callsA.value == 1 && callsB.value == 1)
+        // Solo A dibuja: solo A vuelve a recibir aviso.
+        #expect(feed.takeForDrawing(tokenA) === texture)
         feed.display(nil)
-        #expect(calls.value == 2)
+        #expect(callsA.value == 2 && callsB.value == 1)
         #expect(feed.currentTexture == nil)
+        _ = feed.takeForDrawing(tokenB)
+        feed.display(texture)
+        #expect(callsB.value == 2)
+    }
+
+    @Test func recreatedObserverSurvivesOldRemoval() {
+        // Vista recreada con el mismo feed: la nueva se registra antes de que la vieja se desmonte.
+        let feed = MonitorFeed()
+        let oldCalls = Counter()
+        let newCalls = Counter()
+        let old = feed.addObserver { oldCalls.increment() }
+        _ = feed.addObserver { newCalls.increment() }
+        feed.removeObserver(old)
+        feed.removeObserver(old) // idempotente
+        #expect(feed.observerCount == 1)
+        feed.display(nil)
+        #expect(newCalls.value == 1 && oldCalls.value == 0)
     }
 }
 

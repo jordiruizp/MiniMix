@@ -13,4 +13,24 @@ struct MonitorViewTests {
         #expect(view.colorPixelFormat == .bgra8Unorm)
         #expect(view.isPaused && view.enableSetNeedsDisplay)
     }
+
+    @Test func coordinatorsShareFeedAndDetachOnlyThemselves() throws {
+        let feed = MonitorFeed()
+        let renderer = try MonitorRenderer(context: GPU.context)
+        let viewA = MTKView(frame: .zero, device: GPU.context.device)
+        let viewB = MTKView(frame: .zero, device: GPU.context.device)
+        let coordA = MonitorView.Coordinator(feed: feed, renderer: renderer)
+        let coordB = MonitorView.Coordinator(feed: feed, renderer: renderer)
+        coordA.attach(view: viewA)
+        coordB.attach(view: viewB)
+        #expect(feed.observerCount == 2)
+        // Re-attach (p. ej. updateNSView) no duplica el registro.
+        coordA.attach(view: viewA)
+        #expect(feed.observerCount == 2)
+        MonitorView.dismantleNSView(viewA, coordinator: coordA)
+        #expect(feed.observerCount == 1)
+        #expect(coordB.token != nil)
+        MonitorView.dismantleNSView(viewB, coordinator: coordB)
+        #expect(feed.observerCount == 0)
+    }
 }
