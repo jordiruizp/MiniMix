@@ -18,16 +18,6 @@ public enum AudioEngineEvent: Sendable, Equatable {
     case restartFailed(String)
 }
 
-/// `AVAudioEngine` compartido fuera del cerrojo de `AudioEngine`.
-///
-/// `@unchecked Sendable`: solo se usa sin el cerrojo en la cola serie de ciclo de vida para
-/// `prepare()`/`start()` (operaciones que `AVAudioEngine` serializa internamente); las mutaciones
-/// del grafo siguen haciéndose siempre bajo el cerrojo.
-final class EngineHandle: @unchecked Sendable {
-    let engine: AVAudioEngine
-    init(_ engine: AVAudioEngine) { self.engine = engine }
-}
-
 /// Configuración de `AudioEngine`.
 public struct AudioEngineConfiguration: Sendable {
     public enum RenderMode: Sendable, Equatable {

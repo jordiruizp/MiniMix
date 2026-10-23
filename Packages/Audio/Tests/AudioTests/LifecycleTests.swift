@@ -15,10 +15,10 @@ import Testing
         engine.simulateSystemStop()
         #expect(!engine.isRunning)
         engine.handleConfigurationChange()
+        engine.drainLifecycleQueue()
 
-        var iterator = engine.events.makeAsyncIterator()
-        #expect(await iterator.next() == .configurationChanged)
-        #expect(await iterator.next() == .restarted)
+        let received = await collectEvents(engine, count: 2)
+        #expect(received == [.configurationChanged, .restarted])
         #expect(engine.isRunning)
         #expect(abs(peak(try render(engine, frames: 2_048), last: 480) - 0.5) < 1e-3)
     }
@@ -28,10 +28,30 @@ import Testing
         try engine.start()
         engine.stop()
         engine.handleConfigurationChange()
-        var iterator = engine.events.makeAsyncIterator()
-        #expect(await iterator.next() == .configurationChanged)
-        // Da tiempo a la cola de ciclo de vida a procesar (y descartar) el rearranque.
-        try await Task.sleep(for: .milliseconds(100))
+        engine.drainLifecycleQueue()
+        #expect(await collectEvents(engine, count: 2, timeout: 0.2) == [.configurationChanged])
         #expect(!engine.isRunning)
     }
+}
+
+/// Lee hasta `count` eventos ya publicados; se rinde a los `timeout` segundos (no se cuelga si
+/// falta alguno).
+func collectEvents(_ engine: AudioEngine, count: Int, timeout: Double = 1) async -> [AudioEngineEvent] {
+    let received = Locked<[AudioEngineEvent]>([])
+    let reader = Task {
+        for await event in engine.events {
+            let total = received.withLock { list -> Int in
+                list.append(event)
+                return list.count
+            }
+            if total >= count { return }
+        }
+    }
+    let watchdog = Task {
+        try? await Task.sleep(for: .seconds(timeout))
+        reader.cancel()
+    }
+    await reader.value
+    watchdog.cancel()
+    return received.current
 }

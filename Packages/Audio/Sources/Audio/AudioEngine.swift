@@ -63,8 +63,6 @@ public final class AudioEngine: AudioMixing, Sendable {
     public let configuration: AudioEngineConfiguration
     private let state: LockedState<State>
     private let meterPublisher: MeterPublisher
-    /// Mismo `AVAudioEngine` que `state.engine`, para arrancarlo sin retener el cerrojo.
-    private let engineHandle: EngineHandle
     /// Cola serie de rearranques (no se bloquea a quien recibe la notificación).
     private let lifecycleQueue = DispatchQueue(label: "minimix.audio.lifecycle", qos: .userInitiated)
     private let eventContinuation: AsyncStream<AudioEngineEvent>.Continuation
@@ -112,7 +110,6 @@ public final class AudioEngine: AudioMixing, Sendable {
         )
         Self.buildBusGraph(&initial)
         meterPublisher.register(initial.masterFader.control, for: nil)
-        engineHandle = EngineHandle(engine)
         state = LockedState(initial)
         (events, eventContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(16))
 
@@ -157,38 +154,49 @@ public final class AudioEngine: AudioMixing, Sendable {
     }
 
     /// Cambio de configuración de la salida (p. ej. se conecta una pantalla HDMI con audio): el
-    /// sistema para el motor. El rearranque se hace en `lifecycleQueue`, sin retener `state`
-    /// durante `engine.start()` (puede tardar decenas de ms); el resultado se registra con
-    /// `os.Logger` y se publica en `events`.
+    /// sistema para el motor. El rearranque se encola en `lifecycleQueue` (no bloquea a quien
+    /// envía la notificación) y allí se hace **entero bajo `state`**: `AVAudioEngine` no garantiza
+    /// seguridad entre hilos, así que reconectar, `prepare()` y `start()` se serializan con
+    /// `attach`/`detach`/`start`/`stop`. `engine.start()` bloquea mientras arranca (puede tardar
+    /// decenas de ms); durante ese tiempo las demás llamadas esperan al cerrojo, nunca el hilo de
+    /// audio. El resultado se registra con `os.Logger` y se publica en `events`.
     func handleConfigurationChange() {
         eventContinuation.yield(.configurationChanged)
         lifecycleQueue.async { [weak self] in self?.restartAfterConfigurationChange() }
     }
 
+    private enum RestartOutcome: Sendable {
+        case notNeeded
+        case restarted
+        case failed(String)
+    }
+
     private func restartAfterConfigurationChange() {
-        let needsRestart = state.withLock { state -> Bool in
-            guard state.wantsRunning, !state.engine.isRunning else { return false }
+        let outcome = state.withLock { state -> RestartOutcome in
+            guard state.wantsRunning, !state.engine.isRunning else { return .notNeeded }
             if !state.engine.isInManualRenderingMode { Self.reconnectOutput(state.engine) }
-            return true
-        }
-        guard needsRestart else { return }
-        let engine = engineHandle.engine
-        engine.prepare()
-        do {
-            try engine.start()
-            // Si alguien llamó a `stop()` mientras arrancábamos, se respeta.
-            let keep = state.withLock { state -> Bool in
-                if !state.wantsRunning { state.engine.stop() }
-                return state.wantsRunning
+            state.engine.prepare()
+            do {
+                try state.engine.start()
+                return .restarted
+            } catch {
+                return .failed(error.localizedDescription)
             }
-            guard keep else { return }
+        }
+        switch outcome {
+        case .notNeeded:
+            break
+        case .restarted:
             Self.logger.info("Motor de audio rearrancado tras cambio de configuración")
             eventContinuation.yield(.restarted)
-        } catch {
-            Self.logger.error("No se pudo rearrancar el motor de audio: \(error.localizedDescription, privacy: .public)")
-            eventContinuation.yield(.restartFailed(error.localizedDescription))
+        case .failed(let message):
+            Self.logger.error("No se pudo rearrancar el motor de audio: \(message, privacy: .public)")
+            eventContinuation.yield(.restartFailed(message))
         }
     }
+
+    /// Espera a que la cola de ciclo de vida termine lo encolado (tests).
+    func drainLifecycleQueue() { lifecycleQueue.sync {} }
 
     /// El grafo interno conserva el formato canónico fijado en `init` (frecuencia de la salida en
     /// ese momento). Si el dispositivo nuevo tiene otra frecuencia o canales, `mainMixerNode → output`
