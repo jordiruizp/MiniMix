@@ -34,7 +34,8 @@ public final class AudioInput: FrameSource, AudioSource {
     public let url: URL
     public let events: AsyncStream<SourceEvent>
     private let continuation: AsyncStream<SourceEvent>.Continuation
-    private let player = AVAudioPlayerNode()
+    private let playerRef = SendableAudioNode(node: AVAudioPlayerNode())
+    private var player: AVAudioPlayerNode { playerRef.node }
     /// Las finalizaciones de segmento se procesan aquí, nunca dentro del callback:
     /// AVAudioPlayerNode puede invocarlo con el cerrojo del motor tomado (stop,
     /// desmontaje) y volver a programar desde ahí produce un interbloqueo.

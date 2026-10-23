@@ -216,9 +216,14 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         item.add(output)
         var tap: PlayerAudioTap?
         if let audioTrack {
-            let (bridge, mix) = try await Self.makeTap(for: audioTrack)
-            await MainActor.run { item.audioMix = mix } // `audioMix` es @MainActor en el SDK
-            tap = bridge
+            let (sampleRate, channels) = try await Self.audioFormat(of: audioTrack)
+            // `audioMix` es @MainActor en el SDK y `AVAudioMix` no es Sendable: el tap y
+            // el mix se construyen y asignan dentro del main actor, sin cruzar fronteras.
+            tap = try await MainActor.run {
+                let (bridge, mix) = try PlayerAudioTap.make(track: audioTrack, sampleRate: sampleRate, channels: channels)
+                item.audioMix = mix
+                return bridge
+            }
         }
 
         let (inPoint, outPoint) = state.withLock { ($0.inPoint, $0.outPoint) }
@@ -244,11 +249,11 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         applyRate()
     }
 
-    private static func makeTap(for track: AVAssetTrack) async throws -> (PlayerAudioTap, AVAudioMix) {
+    /// Frecuencia y canales de la pista de audio (el tap entrega la frecuencia de la pista).
+    private static func audioFormat(of track: AVAssetTrack) async throws -> (Double, Int) {
         let descriptions = try await track.load(.formatDescriptions)
         let asbd = descriptions.first.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee }
-        return try PlayerAudioTap.make(track: track, sampleRate: asbd?.mSampleRate ?? 48_000,
-                                  channels: Int(asbd?.mChannelsPerFrame ?? 2))
+        return (asbd?.mSampleRate ?? 48_000, Int(asbd?.mChannelsPerFrame ?? 2))
     }
 
     private func observe(_ item: AVPlayerItem) {

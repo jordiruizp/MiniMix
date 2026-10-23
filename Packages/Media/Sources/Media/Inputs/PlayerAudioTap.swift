@@ -7,11 +7,13 @@ import MediaToolbox
 /// reproductor, así que el audio solo suena a través del motor (volumen, mute,
 /// solo y fundidos los aplica E sobre `node`).
 final class PlayerAudioTap: Sendable {
-    let node: AVAudioSourceNode
+    private let nodeRef: SendableAudioNode<AVAudioSourceNode>
     let ring: AudioRingBuffer
 
+    var node: AVAudioSourceNode { nodeRef.node }
+
     private init(node: AVAudioSourceNode, ring: AudioRingBuffer) {
-        self.node = node
+        nodeRef = SendableAudioNode(node: node)
         self.ring = ring
     }
 
