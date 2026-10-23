@@ -90,6 +90,7 @@ public final class ResourceMonitor: Sendable {
 
     public init(interval: Duration = .seconds(1)) { self.interval = interval }
 
+    /// Empieza a muestrear. Si ya estaba muestreando, cancela la tarea anterior (nunca hay dos).
     public func start() {
         let interval = interval
         let state = state
@@ -97,7 +98,7 @@ public final class ResourceMonitor: Sendable {
             let start = ContinuousClock.now
             var cpu = CPUUsageMeter()
             while !Task.isCancelled {
-                try? await Task.sleep(for: interval)
+                do { try await Task.sleep(for: interval) } catch { break }
                 let elapsed = start.duration(to: .now)
                 let mb = 1.0 / 1_048_576
                 let sample = ResourceSample(
@@ -108,9 +109,14 @@ public final class ResourceMonitor: Sendable {
                 state.withLock { $0.append(sample) }
             }
         }
-        task.withLock { $0 = newTask }
+        let previous = task.withLock { current -> Task<Void, Never>? in
+            defer { current = newTask }
+            return current
+        }
+        previous?.cancel()
     }
 
+    /// Detiene el muestreo: la tarea sale del bucle al cancelarse (como mucho completa la muestra en curso).
     public func stop() {
         task.withLock {
             $0?.cancel()

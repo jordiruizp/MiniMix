@@ -38,6 +38,19 @@ struct ResourceMeterTests {
         #expect(zip(samples, samples.dropFirst()).allSatisfy { $0.t < $1.t })
     }
 
+    @Test func restartingAndStoppingLeavesNoSamplerRunning() async throws {
+        let monitor = ResourceMonitor(interval: .milliseconds(20))
+        monitor.start()
+        monitor.start() // la primera tarea se cancela
+        try await Task.sleep(for: .milliseconds(400))
+        monitor.stop()
+        let count = monitor.samples.count
+        // Un solo muestreador: ~20 muestras como mucho (con dos serían ~40).
+        #expect(count >= 2 && count <= 24, "\(count)")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(monitor.samples.count <= count + 1, "tras stop no sigue muestreando")
+    }
+
     @Test func machineInfoIsPopulated() throws {
         let info = MachineInfo.current()
         #expect(info.memoryGB > 1)
