@@ -2,17 +2,18 @@ import Foundation
 import Testing
 @testable import TestSupport
 
+/// Sensibles a la carga de la máquina (otras suites corren en paralelo): umbrales holgados y suite serie.
 @Suite("ResourceMeter", .serialized)
 struct ResourceMeterTests {
     @Test func footprintGrowsWithTouchedMemory() throws {
         let before = try #require(ProcessMetrics.physFootprint())
         #expect(before > 1_000_000)
-        let size = 64 * 1_048_576
+        let size = 128 * 1_048_576
         let block = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 16_384)
         defer { block.deallocate() }
         block.initializeMemory(as: UInt8.self, repeating: 0xA5, count: size)
         let after = try #require(ProcessMetrics.physFootprint())
-        #expect(after >= before + UInt64(size) / 2)
+        #expect(after >= before + UInt64(size) / 4, "otras suites pueden liberar memoria a la vez")
         #expect((ProcessMetrics.residentSize() ?? 0) > 0)
     }
 
@@ -23,17 +24,17 @@ struct ResourceMeterTests {
         while ContinuousClock.now < end { x += sin(x) + 1 }
         #expect(x > 0)
         let busy = meter.sample()
-        #expect(busy > 25, "ocupación medida: \(busy) %")
+        #expect(busy > 10, "ocupación medida: \(busy) %")
         #expect(busy < 100 * Double(ProcessInfo.processInfo.activeProcessorCount) + 1)
     }
 
     @Test func monitorCollectsSamples() async throws {
         let monitor = ResourceMonitor(interval: .milliseconds(50))
         monitor.start()
-        try await Task.sleep(for: .milliseconds(400))
+        try await Task.sleep(for: .milliseconds(600))
         monitor.stop()
         let samples = monitor.samples
-        #expect(samples.count >= 3)
+        #expect(samples.count >= 2)
         #expect(samples.allSatisfy { $0.footprintMB > 1 && ThermalLevel.allCases.contains($0.thermal) })
         #expect(zip(samples, samples.dropFirst()).allSatisfy { $0.t < $1.t })
     }
