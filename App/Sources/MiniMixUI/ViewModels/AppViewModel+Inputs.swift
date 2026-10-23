@@ -44,8 +44,14 @@ extension AppViewModel {
             errorMessage = "No se puede quitar una entrada que está en una transición en curso."
             return
         }
-        apply(removeFromSwitcher(id))
+        let effects = removeFromSwitcher(id)
+        apply(effects ?? [])
         project.removeInput(id)
+        if effects == nil {
+            // Implementación sin `removeInput`: se reconstruye desde el proyecto ya sin la entrada
+            // (es seguro porque la baja está prohibida durante una transición).
+            switcher = services.makeSwitcher(project)
+        }
         playback[id] = nil
         playlists.unregister(id)
         mixer.recordSolo(false, for: id)
@@ -55,9 +61,9 @@ extension AppViewModel {
     }
 
     /// Baja en el switcher. `removeInput(_:at:)` no está en el protocolo del contrato (PC):
-    /// con otra implementación se limpian los buses del proyecto y nada más.
-    private func removeFromSwitcher(_ id: InputID) -> [Effect] {
-        guard var concrete = switcher as? SwitcherState else { return [] }
+    /// devuelve nil si la implementación no es `SwitcherState`.
+    private func removeFromSwitcher(_ id: InputID) -> [Effect]? {
+        guard var concrete = switcher as? SwitcherState else { return nil }
         let effects = concrete.removeInput(id, at: services.clock.now)
         switcher = concrete
         return effects

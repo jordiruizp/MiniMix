@@ -105,6 +105,14 @@ struct AppViewModelTests {
         #expect(harness.project.inputs.count == count - 2)
     }
 
+    @Test func removeInputRebuildsOtherSwitcherImplementations() {
+        let harness = Harness(makeSwitcher: { MockSwitcher(preview: $0.preview, program: $0.program) })
+        harness.app.removeInput(harness.image) // en Preview
+        #expect(harness.project.preview == nil)
+        #expect(harness.app.switcher.preview == nil)
+        #expect(harness.app.switcher.program == harness.video)
+    }
+
     @Test func removeInputRefusedDuringTransition() {
         let harness = Harness()
         harness.app.send(.fade(duration: 1))
