@@ -7,6 +7,10 @@ import Testing
 /// Los tests de GPU se desactivan (salen limpiamente) si no hay dispositivo Metal.
 let hasGPU = MetalContext.shared != nil
 
+/// Los tests de rendimiento miden y escriben siempre, pero solo exigen el objetivo
+/// fuera de CI (`CI` sin definir): los runners macOS de GitHub usan GPU paravirtualizada.
+let enforcesPerformanceTargets = ProcessInfo.processInfo.environment["CI"] == nil
+
 /// Píxel BGRA8 leído de una textura.
 struct Pixel: Equatable, CustomStringConvertible {
     var red: UInt8, green: UInt8, blue: UInt8, alpha: UInt8
