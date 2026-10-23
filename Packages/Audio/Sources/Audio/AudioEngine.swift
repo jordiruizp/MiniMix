@@ -140,6 +140,9 @@ public final class AudioEngine: AudioMixing, Sendable {
     // MARK: Ciclo de vida
 
     /// Arranca el motor (y, en tiempo real, la salida de audio) y la publicación de vúmetros.
+    /// **Bloquea** mientras `AVAudioEngine` arranca el dispositivo (puede tardar decenas de ms) y
+    /// retiene el cerrojo del estado durante ese tiempo: las demás llamadas esperan; el hilo de
+    /// audio no. Preferible llamarlo fuera del hilo principal.
     public func start() throws {
         try state.withLock { state in
             state.engine.prepare()
