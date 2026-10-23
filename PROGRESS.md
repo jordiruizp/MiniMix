@@ -7,7 +7,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | Ola | Estado |
 |---|---|
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
-| 1 · A, B, C, E, G(mocks), H | 🟦 lanzada 2026-10-23 · A integrado |
+| 1 · A, B, C, E, G(mocks), H | 🟦 A, B, E integrados · G devuelto · C, H en curso |
 | 2 · D, F, G-real, ORQ T80 | ⬜ |
 | 3 · H rendimiento, E sync, G pulido | ⬜ |
 | 4 · T99 release | ⬜ |
@@ -21,17 +21,17 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T02 | ORQ | CLAUDE.md | ✅ | main | |
 | T10 | A | Modelos Codable + versión de esquema | ✅ | feat/a-core → main | |
 | T11 | A | SwitcherState | ✅ | feat/a-core → main | 34 tests · cobertura 98,95 % |
-| T12 | A | PlaylistSequencer | ✅ | feat/a-core → main | 100 % cobertura · seguimiento de revisión en feat/a-core-fixes 🟦 |
-| T20 | B | MetalContext, TexturePool, MonitorView | 🟦 | feat/b-render | |
-| T21 | B | Compositor + shaders | 🟦 | feat/b-render | |
-| T22 | B | ImageInput → textura | 🟦 | feat/b-render | |
+| T12 | A | PlaylistSequencer | ✅ | feat/a-core(+fixes) → main | 113 tests Core; fixes de revisión integrados |
+| T20 | B | MetalContext, TexturePool, MonitorView | ✅ | feat/b-render → main | |
+| T21 | B | Compositor + shaders | ✅ | feat/b-render → main | |
+| T22 | B | ImageInput → textura | ✅ | feat/b-render → main | |
 | T30 | C | MasterClock | 🟦 | feat/c-media | |
 | T31 | C | VideoInput | 🟦 | feat/c-media | CVMetalTextureCache propio; se pasa a MetalContext al integrar |
 | T32 | C | AudioInput + InputManager | 🟦 | feat/c-media | |
-| T40 | E | AudioEngine | 🟦 | feat/e-audio | |
-| T41 | E | Audio sigue a Programa + fundido | 🟦 | feat/e-audio | contra el contrato (AudioMixing + TransitionCurve); no necesita T11 |
-| T50 | G | Layout con mocks | 🟦 | feat/g-ui-mocks | |
-| T51 | G | Panel de playlist | 🟦 | feat/g-ui-mocks | con MockSequencer; conexión al real en Ola 2 |
+| T40 | E | AudioEngine | ✅ | feat/e-audio → main | |
+| T41 | E | Audio sigue a Programa + fundido | ✅ | feat/e-audio → main | contra el contrato (AudioMixing + TransitionCurve); no necesita T11 |
+| T50 | G | Layout con mocks | ⛔ devuelto | feat/g-ui-mocks | R: DEVOLVER (B1–B4, M1–M7); no compila sobre main por RGBAColor(hex:) duplicado |
+| T51 | G | Panel de playlist | ⛔ devuelto | feat/g-ui-mocks | R: DEVOLVER (B1–B4, M1–M7); no compila sobre main por RGBAColor(hex:) duplicado |
 | T60 | H | Generador TestMedia | 🟦 | feat/h-qa | |
 | T61 | H | Harness de estrés | 🟦 | feat/h-qa | |
 | T70 | D | PlaylistInput A/B | ⬜ | | Ola 2 |
@@ -52,6 +52,24 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 - **R-A** (feat/a-core, 55368f3): APROBAR CON CAMBIOS MENORES, 0 bloqueantes. Integrado en main. Devuelto a A en `feat/a-core-fixes`:
   reajuste del secuenciador al borrar varios items, `SwitcherState.removeInput`, señal explícita de «reiniciar item» para D,
   validación de colores no finitos/canvas/frameRate, tolerancia en fin de fade, acotar `supportedVersion`, hex con saltos de línea.
+
+- **R-E** (feat/e-audio): APROBAR CON CAMBIOS MENORES. Integrado. Seguimiento pendiente (sin lanzar): rampa en detach,
+  rearranque asíncrono tras cambio de dispositivo con log, validación de formatos/frameCount en el AU, test de wrap del anillo.
+- **R-B** (feat/b-render): APROBAR CON CAMBIOS MENORES. Integrado. Seguimiento pendiente (sin lanzar): token en
+  MonitorFeed (dismantle), lease de textura publicada, no compilar pipelines en encode (`prepare(pixelFormat:)`),
+  `view.colorspace = sRGB`, decode fuera del pool cooperativo, stats por bus, guard en recycle, flush de CVMetalTextureCache.
+- **R-G** (feat/g-ui-mocks): DEVOLVER. Pendiente reenviar a G: rebase sobre main; B1 quitar hex duplicado (usar Core);
+  B2 enviar `.tbar(0)` al completar; B3 filtrar monitor de teclado (ventana key, sin sheet, sin isARepeat);
+  B4 limpiar Preview al quitar entrada (`SwitcherState.removeInput`); M1–M7; usar SwitcherState/PlaylistSequencer reales.
+
+## Peticiones de contrato nuevas (para decisión del usuario)
+
+- **PC2** (B, G) · Espacio de color de `RGBAColor`: el contrato dice «lineal» pero todo el sistema lo usa como sRGB codificado.
+  Recomendación ORQ: cambiar el comentario a «sRGB codificado» (sin cambio de forma) y mezclar en sRGB.
+- **PC3** (G) · `InputManaging.update(_ descriptor:)` para propagar ediciones en directo (color, fit, In/Out, playlist).
+- **PC4** (G) · `FrameSource.currentTime` o evento de posición para tiempos restantes reales.
+- **PC5** (G) · `Command.setFit` y comandos de edición de playlist (MIDI/Stream Deck).
+- **PC6** (R-G) · `MasterClockProtocol.ticks` es un único AsyncStream: definir dueño del reloj y difusión a varios consumidores.
 
 ## Bloqueos
 
