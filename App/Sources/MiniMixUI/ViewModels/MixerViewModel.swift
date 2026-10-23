@@ -14,8 +14,6 @@ public final class MixerViewModel {
         public var solo: Bool
         public var followsProgram: Bool
         public var onProgram: Bool
-        /// Pico por canal (dBFS).
-        public var levels: [Float]
     }
 
     /// Último valor de `AudioMixing.meters` (nil = Master).
@@ -32,7 +30,7 @@ public final class MixerViewModel {
             return Channel(
                 id: input.id, number: index + 1, name: input.name, volume: input.volume,
                 muted: input.muted, solo: solos.contains(input.id), followsProgram: input.audioFollowsProgram,
-                onProgram: app.project.program == input.id, levels: levels[input.id] ?? []
+                onProgram: app.project.program == input.id
             )
         }
     }
@@ -40,16 +38,20 @@ public final class MixerViewModel {
     public var masterVolume: Float { app?.project.masterVolume ?? 1 }
     public var masterLevels: [Float] { levels[nil] ?? [] }
 
+    /// Pico por canal (dBFS) de una entrada; nil = Master. Solo lo leen los vúmetros, para que
+    /// los ~30 Hz de `meters` no reevalúen faders ni etiquetas.
+    public func levels(for id: InputID?) -> [Float] { levels[id] ?? [] }
+
     // MARK: Acciones (→ Command)
 
-    public func setVolume(_ volume: Float, for id: InputID) { app?.send(.setVolume(id, min(max(volume, 0), 2))) }
+    public func setVolume(_ volume: Float, for id: InputID) { app?.send(.setVolume(id, AppViewModel.clampVolume(volume))) }
     public func toggleMute(_ id: InputID) {
         guard let input = app?.descriptor(id) else { return }
         app?.send(.setMute(id, !input.muted))
     }
     public func toggleSolo(_ id: InputID) { app?.send(.setSolo(id, !solos.contains(id))) }
     public func setFollowsProgram(_ follows: Bool, for id: InputID) { app?.send(.setAudioFollowsProgram(id, follows)) }
-    public func setMasterVolume(_ volume: Float) { app?.send(.setMasterVolume(min(max(volume, 0), 2))) }
+    public func setMasterVolume(_ volume: Float) { app?.send(.setMasterVolume(AppViewModel.clampVolume(volume))) }
 
     // MARK: Entrada desde el despachador / servicios
 

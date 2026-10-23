@@ -29,18 +29,38 @@ extension AppViewModel {
         selectedInputID = descriptor.id
     }
 
-    /// Quita una entrada. No se permite quitar la que está en Programa.
+    /// `true` si la entrada participa en la transición en curso (saliente o entrante).
+    public func isInTransition(_ id: InputID) -> Bool {
+        guard transitionProgress != nil else { return false }
+        return id == transitionInputs?.from || id == transitionInputs?.to
+            || id == project.preview || id == project.program
+    }
+
+    /// Quita una entrada: primero de los buses del switcher (`SwitcherState.removeInput`), luego
+    /// del proyecto y del gestor de entradas. No se permite durante una transición que la use.
     public func removeInput(_ id: InputID) {
-        guard project.program != id else {
-            errorMessage = "No se puede quitar una entrada que está en Programa."
+        guard descriptor(id) != nil else { return }
+        guard !isInTransition(id) else {
+            errorMessage = "No se puede quitar una entrada que está en una transición en curso."
             return
         }
-        project.inputs.removeAll { $0.id == id }
+        apply(removeFromSwitcher(id))
+        project.removeInput(id)
         playback[id] = nil
         playlists.unregister(id)
+        mixer.recordSolo(false, for: id)
         if selectedInputID == id { selectedInputID = nil }
-        let manager = services.inputs
-        Task { await manager.remove(id) }
+        updateVisibility()
+        track { await $0.services.inputs.remove(id) }
+    }
+
+    /// Baja en el switcher. `removeInput(_:at:)` no está en el protocolo del contrato (PC):
+    /// con otra implementación se limpian los buses del proyecto y nada más.
+    private func removeFromSwitcher(_ id: InputID) -> [Effect] {
+        guard var concrete = switcher as? SwitcherState else { return [] }
+        let effects = concrete.removeInput(id, at: services.clock.now)
+        switcher = concrete
+        return effects
     }
 
     public func rename(_ id: InputID, to name: String) {
@@ -58,7 +78,7 @@ extension AppViewModel {
     public func setColor(_ color: RGBAColor, for id: InputID) {
         guard let input = descriptor(id), input.kind == .color, input.content != .color(color) else { return }
         updateInput(id) { $0.content = .color(color) }
-        reregister(id)
+        applyLiveEdit(id)
     }
 
     /// Modifica la playlist de una entrada y sincroniza su secuenciador.
@@ -67,6 +87,26 @@ extension AppViewModel {
         body(&playlist)
         updateInput(id) { $0.content = .playlist(playlist) }
         playlists.sync(id, playlist: playlist)
+        applyLiveEdit(id)
+    }
+
+    /// Punto único de propagación a Media de una entrada editada (color, playlist, fit, recortes…).
+    ///
+    /// `InputManaging` (contracts-v1) no tiene `update(_:)`; la decisión está pendiente (PC3).
+    /// Mientras tanto: el color se propaga dando de baja y de alta la entrada; el resto de ediciones
+    /// solo quedan en el proyecto (el compositor/T80 lee `fit` del descriptor; la playlist sigue
+    /// el secuenciador de la UI). Cuando exista `update`, sustituir este cuerpo por esa llamada.
+    func applyLiveEdit(_ id: InputID) {
+        guard let input = descriptor(id) else { return }
+        switch input.kind {
+        case .color:
+            track { app in
+                await app.services.inputs.remove(id)
+                if let current = app.descriptor(id) { await app.add(current) }
+            }
+        case .video, .audio, .image, .playlist:
+            break
+        }
     }
 
     // MARK: Gestor de entradas (InputManaging)
@@ -83,18 +123,10 @@ extension AppViewModel {
     }
 
     private func register(_ descriptor: InputDescriptor) {
-        Task { await add(descriptor) }
+        track { await $0.add(descriptor) }
     }
 
-    private func reregister(_ id: InputID) {
-        let manager = services.inputs
-        Task {
-            await manager.remove(id)
-            if let input = descriptor(id) { await add(input) }
-        }
-    }
-
-    private func add(_ descriptor: InputDescriptor) async {
+    func add(_ descriptor: InputDescriptor) async {
         do {
             try await services.inputs.add(descriptor)
         } catch {
@@ -126,9 +158,12 @@ extension AppViewModel {
     }
 
     func replaceProject(with newProject: Project) async {
+        pendingTasks.forEach { $0.cancel() }
+        pendingTasks.removeAll()
         for input in project.inputs { await services.inputs.remove(input.id) }
         project = newProject
         switcher = services.makeSwitcher(newProject)
+        resetTransitionState()
         playback = [:]
         playlists.reset(for: newProject)
         mixer.reset()

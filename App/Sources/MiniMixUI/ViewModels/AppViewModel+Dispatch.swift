@@ -28,9 +28,10 @@ extension AppViewModel {
         case let .seek(id, seconds):
             let source = services.inputs.frameSource(for: id)
             Task { await source?.seek(to: seconds) }
+            // `seconds` es tiempo del archivo; el reloj de la UI cuenta desde el punto In.
             var info = playback[id, default: PlaybackInfo()]
             info.reset(at: now, playing: info.state == .playing)
-            info.accumulated = seconds
+            info.accumulated = max(0, seconds - (descriptor(id)?.inPoint ?? 0))
             playback[id] = info
         case let .setLoop(id, loop):
             updateInput(id) { $0.loop = loop }
@@ -58,7 +59,7 @@ extension AppViewModel {
     private func dispatchAudio(_ command: Command) -> Bool {
         switch command {
         case let .setVolume(id, volume):
-            let clamped = min(max(volume, 0), 2)
+            let clamped = Self.clampVolume(volume)
             services.audio.setVolume(clamped, for: id)
             updateInput(id) { $0.volume = clamped }
         case let .setMute(id, muted):
@@ -71,7 +72,7 @@ extension AppViewModel {
             services.audio.setAudioFollowsProgram(follows, for: id)
             updateInput(id) { $0.audioFollowsProgram = follows }
         case .setMasterVolume(let volume):
-            let clamped = min(max(volume, 0), 2)
+            let clamped = Self.clampVolume(volume)
             services.audio.setMasterVolume(clamped)
             project.masterVolume = clamped
         default:
@@ -96,7 +97,18 @@ extension AppViewModel {
 
     /// Modifica una entrada del proyecto en sitio.
     func updateInput(_ id: InputID, _ body: (inout InputDescriptor) -> Void) {
-        guard let index = project.inputs.firstIndex(where: { $0.id == id }) else { return }
-        body(&project.inputs[index])
+        project.updateInput(id, body)
+    }
+
+    nonisolated static func clampVolume(_ volume: Float) -> Float {
+        guard volume.isFinite else { return 1 }
+        return min(max(volume, ModelLimits.volume.lowerBound), ModelLimits.volume.upperBound)
+    }
+
+    /// Pone a reproducir una entrada sin pasar por el secuenciador (p. ej. una playlist que estaba
+    /// en espera y salta a otro item con siguiente/anterior/saltar).
+    func startPlayback(_ id: InputID) {
+        services.inputs.frameSource(for: id)?.play()
+        playback[id, default: PlaybackInfo()].play(at: now)
     }
 }

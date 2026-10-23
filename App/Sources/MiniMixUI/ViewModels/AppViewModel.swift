@@ -49,6 +49,11 @@ public final class AppViewModel {
     public var errorMessage: String?
     public internal(set) var projectURL: URL?
     public internal(set) var programOutputDisplay: DisplayInfo.ID?
+    /// Posición física de la palanca de la T-bar (0…1). Vuelve a 0 al completarse la transición
+    /// (y se envía `.tbar(0)` para rearmar `SwitcherState`).
+    public private(set) var tbarPosition: Double = 0
+    /// La palanca está agarrada (arrastre en curso): el rearme espera a `releaseTBar()`.
+    public private(set) var isDraggingTBar = false
 
     public let mixer: MixerViewModel
     public let playlists: PlaylistViewModel
@@ -57,7 +62,9 @@ public final class AppViewModel {
     @ObservationIgnored let services: AppServices
     @ObservationIgnored var switcher: any SwitcherStateMachine
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
-    @ObservationIgnored private var transitionInputs: (from: InputID?, to: InputID?)?
+    /// Altas/bajas pendientes en el gestor de entradas (se cancelan en `stop` y al abrir proyecto).
+    @ObservationIgnored var pendingTasks: [Task<Void, Never>] = []
+    @ObservationIgnored var transitionInputs: (from: InputID?, to: InputID?)?
     @ObservationIgnored private var lastStatusRefresh = -Double.infinity
 
     public init(services: AppServices) {
@@ -102,12 +109,14 @@ public final class AppViewModel {
                 try? await Task.sleep(for: .milliseconds(250))
             }
         })
-        Task { await registerAllInputs() }
+        if let demo = services.demoStart { tasks.append(demo()) }
+        track { await $0.registerAllInputs() }
     }
 
     public func stop() {
-        tasks.forEach { $0.cancel() }
+        (tasks + pendingTasks).forEach { $0.cancel() }
         tasks.removeAll()
+        pendingTasks.removeAll()
         services.clock.stop()
     }
 
@@ -133,9 +142,46 @@ public final class AppViewModel {
         apply(switcher.tick(at: time))
     }
 
-    private func apply(_ effects: [Effect]) {
-        for effect in effects { handle(effect) }
+    /// Mueve la palanca de la T-bar (arrastre) a una posición absoluta y la envía al switcher.
+    /// Si la transición se completa durante el arrastre, `SwitcherState` ignora el resto de
+    /// valores hasta el rearme, que se hace al soltar.
+    public func moveTBar(to position: Double) {
+        guard position.isFinite else { return }
+        isDraggingTBar = true
+        tbarPosition = min(max(position, 0), 1)
+        send(.tbar(tbarPosition))
+    }
+
+    /// Al soltar la palanca: si no hay transición en curso (completada o ignorada), vuelve a 0.
+    /// Si queda una transición manual a medias, la palanca se queda donde está.
+    public func releaseTBar() {
+        isDraggingTBar = false
+        if transitionProgress == nil, tbarPosition > 0 { rearmTBar() }
+    }
+
+    func apply(_ effects: [Effect]) {
+        var completed = false
+        for effect in effects {
+            if effect == .transitionCompleted { completed = true }
+            handle(effect)
+        }
         transition = switcher.transition
+        if completed, tbarPosition > 0, !isDraggingTBar { rearmTBar() }
+    }
+
+    /// Devuelve la palanca a 0; `SwitcherState` ignora la T-bar hasta recibir `.tbar(0)`.
+    private func rearmTBar() {
+        tbarPosition = 0
+        apply(switcher.apply(.tbar(0), at: services.clock.now))
+    }
+
+    /// Lanza una tarea de alta/baja de entradas y la guarda para poder cancelarla.
+    func track(_ body: @escaping @MainActor (AppViewModel) async -> Void) {
+        pendingTasks.removeAll { $0.isCancelled }
+        pendingTasks.append(Task { [weak self] in
+            guard let self else { return }
+            await body(self)
+        })
     }
 
     private func handle(_ effect: Effect) {
@@ -161,20 +207,24 @@ public final class AppViewModel {
         }
     }
 
-    private func updateVisibility() {
+    /// Tras abrir un proyecto: sin transición en curso y con la palanca en reposo.
+    func resetTransitionState() {
+        transitionInputs = nil
+        transition = switcher.transition
+        tbarPosition = 0
+        isDraggingTBar = false
+    }
+
+    func updateVisibility() {
         let ids = [project.preview, project.program, transitionInputs?.from, transitionInputs?.to].compactMap { $0 }
         services.inputs.setVisible(Set(ids))
     }
 
     // MARK: Consultas
 
-    public func descriptor(_ id: InputID) -> InputDescriptor? {
-        project.inputs.first { $0.id == id }
-    }
+    public func descriptor(_ id: InputID) -> InputDescriptor? { project.input(withID: id) }
 
-    public func number(of id: InputID) -> Int? {
-        project.inputs.firstIndex { $0.id == id }.map { $0 + 1 }
-    }
+    public func number(of id: InputID) -> Int? { project.index(ofInput: id).map { $0 + 1 } }
 
     public func isPlaying(_ id: InputID) -> Bool { playback[id]?.state == .playing }
 
@@ -183,7 +233,10 @@ public final class AppViewModel {
     /// Duración del fundido (0,1…5 s); se guarda en el proyecto.
     public var fadeDuration: Double {
         get { project.defaultFadeDuration }
-        set { project.defaultFadeDuration = min(max(newValue, 0.1), 5) }
+        set {
+            let range = ModelLimits.switcherFade
+            project.defaultFadeDuration = min(max(newValue, range.lowerBound), range.upperBound)
+        }
     }
 
     /// Progreso de la transición en curso (0…1), o nil.
