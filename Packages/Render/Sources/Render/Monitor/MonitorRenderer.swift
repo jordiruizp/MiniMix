@@ -46,24 +46,43 @@ public final class MonitorRenderer: @unchecked Sendable {
     /// Fotogramas codificados en un formato no preparado (se limpiaron a negro).
     public var missingPipelineFrames: Int { pipelines.missCount }
 
-    private static let sharedRenderers = UnfairLocked<[ObjectIdentifier: MonitorRenderer]>([:])
+    private enum SharedEntry {
+        case ready(MonitorRenderer)
+        /// Fallo cacheado; retiene el contexto para que su identidad no se reutilice.
+        case failed(MetalContext)
+    }
+
+    private static let sharedRenderers = UnfairLocked<[ObjectIdentifier: SharedEntry]>([:])
 
     /// Renderer compartido por todos los monitores de `context` (BGRA8 preparado).
-    /// Devuelve nil y lo registra en el log si no se puede crear.
+    /// Se crea una sola vez por contexto; si falla, el fallo también se cachea
+    /// (se registra en el log una sola vez) y devuelve nil sin reintentar en cada `body`.
     public static func shared(for context: MetalContext) -> MonitorRenderer? {
+        shared(for: context) { try MonitorRenderer(context: $0) }
+    }
+
+    static func shared(for context: MetalContext,
+                       make: (MetalContext) throws -> MonitorRenderer) -> MonitorRenderer? {
         let key = ObjectIdentifier(context)
-        if let cached = sharedRenderers.withLock({ $0[key] }) { return cached }
-        do {
-            let renderer = try MonitorRenderer(context: context)
-            return sharedRenderers.withLock { cache in
-                if let existing = cache[key] { return existing }
-                cache[key] = renderer
-                return renderer
-            }
-        } catch {
-            renderLog.error("MonitorRenderer: cannot create renderer: \(String(describing: error), privacy: .public)")
-            return nil
+        switch sharedRenderers.withLock({ $0[key] }) {
+        case .ready(let renderer): return renderer
+        case .failed: return nil
+        case nil: break
         }
+        let entry: SharedEntry
+        do {
+            entry = .ready(try make(context))
+        } catch {
+            entry = .failed(context)
+            renderLog.error("MonitorRenderer: cannot create renderer: \(String(describing: error), privacy: .public)")
+        }
+        let stored = sharedRenderers.withLock { cache -> SharedEntry in
+            if let existing = cache[key] { return existing }
+            cache[key] = entry
+            return entry
+        }
+        if case .ready(let renderer) = stored { return renderer }
+        return nil
     }
 
     /// Rectángulo (x, y, ancho, alto) en píxeles donde se dibuja una textura

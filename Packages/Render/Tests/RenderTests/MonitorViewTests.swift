@@ -52,4 +52,19 @@ struct MonitorViewTests {
         coordinator.use(renderer: nil, in: view)
         #expect(coordinator.renderer == nil)
     }
+
+    @Test func sharedRendererCachesFailure() throws {
+        let context = try #require(MetalContext(device: GPU.context.device))
+        let attempts = Counter()
+        struct Boom: Error {}
+        for _ in 0..<3 {
+            let renderer = MonitorRenderer.shared(for: context) { _ in
+                attempts.increment()
+                throw Boom()
+            }
+            #expect(renderer == nil)
+        }
+        #expect(attempts.value == 1)
+        #expect(MonitorRenderer.shared(for: context) == nil) // sigue cacheado como fallo
+    }
 }
