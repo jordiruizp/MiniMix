@@ -54,6 +54,21 @@ struct PlaylistSequencerIntegrationTests {
         #expect(harness.app.playlists.itemRemaining(for: id) == 3)
     }
 
+    @Test func playAfterExplicitPauseInHeldStartsCuedItem() {
+        let (project, id) = Self.project(Playlist(items: [Self.still(2, stopAfter: true), Self.still(5)]))
+        let harness = Harness(project: project, spySequencer: false)
+        harness.app.send(.play(id))
+        harness.advance(to: 2.5)
+        #expect(harness.app.playlists.isHeld(id))
+        harness.app.send(.pause(id)) // pausa explícita estando en espera
+        harness.app.send(.play(id))
+        #expect(harness.app.playlists.currentIndex(for: id) == 1)
+        #expect(!harness.app.playlists.isHeld(id))
+        #expect(harness.app.isPlaying(id))
+        harness.advance(to: 3.5)
+        #expect(harness.app.playlists.itemRemaining(for: id) == 4)
+    }
+
     @Test func deletingCurrentItemMovesClockToSuccessor() throws {
         let (project, id) = Self.project(Playlist(items: [Self.still(10), Self.still(7), Self.still(3)]))
         let harness = Harness(project: project, spySequencer: false)

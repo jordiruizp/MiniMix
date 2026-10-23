@@ -48,7 +48,9 @@ extension AppViewModel {
         services.inputs.frameSource(for: id)?.play()
         playback[id, default: PlaybackInfo()].play(at: now)
         if input.kind == .playlist {
-            if wasPaused {
+            // Reanudar solo si el secuenciador sigue en un item; una pausa explícita en held
+            // (o tras terminar) debe pasar `.play` al secuenciador para arrancar el item en cola.
+            if wasPaused, case .playing = playlists.state(for: id) {
                 playlists.resumeClock(for: id)
             } else {
                 playlists.handle(.play, for: id)
