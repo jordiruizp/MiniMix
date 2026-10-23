@@ -7,7 +7,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | Ola | Estado |
 |---|---|
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
-| 1 · A, B, C, E, G(mocks), H | 🟦 A, B, E integrados · G devuelto · C, H en curso |
+| 1 · A, B, C, E, G(mocks), H | 🟦 A, B, E integrados · G corrigiendo · C, H reanudados · B, E con seguimiento |
 | 2 · D, F, G-real, ORQ T80 | ⬜ |
 | 3 · H rendimiento, E sync, G pulido | ⬜ |
 | 4 · T99 release | ⬜ |
@@ -75,7 +75,8 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 
 - ~~Sin Xcode~~ → resuelto 2026-10-23: Xcode 27.1 instalado. `xcode-select` sigue en CLT (cambiarlo requiere sudo);
   los scripts usan Xcode vía `scripts/env.sh`. CI local verde con Xcode.
-- **Sin push a GitHub** (sin credenciales `gh`/git): el CI de Actions no se ha podido ejecutar. Puerta de calidad = `scripts/ci.sh` local.
+- ~~Sin push a GitHub~~ → resuelto: `gh` autenticado; main y tag `contracts-v1` subidos. CI de Actions en `macos-26` (Swift 6.3.3) + Linux (`swift:latest`).
+- **CI rojo en Audio/App/Tests**: `AudioEngine.swift` no compila con Swift 6.3 (aislamiento de regiones en `Mutex.withLock`). Asignado a E (feat/e-audio-fixes, punto 7).
 
 ## Decisiones
 
@@ -89,6 +90,8 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
   `setSolo`, `setAudioFollowsProgram`, `setMasterVolume`; `Effect`; `TransitionCurve` común audio/vídeo;
   `SequencerState/Event` + `PlaylistSequencing`; protocolos de servicio `MasterClockProtocol`, `AudioMixing`,
   `ProjectStoring`, `OutputPresenting`, `Compositing`, `InputManaging`; modelos `InputDescriptor`, `Project`.
+- **D10** · CI alineado con la toolchain estable más reciente (macos-26 + `setup-xcode latest`); el código debe compilar en Swift 6.3 (CI) y 6.4 (local).
+- **D11** · Audio: vúmetro de canal post-fader pre-gate y solo-escucha post-fader (decisión ORQ, a confirmar por el usuario).
 - **D7** · Regla SwiftLint `inclusive_language` desactivada («Master» es terminología del plan).
 - **D8** · Solapamiento ImageInput/ColorInput (plan: B y C): B hace la carga a textura en Render
   (`ImageTextureLoader`, render de color); C hace las clases `FrameSource` en Media con un cargador inyectable.

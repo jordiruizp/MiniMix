@@ -75,6 +75,9 @@ Si necesitas un cambio fuera de tu carpeta (incluido un `Package.swift` o una de
 
 ## Reglas de código
 
+- **Dos toolchains**: el código debe compilar con Xcode 27.1/Swift 6.4 (local) **y** con el Xcode estable del CI
+  de GitHub (Swift 6.3, runner `macos-26`). Sé conservador con el aislamiento de regiones (`sending`, tipos no
+  `Sendable` dentro de `Mutex.withLock`); el CI es la referencia.
 - Swift 6 con concurrencia estricta, **cero warnings** (`-warnings-as-errors`), SwiftLint `--strict` limpio.
 - **Sin copias CPU de fotogramas**: CVPixelBuffer → `CVMetalTextureCache` (IOSurface) → `MTLTexture`.
   Las imágenes fijas se decodifican una vez, reducidas al tamaño del lienzo.
