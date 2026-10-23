@@ -75,12 +75,7 @@ public struct MonitorView: NSViewRepresentable {
 
     public func makeNSView(context ctx: Context) -> MTKView {
         let view = MTKView(frame: .zero, device: context.device)
-        view.colorPixelFormat = .bgra8Unorm
-        view.framebufferOnly = true
-        view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
-        view.isPaused = true
-        view.enableSetNeedsDisplay = true
-        view.autoResizeDrawable = true
+        Self.configure(view)
         view.delegate = ctx.coordinator
         ctx.coordinator.attach(view: view)
         apply(to: ctx.coordinator)
@@ -100,6 +95,19 @@ public struct MonitorView: NSViewRepresentable {
     public static func dismantleNSView(_ view: MTKView, coordinator: Coordinator) {
         coordinator.feed.setInvalidationHandler(nil)
         view.delegate = nil
+    }
+
+    /// Configuración del `MTKView`: BGRA8 sin conversión, dibujo bajo demanda y
+    /// espacio de color sRGB (los valores del lienzo se tratan como sRGB codificado;
+    /// el espacio de `RGBAColor` está pendiente de decisión, PC2).
+    static func configure(_ view: MTKView) {
+        view.colorPixelFormat = .bgra8Unorm
+        view.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
+        view.framebufferOnly = true
+        view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        view.isPaused = true
+        view.enableSetNeedsDisplay = true
+        view.autoResizeDrawable = true
     }
 
     private func apply(to coordinator: Coordinator) {
