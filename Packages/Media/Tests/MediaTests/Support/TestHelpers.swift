@@ -2,6 +2,7 @@ import Core
 import Darwin
 import Foundation
 import Metal
+import Testing
 @testable import Media
 import Render
 
@@ -53,6 +54,23 @@ func measureCPU(seconds: Double) async -> Double {
     let wall0 = Date()
     try? await Task.sleep(for: .seconds(seconds))
     return (processCPUTime() - cpu0) / Date().timeIntervalSince(wall0) * 100
+}
+
+/// Objetivos de rendimiento (drops, deriva, CPU, latencias): siempre se miden y se
+/// escriben, pero solo se exigen fuera del CI (los runners macOS son VMs con GPU
+/// paravirtualizada; ver CLAUDE.md).
+enum PerfGate {
+    static var enforced: Bool { ProcessInfo.processInfo.environment["CI"] == nil }
+
+    /// Comprueba `condition` solo si se exigen objetivos; en CI lo deja escrito.
+    static func check(_ condition: Bool, _ what: String,
+                      sourceLocation: Testing.SourceLocation = #_sourceLocation) {
+        if enforced {
+            #expect(condition, "\(what)", sourceLocation: sourceLocation)
+        } else if !condition {
+            print("[perf] CI: objetivo no exigido, no cumplido: \(what)")
+        }
+    }
 }
 
 /// Carga del sistema: la máquina de desarrollo la comparten varios agentes.

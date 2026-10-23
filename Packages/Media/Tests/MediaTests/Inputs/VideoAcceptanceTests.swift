@@ -57,11 +57,11 @@ extension MediaSerialTests {
                 // Máquina compartida saturada (otros agentes compilando): se registra la
                 // medida pero solo se exige < 1 % de drops.
                 print("[T31] AVISO: carga \(SystemLoad.description); criterio relajado")
-                #expect(drops.allSatisfy { $0 <= expected / 100 })
+                PerfGate.check(drops.allSatisfy { $0 <= expected / 100 }, "drops \(drops) <= 1 %")
             } else {
-                #expect(drops == [0, 0])
-                #expect(delivered.allSatisfy { $0 >= expected - 6 })
-                #expect(p99 < 1)
+                PerfGate.check(drops == [0, 0], "drops \(drops) == 0")
+                PerfGate.check(delivered.allSatisfy { $0 >= expected - 6 }, "entregados \(delivered)")
+                PerfGate.check(p99 < 1, "p99 texture(for:) \(p99) ms < 1")
             }
             inputs.forEach { $0.pause() }
         }

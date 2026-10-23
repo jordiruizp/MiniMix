@@ -67,7 +67,7 @@ extension MediaSerialTests {
         func ticksLieOnTheFrameGrid(rate: FrameRate) async {
             let clock = MasterClock(frameRate: rate, tickSource: .timer)
             let obs = await observe(clock, seconds: 1)
-            #expect(clock.stats.emittedTicks + clock.stats.skippedTicks >= Int(rate.fps * 0.9))
+            PerfGate.check(clock.stats.emittedTicks + clock.stats.skippedTicks >= Int(rate.fps * 0.9), "ticks en 1 s")
             #expect(!obs.ticks.isEmpty)
             #expect(obs.maxGridError(rate) < 1e-5)
             #expect(zip(obs.ticks, obs.ticks.dropFirst()).allSatisfy { $0 < $1 })
@@ -96,7 +96,7 @@ extension MediaSerialTests {
             let multipleOf = { (d: Double, step: Double) in abs(d / step - (d / step).rounded()) < 1e-3 }
             #expect(deltas.prefix(5).allSatisfy { multipleOf($0, 40) })
             #expect(deltas.suffix(10).allSatisfy { multipleOf($0, 1000.0 / 60) })
-            #expect(deltas.contains { abs($0 - 1000.0 / 60) < 0.01 })
+            PerfGate.check(deltas.contains { abs($0 - 1000.0 / 60) < 0.01 }, "algún tick consecutivo a 60 fps")
         }
 
         @Test func multicastAndRestart() async {
@@ -130,7 +130,7 @@ extension MediaSerialTests {
                 saltados \(clock.stats.skippedTicks) · desfase p50 \(String(format: "%.3f", late[late.count / 2])) ms \
                 p99 \(String(format: "%.3f", late[late.count * 99 / 100])) ms · error rejilla \(obs.maxGridError(rate)) fot.
                 """)
-            #expect(drift < 1)
+            PerfGate.check(drift < 1, "deriva \(drift) ms/min < 1")
             #expect(obs.maxGridError(rate) < 1e-5)
             // Ticks recibidos + saltados ≈ fotogramas transcurridos.
             let elapsedFrames = ((obs.ticks.last ?? 0) - (obs.ticks.first ?? 0)) * rate.fps
@@ -147,7 +147,7 @@ extension MediaSerialTests {
             let drift = obs.driftPerMinute(window: 10)
             print("[T30] deriva 10 min @59,94: \(String(format: "%.4f", drift)) ms/min · ticks \(obs.ticks.count) · "
                   + "saltados \(clock.stats.skippedTicks) · error rejilla \(obs.maxGridError(rate)) fot.")
-            #expect(drift < 1)
+            PerfGate.check(drift < 1, "deriva \(drift) ms/min < 1")
             #expect(obs.maxGridError(rate) < 1e-5)
         }
 
@@ -158,7 +158,7 @@ extension MediaSerialTests {
             #expect(clock.tickSource == .displayLink)
             let obs = await observe(clock, seconds: 1.5)
             print("[T30] displayLink: \(obs.ticks.count) ticks en 1,5 s @30")
-            #expect(obs.ticks.count >= 20)
+            PerfGate.check(obs.ticks.count >= 20, "ticks de displayLink \(obs.ticks.count) >= 20")
             #expect(obs.maxGridError(.fps30) < 1e-5)
         }
     }

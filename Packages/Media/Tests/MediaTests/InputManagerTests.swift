@@ -145,7 +145,7 @@ extension MediaSerialTests {
                 delta ocultas − base \(String(format: "%.2f", hidden - baseline))
                 """)
             #expect(videos.allSatisfy { !$0.isDecoding && $0.playbackState == .playing })
-            #expect(hidden - baseline < 1.0)
+            PerfGate.check(hidden - baseline < 1.0, "CPU ocultas − base \(hidden - baseline) % < 1")
             videos.forEach { $0.pause() }
         }
     }
