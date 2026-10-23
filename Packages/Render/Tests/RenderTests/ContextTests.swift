@@ -1,5 +1,6 @@
 import Core
 import Foundation
+import IOSurface
 import Metal
 import Testing
 @testable import Render
@@ -48,6 +49,44 @@ struct ContextTests {
         #expect(pool.cachedCount == 0)
         pool.recycle(b)
         #expect(pool.cachedCount == 0)
+    }
+
+    @Test func poolRejectsForeignTextures() throws {
+        let device = GPU.context.device
+        let pool = TexturePool(device: device)
+
+        // IOSurface (como las de CVMetalTextureCache): pertenecen a su CVPixelBuffer.
+        let surface = try #require(IOSurfaceCreate([
+            kIOSurfaceWidth: 16, kIOSurfaceHeight: 16, kIOSurfaceBytesPerElement: 4,
+            kIOSurfacePixelFormat: 0x4247_5241 // 'BGRA'
+        ] as CFDictionary))
+        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: 16, height: 16,
+                                                            mipmapped: false)
+        desc.usage = [.shaderRead, .renderTarget]
+        desc.storageMode = .shared
+        let ioTexture = try #require(device.makeTexture(descriptor: desc, iosurface: surface, plane: 0))
+        #expect(!pool.recycle(ioTexture))
+
+        // No 2D.
+        let arrayDesc = MTLTextureDescriptor()
+        arrayDesc.textureType = .type2DArray
+        arrayDesc.width = 16
+        arrayDesc.height = 16
+        arrayDesc.arrayLength = 2
+        #expect(!pool.recycle(try #require(device.makeTexture(descriptor: arrayDesc))))
+
+        // Con mipmaps (la clave no los distingue).
+        let mipDesc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: 16, height: 16,
+                                                               mipmapped: true)
+        #expect(!pool.recycle(try #require(device.makeTexture(descriptor: mipDesc))))
+
+        // Vista de otra textura.
+        let base = try #require(pool.dequeue(width: 16, height: 16))
+        #expect(!pool.recycle(try #require(base.makeTextureView(pixelFormat: .bgra8Unorm))))
+
+        #expect(pool.cachedCount == 0)
+        #expect(pool.recycle(base))
+        #expect(pool.cachedCount == 1)
     }
 
     @Test func poolRecyclesAfterCommandBuffer() throws {
