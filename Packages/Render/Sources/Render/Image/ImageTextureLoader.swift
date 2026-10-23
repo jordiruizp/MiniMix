@@ -28,10 +28,21 @@ public enum ImageTextureLoaderError: Error, Equatable, Sendable {
 public final class ImageTextureLoader: Sendable {
     public let context: MetalContext
 
-    static let decodeQueue = DispatchQueue(label: "MiniMix.ImageDecode", qos: .userInitiated)
-    private static let decodeQueueKey = DispatchSpecificKey<Bool>()
-    /// Decodificaciones hechas en `decodeQueue` (para tests).
+    /// Cola propia (fuera del pool cooperativo) con como mucho 2 decodificaciones a la
+    /// vez: acota la memoria de paso (dos imágenes grandes como máximo) sin serializar
+    /// del todo la carga de un proyecto.
+    static let decodeQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.name = "MiniMix.ImageDecode"
+        queue.qualityOfService = .userInitiated
+        queue.maxConcurrentOperationCount = 2
+        return queue
+    }()
+
+    #if DEBUG
+    /// Decodificaciones hechas en `decodeQueue` (solo para tests).
     static let dedicatedDecodes = UnfairLocked(0)
+    #endif
 
     /// Píxeles BGRA premultiplicados en un buffer compartido, listos para el blit.
     private struct Staged: @unchecked Sendable {
@@ -43,16 +54,28 @@ public final class ImageTextureLoader: Sendable {
 
     public init(context: MetalContext) {
         self.context = context
-        Self.decodeQueue.setSpecific(key: Self.decodeQueueKey, value: true)
     }
 
+    /// Respeta la cancelación: antes de encolar, al empezar la decodificación
+    /// (si se canceló mientras esperaba turno) y antes de subir a la GPU.
     public func loadTexture(from url: URL, maxSize: PixelSize) async throws -> MTLTexture {
+        try Task.checkCancellation()
         let device = context.device
-        let staged: Staged = try await withCheckedThrowingContinuation { continuation in
-            Self.decodeQueue.async {
-                continuation.resume(with: Result { try Self.decodeAndStage(url: url, maxSize: maxSize, device: device) })
+        let cancelled = UnfairLocked(false)
+        let staged: Staged = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                Self.decodeQueue.addOperation {
+                    if cancelled.withLock({ $0 }) {
+                        continuation.resume(throwing: CancellationError())
+                        return
+                    }
+                    continuation.resume(with: Result { try Self.decodeAndStage(url: url, maxSize: maxSize, device: device) })
+                }
             }
+        } onCancel: {
+            cancelled.withLock { $0 = true }
         }
+        try Task.checkCancellation()
         return try await upload(staged)
     }
 
@@ -110,7 +133,9 @@ public final class ImageTextureLoader: Sendable {
     // MARK: - Subida a GPU
 
     private static func decodeAndStage(url: URL, maxSize: PixelSize, device: MTLDevice) throws -> Staged {
-        if DispatchQueue.getSpecific(key: decodeQueueKey) == true { dedicatedDecodes.withLock { $0 += 1 } }
+        #if DEBUG
+        if OperationQueue.current === decodeQueue { dedicatedDecodes.withLock { $0 += 1 } }
+        #endif
         let image = try decode(url: url, maxSize: maxSize)
         let width = image.width
         let height = image.height

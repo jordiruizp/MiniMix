@@ -52,4 +52,35 @@ struct MonitorViewTests {
         coordinator.use(renderer: nil, in: view)
         #expect(coordinator.renderer == nil)
     }
+
+    @Test func sharedRendererCachesFailure() throws {
+        let context = try #require(MetalContext(device: GPU.context.device))
+        let attempts = Counter()
+        struct Boom: Error {}
+        for _ in 0..<3 {
+            let renderer = MonitorRenderer.shared(for: context) { _ in
+                attempts.increment()
+                throw Boom()
+            }
+            #expect(renderer == nil)
+        }
+        #expect(attempts.value == 1)
+        #expect(MonitorRenderer.shared(for: context) == nil) // sigue cacheado como fallo
+    }
+
+    @Test func usePreparesTheViewPixelFormat() throws {
+        let renderer = try MonitorRenderer(context: GPU.context) // solo BGRA8
+        let view = MTKView(frame: .zero, device: GPU.context.device)
+        MonitorView.configure(view)
+        view.colorPixelFormat = .rgba16Float
+        let coordinator = MonitorView.Coordinator(feed: MonitorFeed(), renderer: nil)
+        coordinator.use(renderer: renderer, in: view)
+
+        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: 8, height: 8,
+                                                            mipmapped: false)
+        desc.usage = [.renderTarget, .shaderRead]
+        let target = try #require(GPU.context.device.makeTexture(descriptor: desc))
+        GPU.run { renderer.encode(nil, into: target, border: nil, commandBuffer: $0) }
+        #expect(renderer.missingPipelineFrames == 0)
+    }
 }

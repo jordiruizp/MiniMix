@@ -143,6 +143,7 @@ struct ImageTextureLoaderTests {
         #expect(center.green > 230 && center.red < 30 && center.blue < 30 && center.alpha == 255, "\(type): \(center)")
     }
 
+    #if DEBUG
     @Test func decodesOffTheCooperativePool() async throws {
         let image = Self.makeImage(width: 64, height: 64) { Self.fill($0, [1, 1, 0, 1], CGRect(x: 0, y: 0, width: 64, height: 64)) }
         let url = try #require(Self.write(image, type: .png))
@@ -157,6 +158,34 @@ struct ImageTextureLoaderTests {
         }
         #expect(sizes == [64, 64, 64, 64])
         #expect(ImageTextureLoader.dedicatedDecodes.withLock { $0 } >= before + 4)
+    }
+    #endif
+
+    @Test func cancelledBeforeStartDoesNotDecode() async throws {
+        let image = Self.makeImage(width: 8, height: 8) { Self.fill($0, [1, 0, 0, 1], CGRect(x: 0, y: 0, width: 8, height: 8)) }
+        let url = try #require(Self.write(image, type: .png))
+        defer { try? FileManager.default.removeItem(at: url) }
+        let loader = loader
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await loader.loadTexture(from: url, maxSize: .hd1080).width
+        }
+        await #expect(throws: CancellationError.self) { _ = try await task.value }
+    }
+
+    @Test func cancelledWhileQueuedDoesNotDecode() async throws {
+        let image = Self.makeImage(width: 8, height: 8) { Self.fill($0, [1, 0, 0, 1], CGRect(x: 0, y: 0, width: 8, height: 8)) }
+        let url = try #require(Self.write(image, type: .png))
+        defer { try? FileManager.default.removeItem(at: url) }
+        let queue = ImageTextureLoader.decodeQueue
+        queue.isSuspended = true
+        let loader = loader
+        let task = Task { try await loader.loadTexture(from: url, maxSize: .hd1080).width }
+        let queued = waitUntil { queue.operationCount > 0 }
+        task.cancel()
+        queue.isSuspended = false
+        #expect(queued)
+        await #expect(throws: CancellationError.self) { _ = try await task.value }
     }
 
     @Test func missingFileThrows() async {

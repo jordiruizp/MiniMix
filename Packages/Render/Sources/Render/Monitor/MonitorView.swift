@@ -107,7 +107,9 @@ public struct MonitorView: NSViewRepresentable {
             }
         }
 
-        /// Cambia de renderer (y de dispositivo si cambia el contexto).
+        /// Cambia de renderer (y de dispositivo si cambia el contexto) y prepara su
+        /// pipeline para el formato del drawable. Es configuración (make/updateNSView),
+        /// no el camino de render: `draw(in:)` nunca compila.
         func use(renderer newRenderer: MonitorRenderer?, in view: MTKView) {
             if newRenderer !== renderer {
                 renderer = newRenderer
@@ -115,6 +117,13 @@ public struct MonitorView: NSViewRepresentable {
             }
             if let device = newRenderer?.context.device, view.device !== device {
                 view.device = device
+            }
+            if let newRenderer {
+                do {
+                    try newRenderer.prepare(pixelFormat: view.colorPixelFormat)
+                } catch {
+                    renderLog.error("MonitorView: cannot prepare pipeline: \(String(describing: error), privacy: .public)")
+                }
             }
         }
 

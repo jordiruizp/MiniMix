@@ -244,6 +244,80 @@ struct MonitorRendererTests {
         #expect(pool.dequeue(width: 16, height: 16) === second)
     }
 
+    @Test func displayingSameTextureTwiceKeepsOneLease() throws {
+        let pool = TexturePool(device: GPU.context.device)
+        let feed = MonitorFeed()
+        let calls = Counter()
+        let token = feed.addObserver { calls.increment() }
+        let texture = try #require(pool.dequeue(width: 16, height: 16))
+        feed.display(texture, returningTo: pool)
+        feed.acquireForDrawing(token)?.release()
+        feed.display(texture, returningTo: pool)
+        // Sigue siendo la actual: no vuelve al pool, pero sí se notifica.
+        #expect(pool.cachedCount == 0)
+        #expect(calls.value == 2)
+        feed.display(nil, returningTo: pool)
+        #expect(pool.cachedCount == 1) // una sola entrada en la lista libre
+    }
+
+    @Test func eachAcquisitionReleasesOnlyItsOwnReference() throws {
+        let pool = TexturePool(device: GPU.context.device)
+        let feed = MonitorFeed()
+        let tokenA = feed.addObserver {}
+        let tokenB = feed.addObserver {}
+        let texture = try #require(pool.dequeue(width: 16, height: 16))
+        feed.display(texture, returningTo: pool)
+        let leaseA = try #require(feed.acquireForDrawing(tokenA))
+        let leaseB = try #require(feed.acquireForDrawing(tokenB))
+        feed.display(nil, returningTo: pool)
+        // A suelta varias veces: no puede soltar la referencia de B.
+        leaseA.release()
+        leaseA.release()
+        leaseA.release()
+        #expect(leaseA.isReleased && !leaseB.isReleased)
+        #expect(pool.cachedCount == 0)
+        leaseB.release()
+        #expect(pool.cachedCount == 1)
+    }
+
+    @Test func droppedLeaseReleasesItsReference() throws {
+        let pool = TexturePool(device: GPU.context.device)
+        let feed = MonitorFeed()
+        let token = feed.addObserver {}
+        feed.display(pool.dequeue(width: 16, height: 16)!, returningTo: pool)
+        var lease = feed.acquireForDrawing(token)
+        feed.display(nil, returningTo: pool)
+        #expect(lease != nil && pool.cachedCount == 0)
+        lease = nil // olvidado sin release(): deinit lo suelta
+        #expect(pool.cachedCount == 1)
+    }
+
+    @Test func displayAndAcquireOnDifferentThreads() {
+        let pool = TexturePool(device: GPU.context.device)
+        let feed = MonitorFeed()
+        let token = feed.addObserver {}
+        let produced = InUseTracker()
+        let acquired = Counter()
+        DispatchQueue.concurrentPerform(iterations: 2) { worker in
+            for _ in 0..<300 {
+                if worker == 0 {
+                    guard let texture = pool.dequeue(width: 8, height: 8) else { continue }
+                    produced.checkOut(texture)
+                    produced.checkIn(texture)
+                    feed.display(texture, returningTo: pool)
+                } else if let lease = feed.acquireForDrawing(token) {
+                    acquired.increment()
+                    _ = lease.texture.width
+                    lease.release()
+                }
+            }
+        }
+        feed.display(nil, returningTo: pool)
+        // Todas las texturas vuelven exactamente una vez (un doble reciclado haría saltar el assert del pool).
+        #expect(acquired.value > 0)
+        #expect(pool.cachedCount == produced.distinct)
+    }
+
     @Test func textureWithoutPoolIsNotRecycled() throws {
         let pool = TexturePool(device: GPU.context.device)
         let feed = MonitorFeed()
@@ -306,3 +380,17 @@ final class InUseTracker: @unchecked Sendable {
     var checkouts: Int { lock.withLock { checkoutCount } }
     var distinct: Int { lock.withLock { seen.count } }
 }
+
+#if DEBUG
+@Suite("TexturePool debug checks", .enabled(if: hasGPU))
+struct TexturePoolDebugTests {
+    @Test func doubleRecycleTraps() async {
+        await #expect(processExitsWith: .failure) {
+            let pool = TexturePool(device: MTLCreateSystemDefaultDevice()!)
+            let texture = pool.dequeue(width: 4, height: 4)!
+            pool.recycle(texture)
+            pool.recycle(texture)
+        }
+    }
+}
+#endif
