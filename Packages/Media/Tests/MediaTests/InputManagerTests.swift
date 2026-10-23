@@ -2,6 +2,7 @@ import AVFoundation
 import Core
 import CoreMocks
 import Foundation
+import Render
 import Testing
 @testable import Media
 
