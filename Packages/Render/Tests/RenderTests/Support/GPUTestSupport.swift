@@ -162,9 +162,10 @@ func percentile(_ values: [Double], _ p: Double) -> Double {
     return sorted[min(sorted.count - 1, max(0, rank))]
 }
 
-/// Espera activa (solo tests) a que se cumpla `condition`, hasta `timeout` segundos.
+/// Espera activa (solo tests) a que se cumpla `condition`, hasta `timeout` segundos
+/// (holgado: la máquina la comparten varios procesos).
 /// Para efectos de completion handlers de Metal, que llegan tras `waitUntilCompleted`.
-func waitUntil(timeout: Double = 1, _ condition: () -> Bool) -> Bool {
+func waitUntil(timeout: Double = 4, _ condition: () -> Bool) -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while !condition() {
         if Date() > deadline { return false }

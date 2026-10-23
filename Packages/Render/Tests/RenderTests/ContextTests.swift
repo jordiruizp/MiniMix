@@ -292,6 +292,32 @@ struct MonitorRendererTests {
         #expect(pool.cachedCount == 1)
     }
 
+    @Test func displayAndAcquireOnDifferentThreads() {
+        let pool = TexturePool(device: GPU.context.device)
+        let feed = MonitorFeed()
+        let token = feed.addObserver {}
+        let produced = InUseTracker()
+        let acquired = Counter()
+        DispatchQueue.concurrentPerform(iterations: 2) { worker in
+            for _ in 0..<300 {
+                if worker == 0 {
+                    guard let texture = pool.dequeue(width: 8, height: 8) else { continue }
+                    produced.checkOut(texture)
+                    produced.checkIn(texture)
+                    feed.display(texture, returningTo: pool)
+                } else if let lease = feed.acquireForDrawing(token) {
+                    acquired.increment()
+                    _ = lease.texture.width
+                    lease.release()
+                }
+            }
+        }
+        feed.display(nil, returningTo: pool)
+        // Todas las texturas vuelven exactamente una vez (un doble reciclado haría saltar el assert del pool).
+        #expect(acquired.value > 0)
+        #expect(pool.cachedCount == produced.distinct)
+    }
+
     @Test func textureWithoutPoolIsNotRecycled() throws {
         let pool = TexturePool(device: GPU.context.device)
         let feed = MonitorFeed()
