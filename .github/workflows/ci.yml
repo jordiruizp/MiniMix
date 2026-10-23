@@ -1,0 +1,40 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install swiftlint
+      - run: swiftlint lint --strict
+
+  core-linux:
+    runs-on: ubuntu-latest
+    container: swift:6.0
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test --package-path Packages/Core -Xswiftc -warnings-as-errors
+
+  test:
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [Packages/Core, Packages/Render, Packages/Media, Packages/Audio,
+                  Packages/Output, Packages/Persistence, App, Tests]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo xcode-select -s /Applications/Xcode_16.4.app || true
+      - run: swift --version
+      - run: scripts/swift-test.sh ${{ matrix.package }}
+
+  bundle:
+    runs-on: macos-15
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/bundle-app.sh release

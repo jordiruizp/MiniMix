@@ -1,0 +1,29 @@
+included:
+  - Packages
+  - App
+  - Tests
+  - Tools
+excluded:
+  - "**/.build"
+  - build
+disabled_rules:
+  - todo
+  - identifier_name
+  - force_unwrapping
+  - inclusive_language  # "Master" es terminología de audio del plan
+opt_in_rules:
+  - empty_count
+  - first_where
+  - closure_spacing
+
+line_length:
+  warning: 140
+  error: 180
+type_body_length:
+  warning: 400
+file_length:
+  warning: 600
+function_body_length:
+  warning: 60
+nesting:
+  type_level: 2
