@@ -63,6 +63,9 @@ public struct SwitcherState: SwitcherStateMachine {
         self.init(preview: project.preview, program: project.program)
     }
 
+    /// Margen con el que un fade temporizado se da por completado.
+    static let completionTolerance = 1e-9
+
     /// Duraciones válidas de `Command.fade`.
     public static let fadeDurationRange = ModelLimits.switcherFade
 
@@ -84,7 +87,9 @@ public struct SwitcherState: SwitcherStateMachine {
         guard var current = active, case let .timed(start, duration, startProgress) = current.driver else { return [] }
         let elapsed = max(0, time - start)
         let progress = min(1, startProgress + (1 - startProgress) * elapsed / duration)
-        if progress >= 1 { return complete() }
+        // Tolerancia: con una rejilla t0 + k·fd y t0 grande (p. ej. 86 400 s), el redondeo puede dejar
+        // el último tick en 1 − ε; sin ella la transición se retrasaría un fotograma.
+        if progress >= 1 - Self.completionTolerance { return complete() }
         current.progress = progress
         active = current
         return [.transitionProgress(progress)]

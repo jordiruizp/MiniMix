@@ -126,6 +126,23 @@ struct SwitcherStateTests {
         #expect(progresses == progresses.sorted() && progresses.last == 1)
     }
 
+    /// Rejilla del MasterClock a 59,94 fps con t0 ≈ 1 día: un fade de N fotogramas debe
+    /// completarse exactamente en el tick N, sin retrasarse uno por redondeo.
+    @Test func fadeCompletesOnTimeOnLargeFrameGrid() {
+        let t0 = 86_400.0, fd = FrameRate.fps59_94.frameDuration
+        var late: [Int] = []
+        for frames in 6...299 {
+            var sw = makeSwitcher()
+            _ = sw.apply(.fade(duration: Double(frames) * fd), at: time(t0))
+            var completedAt: Int?
+            for k in 1...(frames + 2) where completedAt == nil {
+                if sw.tick(at: time(t0 + Double(k) * fd)).contains(.transitionCompleted) { completedAt = k }
+            }
+            if completedAt != frames { late.append(frames) }
+        }
+        #expect(late.isEmpty)
+    }
+
     @Test(arguments: [(0.01, 0.1), (0.1, 0.1), (3, 3), (5, 5), (60, 5), (-2, 0.1)])
     func fadeDurationIsClamped(requested: Double, effective: Double) {
         var sw = makeSwitcher()
