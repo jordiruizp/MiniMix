@@ -25,7 +25,8 @@ import os
 /// grabación o streaming, seguirá recibiendo Master).
 ///
 /// Vúmetros (`meters`, ~30 Hz): pico dBFS por canal de audio [L, R] de cada entrada (post-fader,
-/// pre-gate) y de Master (`nil`, post-Master). Silencio = `Decibels.silenceFloor`.
+/// pre-gate) y de Master (`nil`, post-Master). Silencio = `Decibels.silenceFloor`. `meters` y
+/// `events` admiten **un único consumidor** cada uno.
 ///
 /// Concurrencia: el `AVAudioEngine` y los nodos (no `Sendable`) solo se tocan bajo `state` (`LockedState`);
 /// el hilo de audio solo lee/escribe atómicos (`RampGainControl`). Todos los métodos son seguros
@@ -69,6 +70,10 @@ public final class AudioEngine: AudioMixing, Sendable {
     private let eventContinuation: AsyncStream<AudioEngineEvent>.Continuation
     private static let logger = Logger(subsystem: "MiniMix", category: "AudioEngine")
 
+    /// Vúmetros (~30 Hz). **Un único consumidor**: es un único `AsyncStream` con
+    /// `bufferingNewest(1)` (no hace difusión); iterarlo desde dos tareas a la vez es un error de
+    /// programación y cada mensaje lo recibe solo una. Si varias vistas necesitan los niveles, un
+    /// solo observador (p. ej. el ViewModel de la mesa de audio) los lee y los reparte.
     public var meters: AsyncStream<[InputID?: [Float]]> { meterPublisher.stream }
 
     /// Eventos del ciclo de vida (cambio de dispositivo, rearranque, error). **Un único consumidor.**
