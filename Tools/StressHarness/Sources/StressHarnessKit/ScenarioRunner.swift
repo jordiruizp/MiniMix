@@ -58,13 +58,17 @@ public final class ScenarioRunner {
         var lastTick: HostTime?
         var lastDelivery: ContinuousClock.Instant?
         var firstTick: HostTime?
-        let wallStart = ContinuousClock.now
+        // La duración se mide desde la llegada del primer tick hasta la del tick que cierra la
+        // ejecución: N fotogramas ocupan N periodos (sin el arranque del reloj).
+        var firstArrival: ContinuousClock.Instant?
+        var endArrival: ContinuousClock.Instant?
         clock.start()
 
         for await tick in clock.ticks {
             let frameStart = ContinuousClock.now
             if let lastDelivery { metrics.deliveries.append(lastDelivery.duration(to: frameStart).seconds * 1000) }
             lastDelivery = frameStart
+            if firstArrival == nil { firstArrival = frameStart }
             if firstTick == nil { firstTick = tick }
             if let last = lastTick {
                 metrics.intervals.append((tick - last) * 1000)
@@ -72,37 +76,46 @@ public final class ScenarioRunner {
             }
             lastTick = tick
             let elapsed = tick - (firstTick ?? tick)
-            if elapsed + frameDuration / 2 >= config.durationSeconds { break }
+            if elapsed + frameDuration / 2 >= config.durationSeconds {
+                endArrival = frameStart
+                break
+            }
 
             let frame = scene.advance(to: tick, elapsed: elapsed)
             metrics.processed += 1
-            if let compositor, let queue, let target {
-                if gpu.withLock({ $0.inFlight }) >= Self.maxFramesInFlight {
-                    metrics.droppedByBackpressure += 1
-                } else if let commands = queue.makeCommandBuffer() {
-                    compositor.encode(frame, into: target, commandBuffer: commands)
-                    gpu.withLock { $0.inFlight += 1 }
-                    commands.addCompletedHandler { buffer in
-                        let ms = (buffer.gpuEndTime - buffer.gpuStartTime) * 1000
-                        gpu.withLock {
-                            $0.inFlight -= 1
-                            $0.completed += 1
-                            $0.gpuTimesMs.append(ms)
-                        }
-                    }
-                    commands.commit()
-                }
+            if let compositor, let queue, let target, !Self.submit(frame, compositor: compositor, queue: queue,
+                                                                   target: target, gpu: gpu) {
+                metrics.droppedByBackpressure += 1
             }
             metrics.cpuFrameTimes.append(frameStart.duration(to: .now).seconds * 1000)
         }
         clock.stop()
-        metrics.duration = wallStart.duration(to: .now).seconds
+        if let firstArrival { metrics.duration = firstArrival.duration(to: endArrival ?? .now).seconds }
         // Espera (acotada) a que la GPU termine lo que queda en vuelo.
         for _ in 0..<200 where gpu.withLock({ $0.inFlight }) > 0 { try await Task.sleep(for: .milliseconds(5)) }
         monitor.stop()
         scene.tearDown()
         return makeReport(metrics: metrics, gpu: gpu.withLock { $0 }, gpuName: compositor?.device.name,
                           samples: monitor.samples, events: scene.events)
+    }
+
+    /// Codifica y envía un fotograma sin esperar a la GPU. false = descartado (demasiados en vuelo).
+    private static func submit(_ frame: CompositorFrame, compositor: Compositing, queue: MTLCommandQueue,
+                               target: MTLTexture, gpu: LockedBox<GPUCounters>) -> Bool {
+        guard gpu.withLock({ $0.inFlight }) < maxFramesInFlight else { return false }
+        guard let commands = queue.makeCommandBuffer() else { return true }
+        compositor.encode(frame, into: target, commandBuffer: commands)
+        gpu.withLock { $0.inFlight += 1 }
+        commands.addCompletedHandler { buffer in
+            let ms = (buffer.gpuEndTime - buffer.gpuStartTime) * 1000
+            gpu.withLock {
+                $0.inFlight -= 1
+                $0.completed += 1
+                $0.gpuTimesMs.append(ms)
+            }
+        }
+        commands.commit()
+        return true
     }
 
     private func makeReport(metrics: LoopMetrics, gpu: GPUCounters, gpuName: String?,

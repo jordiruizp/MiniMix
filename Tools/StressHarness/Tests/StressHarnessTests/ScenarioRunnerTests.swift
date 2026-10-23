@@ -18,7 +18,9 @@ struct ScenarioRunnerTests {
         #expect(report.frames.rendered > 15, "rendered \(report.frames.rendered)")
         #expect(report.frames.rendered <= report.frames.expected)
         #expect(report.events.switches >= 3)
-        #expect(report.durationSeconds >= 1.4)
+        #expect(report.durationSeconds >= 1.4 && report.durationSeconds < 2)
+        // fps medidos desde la llegada del primer tick: cerca de 30 salvo pérdidas reales.
+        #expect(report.frames.measuredFPS > 20 && report.frames.measuredFPS < 32, "\(report.frames.measuredFPS)")
         #expect(!report.samples.isEmpty)
         #expect(report.memory.peakMB > 1)
         #expect(report.machine.memoryGB > 1)
