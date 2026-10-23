@@ -1,0 +1,823 @@
+{
+  "schemaVersion": 1,
+  "generatorVersion": 1,
+  "generator": "Tools/generate-testmedia.sh",
+  "frameCode": {
+    "description": "Tira de 19 celdas cuadradas abajo a la izquierda: [blanco][negro][bit0..bit15][paridad par]",
+    "cellSize": "min(width, height) / 45",
+    "origin": "x = cellSize, y = height - 2 * cellSize (celda i en x = cellSize * (1 + i))",
+    "value": "clipID << 11 | frameIndex",
+    "reader": "Tests/Sources/TestSupport/FrameCode.swift"
+  },
+  "clapper": {
+    "video": "Parche 4s×4s (s = cellSize) en x = width - 5s, y = height - 5s: blanco en el primer frame con pts >= k s",
+    "audio": "Pitido 1 kHz, amplitud 0,6, 40 ms desde t = k s; tono continuo 0,05 a 300 Hz (L) / 450 Hz (R)"
+  },
+  "files": [
+    {
+      "file": "video/h264_1080p25.mp4",
+      "kind": "video",
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "25",
+      "fps": 25,
+      "frames": 125,
+      "duration": 5,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "frameCode": {
+        "clipID": 1,
+        "first": 2048,
+        "last": 2172
+      },
+      "clapper": true,
+      "purpose": "Referencia H.264 1080p25 con audio"
+    },
+    {
+      "file": "video/h264_1080p23976.mp4",
+      "kind": "video",
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "24000/1001",
+      "fps": 23.976024,
+      "frames": 120,
+      "duration": 5.005,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "frameCode": {
+        "clipID": 2,
+        "first": 4096,
+        "last": 4215
+      },
+      "clapper": true,
+      "purpose": "Cadencia 23,976 (pulldown sobre lienzo 60/59,94)"
+    },
+    {
+      "file": "video/h264_1080p2997.mp4",
+      "kind": "video",
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "30000/1001",
+      "fps": 29.97003,
+      "frames": 150,
+      "duration": 5.005,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "frameCode": {
+        "clipID": 3,
+        "first": 6144,
+        "last": 6293
+      },
+      "clapper": true,
+      "purpose": "Cadencia 29,97 NTSC"
+    },
+    {
+      "file": "video/h264_1080p50.mp4",
+      "kind": "video",
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "50",
+      "fps": 50,
+      "frames": 250,
+      "duration": 5,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "frameCode": {
+        "clipID": 4,
+        "first": 8192,
+        "last": 8441
+      },
+      "clapper": true,
+      "purpose": "Cadencia 50"
+    },
+    {
+      "file": "video/h264_1080p5994.mp4",
+      "kind": "video",
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "60000/1001",
+      "fps": 59.94006,
+      "frames": 300,
+      "duration": 5.005,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "frameCode": {
+        "clipID": 5,
+        "first": 10240,
+        "last": 10539
+      },
+      "clapper": true,
+      "purpose": "Cadencia 59,94 (lienzo nativo)"
+    },
+    {
+      "file": "video/h264_720p25.mp4",
+      "kind": "video",
+      "codec": "h264",
+      "width": 1280,
+      "height": 720,
+      "frameRate": "25",
+      "fps": 25,
+      "frames": 125,
+      "duration": 5,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 44100,
+        "channels": 2
+      },
+      "frameCode": {
+        "clipID": 6,
+        "first": 12288,
+        "last": 12412
+      },
+      "clapper": true,
+      "purpose": "720p escalado al lienzo; audio 44,1 kHz"
+    },
+    {
+      "file": "video/h264_720p5994.mp4",
+      "kind": "video",
+      "codec": "h264",
+      "width": 1280,
+      "height": 720,
+      "frameRate": "60000/1001",
+      "fps": 59.94006,
+      "frames": 300,
+      "duration": 5.005,
+      "alpha": false,
+      "audio": null,
+      "frameCode": {
+        "clipID": 7,
+        "first": 14336,
+        "last": 14635
+      },
+      "clapper": true,
+      "purpose": "720p59,94 sin pista de audio"
+    },
+    {
+      "file": "video/h264_vertical_1080x1920p30.mp4",
+      "kind": "video",
+      "codec": "h264",
+      "width": 1080,
+      "height": 1920,
+      "frameRate": "30",
+      "fps": 30,
+      "frames": 150,
+      "duration": 5,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 48000,
+        "channels": 1
+      },
+      "frameCode": {
+        "clipID": 8,
+        "first": 16384,
+        "last": 16533
+      },
+      "clapper": true,
+      "purpose": "Vertical (fit/fill/stretch); audio mono"
+    },
+    {
+      "file": "video/h264_1080p25_60s.mp4",
+      "kind": "video",
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "25",
+      "fps": 25,
+      "frames": 1500,
+      "duration": 60,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "frameCode": {
+        "clipID": 9,
+        "first": 18432,
+        "last": 19931
+      },
+      "clapper": true,
+      "purpose": "Clip largo: deriva A/V, bucle, seek"
+    },
+    {
+      "file": "video/hevc_1080p25.mp4",
+      "kind": "video",
+      "codec": "hevc",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "25",
+      "fps": 25,
+      "frames": 125,
+      "duration": 5,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "frameCode": {
+        "clipID": 10,
+        "first": 20480,
+        "last": 20604
+      },
+      "clapper": true,
+      "purpose": "HEVC 8 bit 1080p25"
+    },
+    {
+      "file": "video/hevc_1080p5994.mp4",
+      "kind": "video",
+      "codec": "hevc",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "60000/1001",
+      "fps": 59.94006,
+      "frames": 300,
+      "duration": 5.005,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "frameCode": {
+        "clipID": 11,
+        "first": 22528,
+        "last": 22827
+      },
+      "clapper": true,
+      "purpose": "HEVC 1080p59,94"
+    },
+    {
+      "file": "video/hevc_720p2997.mp4",
+      "kind": "video",
+      "codec": "hevc",
+      "width": 1280,
+      "height": 720,
+      "frameRate": "30000/1001",
+      "fps": 29.97003,
+      "frames": 150,
+      "duration": 5.005,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 44100,
+        "channels": 2
+      },
+      "frameCode": {
+        "clipID": 12,
+        "first": 24576,
+        "last": 24725
+      },
+      "clapper": true,
+      "purpose": "HEVC 720p29,97"
+    },
+    {
+      "file": "video/hevc_alpha_1080p25.mov",
+      "kind": "video",
+      "codec": "hevc_alpha",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "25",
+      "fps": 25,
+      "frames": 75,
+      "duration": 3,
+      "alpha": true,
+      "audio": null,
+      "frameCode": {
+        "clipID": 13,
+        "first": 26624,
+        "last": 26698
+      },
+      "clapper": true,
+      "purpose": "HEVC con alfa (VideoToolbox): transparencia en el compositor"
+    },
+    {
+      "file": "video/prores422_1080p25.mov",
+      "kind": "video",
+      "codec": "prores422",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "25",
+      "fps": 25,
+      "frames": 75,
+      "duration": 3,
+      "alpha": false,
+      "audio": {
+        "codec": "pcm_s16le",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "frameCode": {
+        "clipID": 14,
+        "first": 28672,
+        "last": 28746
+      },
+      "clapper": true,
+      "purpose": "ProRes 422 + PCM"
+    },
+    {
+      "file": "video/prores422_1080p2997.mov",
+      "kind": "video",
+      "codec": "prores422",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "30000/1001",
+      "fps": 29.97003,
+      "frames": 90,
+      "duration": 3.003,
+      "alpha": false,
+      "audio": {
+        "codec": "pcm_s16le",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "frameCode": {
+        "clipID": 15,
+        "first": 30720,
+        "last": 30809
+      },
+      "clapper": true,
+      "purpose": "ProRes 422 29,97"
+    },
+    {
+      "file": "video/prores4444_alpha_1080p25.mov",
+      "kind": "video",
+      "codec": "prores4444",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "25",
+      "fps": 25,
+      "frames": 75,
+      "duration": 3,
+      "alpha": true,
+      "audio": null,
+      "frameCode": {
+        "clipID": 16,
+        "first": 32768,
+        "last": 32842
+      },
+      "clapper": true,
+      "purpose": "ProRes 4444 con alfa 16 bit"
+    },
+    {
+      "file": "image/png_alpha_1920x1080.png",
+      "kind": "image",
+      "codec": "png",
+      "width": 1920,
+      "height": 1080,
+      "alpha": true,
+      "audio": null,
+      "frameCode": {
+        "clipID": 20,
+        "first": 40960,
+        "last": 40960
+      },
+      "clapper": false,
+      "purpose": "PNG con alfa (fondo transparente, banda al 50 %)"
+    },
+    {
+      "file": "image/png_alpha_1080x1920.png",
+      "kind": "image",
+      "codec": "png",
+      "width": 1080,
+      "height": 1920,
+      "alpha": true,
+      "audio": null,
+      "frameCode": {
+        "clipID": 21,
+        "first": 43008,
+        "last": 43008
+      },
+      "clapper": false,
+      "purpose": "PNG vertical con alfa"
+    },
+    {
+      "file": "image/jpeg_1920x1080.jpg",
+      "kind": "image",
+      "codec": "jpeg",
+      "width": 1920,
+      "height": 1080,
+      "alpha": false,
+      "audio": null,
+      "frameCode": {
+        "clipID": 22,
+        "first": 45056,
+        "last": 45056
+      },
+      "clapper": false,
+      "purpose": "JPEG 4:2:0"
+    },
+    {
+      "file": "image/jpeg_6000x4000.jpg",
+      "kind": "image",
+      "codec": "jpeg",
+      "width": 6000,
+      "height": 4000,
+      "alpha": false,
+      "audio": null,
+      "frameCode": {
+        "clipID": 23,
+        "first": 47104,
+        "last": 47104
+      },
+      "clapper": false,
+      "purpose": "Imagen grande: decodificar una vez reducida al lienzo"
+    },
+    {
+      "file": "image/tiff_1920x1080.tif",
+      "kind": "image",
+      "codec": "tiff",
+      "width": 1920,
+      "height": 1080,
+      "alpha": false,
+      "audio": null,
+      "frameCode": {
+        "clipID": 24,
+        "first": 49152,
+        "last": 49152
+      },
+      "clapper": false,
+      "purpose": "TIFF RGB deflate"
+    },
+    {
+      "file": "image/heic_src_1920x1080.png",
+      "kind": "image",
+      "codec": "png",
+      "width": 1920,
+      "height": 1080,
+      "alpha": false,
+      "audio": null,
+      "frameCode": {
+        "clipID": 25,
+        "first": 51200,
+        "last": 51200
+      },
+      "clapper": false,
+      "purpose": "Fuente del HEIC (PNG opaco)"
+    },
+    {
+      "file": "image/heic_1920x1080.heic",
+      "kind": "image",
+      "codec": "heic",
+      "width": 1920,
+      "height": 1080,
+      "alpha": false,
+      "audio": null,
+      "frameCode": {
+        "clipID": 25,
+        "first": 51200,
+        "last": 51200
+      },
+      "clapper": false,
+      "purpose": "HEIC (sips/ImageIO)"
+    },
+    {
+      "file": "audio/tone_44100_mono.wav",
+      "kind": "audio",
+      "codec": "wav",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "pcm_s16le",
+        "sampleRate": 44100,
+        "channels": 1
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "audio/tone_44100_stereo.wav",
+      "kind": "audio",
+      "codec": "wav",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "pcm_s16le",
+        "sampleRate": 44100,
+        "channels": 2
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "audio/tone_48000_mono.wav",
+      "kind": "audio",
+      "codec": "wav",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "pcm_s16le",
+        "sampleRate": 48000,
+        "channels": 1
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "audio/tone_48000_stereo.wav",
+      "kind": "audio",
+      "codec": "wav",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "pcm_s16le",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "audio/tone_44100_mono.aiff",
+      "kind": "audio",
+      "codec": "aiff",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "pcm_s16be",
+        "sampleRate": 44100,
+        "channels": 1
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "audio/tone_44100_stereo.aiff",
+      "kind": "audio",
+      "codec": "aiff",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "pcm_s16be",
+        "sampleRate": 44100,
+        "channels": 2
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "audio/tone_48000_mono.aiff",
+      "kind": "audio",
+      "codec": "aiff",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "pcm_s16be",
+        "sampleRate": 48000,
+        "channels": 1
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "audio/tone_48000_stereo.aiff",
+      "kind": "audio",
+      "codec": "aiff",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "pcm_s16be",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "audio/tone_44100_mono.mp3",
+      "kind": "audio",
+      "codec": "mp3",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "libmp3lame",
+        "sampleRate": 44100,
+        "channels": 1
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "audio/tone_44100_stereo.mp3",
+      "kind": "audio",
+      "codec": "mp3",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "libmp3lame",
+        "sampleRate": 44100,
+        "channels": 2
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "audio/tone_48000_mono.mp3",
+      "kind": "audio",
+      "codec": "mp3",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "libmp3lame",
+        "sampleRate": 48000,
+        "channels": 1
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "audio/tone_48000_stereo.mp3",
+      "kind": "audio",
+      "codec": "mp3",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "libmp3lame",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "audio/tone_44100_mono.m4a",
+      "kind": "audio",
+      "codec": "m4a",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 44100,
+        "channels": 1
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "audio/tone_44100_stereo.m4a",
+      "kind": "audio",
+      "codec": "m4a",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 44100,
+        "channels": 2
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "audio/tone_48000_mono.m4a",
+      "kind": "audio",
+      "codec": "m4a",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 48000,
+        "channels": 1
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "audio/tone_48000_stereo.m4a",
+      "kind": "audio",
+      "codec": "m4a",
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "clapper": true,
+      "purpose": "Matriz de audio: formato × frecuencia × canales; pitido de claqueta cada segundo"
+    },
+    {
+      "file": "playlist_mixed/01_h264_1080p25.mp4",
+      "kind": "video",
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "25",
+      "fps": 25,
+      "frames": 100,
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "frameCode": {
+        "clipID": 26,
+        "first": 53248,
+        "last": 53347
+      },
+      "clapper": true,
+      "purpose": "playlist_mixed 1/4: vídeo 25p"
+    },
+    {
+      "file": "playlist_mixed/02_image_1920x1080.png",
+      "kind": "image",
+      "codec": "png",
+      "width": 1920,
+      "height": 1080,
+      "alpha": false,
+      "audio": null,
+      "frameCode": {
+        "clipID": 27,
+        "first": 55296,
+        "last": 55296
+      },
+      "clapper": false,
+      "purpose": "playlist_mixed 2/4: imagen 5 s"
+    },
+    {
+      "file": "playlist_mixed/03_h264_1080p30.mp4",
+      "kind": "video",
+      "codec": "h264",
+      "width": 1920,
+      "height": 1080,
+      "frameRate": "30",
+      "fps": 30,
+      "frames": 120,
+      "duration": 4,
+      "alpha": false,
+      "audio": {
+        "codec": "aac",
+        "sampleRate": 48000,
+        "channels": 2
+      },
+      "frameCode": {
+        "clipID": 28,
+        "first": 57344,
+        "last": 57463
+      },
+      "clapper": true,
+      "purpose": "playlist_mixed 3/4: vídeo 30p"
+    }
+  ],
+  "sets": [
+    {
+      "name": "playlist_mixed",
+      "purpose": "Playlist mixta para gapless (D): vídeo 25p → imagen 5 s → vídeo 30p → color 3 s; 16 s en total",
+      "items": [
+        {
+          "type": "video",
+          "file": "playlist_mixed/01_h264_1080p25.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "playlist_mixed/02_image_1920x1080.png",
+          "duration": 5
+        },
+        {
+          "type": "video",
+          "file": "playlist_mixed/03_h264_1080p30.mp4",
+          "duration": null
+        },
+        {
+          "type": "color",
+          "color": {
+            "red": 0.125,
+            "green": 0.25,
+            "blue": 0.75,
+            "alpha": 1
+          },
+          "duration": 3
+        }
+      ]
+    }
+  ]
+}
