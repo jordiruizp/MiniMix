@@ -260,6 +260,26 @@ struct MonitorRendererTests {
         #expect(pool.cachedCount == 1) // una sola entrada en la lista libre
     }
 
+    @Test func eachAcquisitionReleasesOnlyItsOwnReference() throws {
+        let pool = TexturePool(device: GPU.context.device)
+        let feed = MonitorFeed()
+        let tokenA = feed.addObserver {}
+        let tokenB = feed.addObserver {}
+        let texture = try #require(pool.dequeue(width: 16, height: 16))
+        feed.display(texture, returningTo: pool)
+        let leaseA = try #require(feed.acquireForDrawing(tokenA))
+        let leaseB = try #require(feed.acquireForDrawing(tokenB))
+        feed.display(nil, returningTo: pool)
+        // A suelta varias veces: no puede soltar la referencia de B.
+        leaseA.release()
+        leaseA.release()
+        leaseA.release()
+        #expect(leaseA.isReleased && !leaseB.isReleased)
+        #expect(pool.cachedCount == 0)
+        leaseB.release()
+        #expect(pool.cachedCount == 1)
+    }
+
     @Test func textureWithoutPoolIsNotRecycled() throws {
         let pool = TexturePool(device: GPU.context.device)
         let feed = MonitorFeed()
