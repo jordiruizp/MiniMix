@@ -3,11 +3,12 @@
 # Uso: scripts/ci.sh [paquete...]   (por defecto, todos)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source scripts/env.sh
 all=(Packages/Core Packages/Render Packages/Media Packages/Audio Packages/Output Packages/Persistence App Tests)
 pkgs=("${@:-${all[@]}}")
 if command -v swiftlint >/dev/null; then
   echo "▶ swiftlint"
-  if [[ "$(xcode-select -p)" == *CommandLineTools* ]]; then export DYLD_FRAMEWORK_PATH="$(xcode-select -p)/usr/lib"; fi
+  if [[ "$dev_dir" == *CommandLineTools* ]]; then export DYLD_FRAMEWORK_PATH="$dev_dir/usr/lib"; fi
   swiftlint lint --strict --quiet
 else
   echo "⚠ swiftlint no instalado (brew install swiftlint)"; exit 1

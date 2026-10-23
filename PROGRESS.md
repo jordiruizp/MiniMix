@@ -45,15 +45,15 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 
 ## Bloqueos
 
-- **Sin Xcode** en la máquina: no hay `xcodebuild`, XCTest ni compilador `metal`. Mitigado (ver decisiones D1–D3).
-  Afecta a XCUITest (10.1), Instruments/Metal System Trace (10.2) y quizá a T99.
+- ~~Sin Xcode~~ → resuelto 2026-10-23: Xcode 27.1 instalado. `xcode-select` sigue en CLT (cambiarlo requiere sudo);
+  los scripts usan Xcode vía `scripts/env.sh`. CI local verde con Xcode.
 - **Sin push a GitHub** (sin credenciales `gh`/git): el CI de Actions no se ha podido ejecutar. Puerta de calidad = `scripts/ci.sh` local.
 
 ## Decisiones
 
-- **D1** · Todo SwiftPM; sin `.xcodeproj`. La app es el paquete `App/` + `scripts/bundle-app.sh`. (Plan T00 pedía proyecto Xcode.)
-- **D2** · Tests con Swift Testing (no XCTest). `scripts/swift-test.sh` resuelve el plugin de macros con CLT.
-- **D3** · Shaders compilados en tiempo de ejecución (`makeLibrary(source:)`).
+- **D1** · Build SwiftPM; la app es el paquete `App/` + `scripts/bundle-app.sh`. `.xcodeproj` diferido: el ORQ lo crea cuando haga falta (XCUITest, T99).
+- **D2** · Tests con Swift Testing; XCTest solo para medidas de rendimiento.
+- **D3** · Shaders compilados en tiempo de ejecución (`makeLibrary(source:)`) para que `swift test` y `xcodebuild` se comporten igual (se mantiene aunque ya hay compilador `metal`).
 - **D4** · Core sin Metal/AVFoundation: los contratos GPU/audio (`FrameSource`, `AudioSource`, `CompositorFrame`,
   `Compositing`, `InputManaging`) están en `Contracts.swift` tras `#if canImport(Metal/AVFAudio)`; Core sigue compilando en Linux.
 - **D5** · `nativeSize` usa `PixelSize` (Core) en lugar de `CGSize`.

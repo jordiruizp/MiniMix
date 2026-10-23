@@ -5,7 +5,7 @@
 set -euo pipefail
 pkg="${1:?ruta del paquete}"; shift || true
 extra=(-Xswiftc -warnings-as-errors)
-dev_dir="$(xcode-select -p 2>/dev/null || true)"
+source "$(dirname "$0")/env.sh"
 if [[ "$dev_dir" == *CommandLineTools* ]]; then
   extra+=(-Xswiftc -plugin-path -Xswiftc "$dev_dir/usr/lib/swift/host/plugins/testing")
 fi

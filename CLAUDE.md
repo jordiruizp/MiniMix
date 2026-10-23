@@ -6,13 +6,18 @@ Plan completo: `../Plan_MiniMix_switcher_Mac.pdf`. Estado: `PROGRESS.md`.
 
 ## Entorno y comandos
 
-La máquina de desarrollo tiene **solo Command Line Tools (sin Xcode)**. Consecuencias:
-- No hay `xcodebuild` ni `.xcodeproj`: todo es **SwiftPM**. La app es el paquete `App/`
-  (librería `MiniMixUI` + ejecutable `MiniMix`); `scripts/bundle-app.sh` crea `build/MiniMix.app`.
-- **No hay XCTest**: los tests usan **Swift Testing** (`import Testing`, `@Test`, `#expect`).
-- **No hay compilador `metal`**: los shaders se compilan **en tiempo de ejecución** con
-  `MTLDevice.makeLibrary(source:options:)`. Guarda el código MSL como recurso de texto
+Xcode 27.1 está instalado en `/Applications/Xcode.app` (`xcode-select` puede seguir apuntando a
+Command Line Tools; los scripts de `scripts/` seleccionan Xcode solos vía `scripts/env.sh`).
+Si llamas a `swift`/`xcodebuild` directamente, exporta antes
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
+- Build basado en **SwiftPM**: no hay `.xcodeproj` (lo crea el orquestador si hace falta para XCUITest/T99).
+  La app es el paquete `App/` (librería `MiniMixUI` + ejecutable `MiniMix`); `scripts/bundle-app.sh` crea `build/MiniMix.app`.
+- Tests con **Swift Testing** (`import Testing`, `@Test`, `#expect`). XCTest está disponible pero no lo uses salvo
+  `measure`/rendimiento (H).
+- **Shaders**: se compilan **en tiempo de ejecución** con `MTLDevice.makeLibrary(source:options:)` para que
+  `swift build`/`swift test` funcionen igual que `xcodebuild`. Guarda el código MSL como recurso de texto
   (`.copy("Shaders/Compositor.metal.txt")`) o como cadena Swift; no añadas `.metal` a un target.
+- Instruments y `xctrace` están disponibles para medir (H).
 
 ```bash
 scripts/swift-test.sh Packages/Core          # tests de un paquete (usar SIEMPRE este wrapper)
@@ -22,9 +27,8 @@ scripts/ci.sh Packages/Media App             # solo algunos paquetes
 scripts/bundle-app.sh [debug|release]        # build/MiniMix.app firmada ad-hoc
 ```
 
-`scripts/swift-test.sh` añade `-warnings-as-errors` y, con CLT, la ruta del plugin de macros de
-Swift Testing. SwiftLint con CLT necesita `DYLD_FRAMEWORK_PATH=$(xcode-select -p)/usr/lib`
-(`scripts/ci.sh` ya lo hace). El paquete Core también compila en Linux (job `core-linux` del CI).
+`scripts/swift-test.sh` añade `-warnings-as-errors` (y, si solo hubiera CLT, la ruta del plugin de macros de
+Swift Testing). El paquete Core también compila en Linux (job `core-linux` del CI).
 
 ## Estructura y dependencias
 

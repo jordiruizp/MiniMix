@@ -3,6 +3,7 @@
 # Uso: scripts/bundle-app.sh [debug|release]   (firma ad-hoc; T99 firma con Developer ID)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source scripts/env.sh
 cfg="${1:-debug}"
 swift build --package-path App -c "$cfg" --product MiniMix
 bin="$(swift build --package-path App -c "$cfg" --show-bin-path)"
