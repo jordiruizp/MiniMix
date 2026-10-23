@@ -62,12 +62,19 @@ public struct ProjectDecoder: Sendable {
     /// Migra los bytes JSON de un documento en `fromVersion` (< actual) a la versión actual.
     public typealias Migration = @Sendable (_ data: Data, _ fromVersion: Int) throws -> Data
 
-    /// Versión más alta que este decodificador acepta.
-    public var supportedVersion: Int
+    /// Versión que produce este decodificador: siempre `Project.currentSchemaVersion` fuera de
+    /// los tests (internal para poder probar el hook de migración con una versión simulada).
+    let supportedVersion: Int
     /// Hook de migración (lo aporta Persistence). nil → las versiones antiguas fallan.
     public var migrate: Migration?
 
-    public init(supportedVersion: Int = Project.currentSchemaVersion, migrate: Migration? = nil) {
+    /// Decodificador para el esquema actual (`Project.currentSchemaVersion`).
+    public init(migrate: Migration? = nil) {
+        self.init(supportedVersion: Project.currentSchemaVersion, migrate: migrate)
+    }
+
+    /// Solo tests: simula un esquema actual distinto.
+    init(supportedVersion: Int, migrate: Migration? = nil) {
         self.supportedVersion = supportedVersion
         self.migrate = migrate
     }

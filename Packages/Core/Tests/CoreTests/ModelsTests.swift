@@ -1,4 +1,4 @@
-import Core
+@testable import Core
 import CoreMocks
 import Foundation
 import Testing
@@ -112,6 +112,15 @@ struct ProjectDecoderTests {
         #expect(throws: ProjectCodingError.self) {
             try ProjectDecoder().decode(Data(#"{"schemaVersion":1,"inputs":3}"#.utf8))
         }
+    }
+
+    @Test func publicDecoderTargetsCurrentVersionAndSkipsMigration() throws {
+        let decoder = ProjectDecoder { _, _ in
+            Issue.record("No debe migrar el esquema actual")
+            return Data()
+        }
+        #expect(decoder.supportedVersion == Project.currentSchemaVersion)
+        #expect(try decoder.decode(try json(Project.currentSchemaVersion)) == SampleData.project)
     }
 
     @Test func olderVersionWithoutMigrationFails() throws {
