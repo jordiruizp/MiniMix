@@ -19,7 +19,7 @@ extension AppViewModel {
             if descriptor(id)?.kind == .playlist { playlists.pauseClock(for: id) }
         case .restart(let id):
             let source = services.inputs.frameSource(for: id)
-            Task { await source?.seek(to: 0) }
+            track { _ in await source?.seek(to: 0) }
             if descriptor(id)?.kind == .playlist {
                 playlists.handle(.restartItem, for: id)
             } else {
@@ -27,7 +27,7 @@ extension AppViewModel {
             }
         case let .seek(id, seconds):
             let source = services.inputs.frameSource(for: id)
-            Task { await source?.seek(to: seconds) }
+            track { _ in await source?.seek(to: seconds) }
             // `seconds` es tiempo del archivo; el reloj de la UI cuenta desde el punto In.
             var info = playback[id, default: PlaybackInfo()]
             info.reset(at: now, playing: info.state == .playing)

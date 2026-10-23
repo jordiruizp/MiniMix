@@ -150,6 +150,17 @@ struct AppViewModelTests {
         #expect(harness.app.transitionProgress == 0.3)
     }
 
+    @Test func seekAndRestartTasksAreTrackedAndCancelled() {
+        let harness = Harness()
+        harness.app.send(.seek(harness.video, seconds: 5))
+        harness.app.send(.restart(harness.video))
+        #expect(harness.app.pendingTasks.count >= 2)
+        let tasks = harness.app.pendingTasks
+        harness.app.stop()
+        #expect(harness.app.pendingTasks.isEmpty)
+        #expect(tasks.allSatisfy { $0.isCancelled })
+    }
+
     @Test func seekCountsFromInPoint() {
         let harness = Harness()
         harness.app.updateInput(harness.video) { $0.inPoint = 10 }
