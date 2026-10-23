@@ -146,7 +146,8 @@ video() {
   local rel="$1" codec="$2" w="$3" h="$4" rate="$5" dur="$6" clip="$7" audio="$8" purpose="$9"
   local fps frames fd base alpha=false
   fps="$(fps_of "$rate")"; frames="$(frames_of "$dur" "$fps")"
-  fd="$(awk -v f="$fps" 'BEGIN { printf "%.6f", 1 / f }')"
+  # Umbral de la claqueta: 1 frame menos 1 µs → solo el primer frame con pts ≥ k s.
+  fd="$(awk -v f="$fps" 'BEGIN { printf "%.9f", 1 / f - 0.000001 }')"
   base=$((clip << 11))
   (( frames < 2048 )) || { echo "$rel: demasiados frames para el código ($frames)" >&2; exit 1; }
   local gop; gop="$(frames_of 1 "$fps")"
