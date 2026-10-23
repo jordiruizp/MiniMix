@@ -3,15 +3,13 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  lint:
-    runs-on: macos-26
-    steps:
-      - uses: actions/checkout@v4
-      - run: brew install swiftlint
-      - run: swiftlint lint --strict
-
   core-linux:
     runs-on: ubuntu-latest
     container: swift:latest
@@ -19,27 +17,16 @@ jobs:
       - uses: actions/checkout@v4
       - run: swift test --package-path Packages/Core -Xswiftc -warnings-as-errors
 
-  test:
+  macos:
+    # Un solo job macOS (lint + todos los paquetes + bundle) para minimizar minutos.
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
     runs-on: macos-26
-    strategy:
-      fail-fast: false
-      matrix:
-        package: [Packages/Core, Packages/Render, Packages/Media, Packages/Audio,
-                  Packages/Output, Packages/Persistence, App, Tests, Tools/StressHarness]
     steps:
       - uses: actions/checkout@v4
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest
       - run: swift --version
-      - run: scripts/swift-test.sh ${{ matrix.package }}
-
-  bundle:
-    runs-on: macos-26
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest
+      - run: brew install swiftlint
+      - run: scripts/ci.sh
       - run: scripts/bundle-app.sh release

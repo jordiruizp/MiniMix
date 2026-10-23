@@ -84,9 +84,10 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | #3 | feat/h-qa (T60, T61) | ✅ integrado · Core/Render/Audio verificados en local (Actions sin minutos) |
 | #4 | feat/g-ui-mocks (T50, T51) | ✅ integrado (5b3c5a3) |
 
-## Bloqueo: GitHub Actions
+## GitHub Actions
 
-- 2026-10-23: jobs no arrancados por «recent account payments have failed or your spending limit needs to be increased». Mientras tanto, la puerta de calidad vuelve a ser `scripts/ci.sh` local para lo que no ejecute Actions.
+- ~~2026-10-23: jobs no arrancados por límite de facturación~~ → resuelto: el usuario hizo público el repo.
+- **D12** · CI reducido: un solo job macOS (`scripts/ci.sh` + bundle) en push a main y PRs no borrador, más `core-linux`.
 
 ## Deuda menor (no bloqueante, para Ola 3)
 

@@ -97,6 +97,8 @@ Si necesitas un cambio fuera de tu carpeta (incluido un `Package.swift` o una de
 - Commits pequeños en imperativo con prefijo de tarea: `T21: add mix shader and snapshots`.
 - PR/entrega idealmente < 600 líneas por tarea, con tests y criterio de aceptación.
 - Solo el orquestador fusiona en `main` (orden del grafo 8.3) y rebasa ramas abiertas.
+- El CI de GitHub (`.github/workflows/ci.yml`) ejecuta `scripts/ci.sh` en un único job macOS; los PR en borrador
+  solo corren el job de Linux.
 - Puerta de calidad: `scripts/ci.sh` verde + revisión del agente R + aprobación del orquestador.
 - **Informe final** de cada subagente: resumen, archivos tocados, tests añadidos, métricas
   medidas, riesgos, preguntas/cambios pedidos fuera de su carpeta.
