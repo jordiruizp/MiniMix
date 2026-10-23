@@ -18,7 +18,8 @@
 // - restartItem: playing/held(i) → playing(i); idle/ended → sin cambio.
 // - Edición de `playlist` mientras suena: el item actual se sigue por su `ItemID`. Si se movió,
 //   el índice se actualiza; si se deshabilitó, sigue sonando (los saltos lo omiten); si se
-//   eliminó: playing → el siguiente habilitado desde su antigua posición (con bucle) o ended;
+//   eliminó: playing → el primer item que le seguía en la playlist anterior (con bucle, también
+//   los que le precedían) y sigue existiendo y habilitado, en su índice nuevo; si no hay, ended;
 //   held → ended. `cued` y `upcomingIndex` se recalculan siempre con la playlist actual.
 
 import Foundation
@@ -129,7 +130,7 @@ public struct PlaylistSequencer: PlaylistSequencing {
             if let index = playlist.index(ofItem: oldItems[oldIndex].id) {
                 state = .playing(index: index)
             } else {
-                state = playOrEnd(successor(fromPosition: oldIndex))
+                state = playOrEnd(successor(ofRemoved: oldIndex, in: oldItems))
             }
         case .held(let oldIndex, _):
             if let index = playlist.index(ofItem: oldItems[oldIndex].id) {
@@ -140,10 +141,15 @@ public struct PlaylistSequencer: PlaylistSequencing {
         }
     }
 
-    /// Primer habilitado en `position` o después (con bucle, desde el principio).
-    private func successor(fromPosition position: Int) -> Int? {
-        let items = playlist.items
-        if let found = items.indices.first(where: { $0 >= position && items[$0].enabled }) { return found }
-        return playlist.loop ? firstEnabled : nil
+    /// Sucesor del item eliminado `oldItems[oldIndex]`: recorre los items que lo seguían en la
+    /// playlist anterior (y, con bucle, los que lo precedían) y devuelve el índice nuevo del primero
+    /// que siga existiendo y esté habilitado.
+    private func successor(ofRemoved oldIndex: Int, in oldItems: [PlaylistItem]) -> Int? {
+        var candidates = oldItems[(oldIndex + 1)...]
+        if playlist.loop { candidates += oldItems[..<oldIndex] }
+        for old in candidates {
+            if let index = playlist.index(ofItem: old.id), playlist.items[index].enabled { return index }
+        }
+        return nil
     }
 }

@@ -248,6 +248,35 @@ struct PlaylistSequencerTests {
         #expect(seq.state == .ended)
     }
 
+    @Test func removingCurrentAndEarlierItemsFollowsOldSuccessor() {
+        var seq = sequencer(items(4))
+        let ids = seq.playlist.items.map(\.id)
+        seq.handle(.jump(ids[2]))
+        seq.playlist.items.removeAll { $0.id == ids[0] || $0.id == ids[2] }
+        #expect(seq.state == .playing(index: 1))
+        #expect(seq.currentItem?.id == ids[3])
+    }
+
+    @Test func removingCurrentAndInsertingBeforeFollowsOldSuccessor() {
+        var seq = sequencer(items(3))
+        let ids = seq.playlist.items.map(\.id)
+        seq.handle(.jump(ids[1]))
+        var edited = seq.playlist
+        edited.items.remove(at: 1)
+        edited.items.insert(contentsOf: [item(), item()], at: 0)
+        seq.playlist = edited
+        #expect(seq.state == .playing(index: 3))
+        #expect(seq.currentItem?.id == ids[2])
+    }
+
+    @Test func removedCurrentSkipsDisabledOldSuccessors() {
+        var seq = sequencer([item(), item(), item(enabled: false), item()])
+        let ids = seq.playlist.items.map(\.id)
+        seq.handle(.jump(ids[1]))
+        seq.playlist.items.remove(at: 1)
+        #expect(seq.currentItem?.id == ids[3])
+    }
+
     @Test func removingLastCurrentWithLoopWrapsToFirst() {
         var seq = sequencer(items(3), loop: true)
         seq.handle(.jump(seq.playlist.items[2].id))
