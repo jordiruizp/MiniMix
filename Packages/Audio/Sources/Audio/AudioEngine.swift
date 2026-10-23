@@ -1,5 +1,6 @@
 import AVFAudio
 import Core
+import os
 import Synchronization
 
 /// Mezclador de audio de MiniMix sobre `AVAudioEngine` (T40/T41).
@@ -62,8 +63,17 @@ public final class AudioEngine: AudioMixing, Sendable {
     public let configuration: AudioEngineConfiguration
     private let state: Mutex<State>
     private let meterPublisher: MeterPublisher
+    /// Mismo `AVAudioEngine` que `state.engine`, para arrancarlo sin retener el Mutex.
+    private let engineHandle: EngineHandle
+    /// Cola serie de rearranques (no se bloquea a quien recibe la notificación).
+    private let lifecycleQueue = DispatchQueue(label: "minimix.audio.lifecycle", qos: .userInitiated)
+    private let eventContinuation: AsyncStream<AudioEngineEvent>.Continuation
+    private static let logger = Logger(subsystem: "MiniMix", category: "AudioEngine")
 
     public var meters: AsyncStream<[InputID?: [Float]]> { meterPublisher.stream }
+
+    /// Eventos del ciclo de vida (cambio de dispositivo, rearranque, error). **Un único consumidor.**
+    public let events: AsyncStream<AudioEngineEvent>
 
     public init(configuration: AudioEngineConfiguration = AudioEngineConfiguration()) throws {
         self.configuration = configuration
@@ -98,7 +108,9 @@ public final class AudioEngine: AudioMixing, Sendable {
         )
         Self.buildBusGraph(&initial)
         meterPublisher.register(initial.masterFader.control, for: nil)
+        engineHandle = EngineHandle(engine)
         state = Mutex(initial)
+        (events, eventContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(16))
 
         if configuration.renderMode == .realtime {
             state.withLock { state in
@@ -110,6 +122,7 @@ public final class AudioEngine: AudioMixing, Sendable {
     }
 
     deinit {
+        eventContinuation.finish()
         meterPublisher.stop()
         state.withLock { state in
             if let observer = state.configurationObserver { NotificationCenter.default.removeObserver(observer) }
@@ -139,16 +152,54 @@ public final class AudioEngine: AudioMixing, Sendable {
         }
     }
 
-    /// Cambio de dispositivo de salida (p. ej. se conecta una pantalla HDMI con audio): el motor
-    /// se para solo; se rearranca si debía estar en marcha. El formato canónico no cambia: el
-    /// `mainMixerNode` convierte a la nueva frecuencia de la salida.
-    private func handleConfigurationChange() {
-        state.withLock { state in
-            guard state.wantsRunning, !state.engine.isRunning else { return }
-            state.engine.prepare()
-            try? state.engine.start()
+    /// Cambio de configuración de la salida (p. ej. se conecta una pantalla HDMI con audio): el
+    /// sistema para el motor. El rearranque se hace en `lifecycleQueue`, sin retener `state`
+    /// durante `engine.start()` (puede tardar decenas de ms); el resultado se registra con
+    /// `os.Logger` y se publica en `events`.
+    func handleConfigurationChange() {
+        eventContinuation.yield(.configurationChanged)
+        lifecycleQueue.async { [weak self] in self?.restartAfterConfigurationChange() }
+    }
+
+    private func restartAfterConfigurationChange() {
+        let needsRestart = state.withLock { state -> Bool in
+            guard state.wantsRunning, !state.engine.isRunning else { return false }
+            if !state.engine.isInManualRenderingMode { Self.reconnectOutput(state.engine) }
+            return true
+        }
+        guard needsRestart else { return }
+        let engine = engineHandle.engine
+        engine.prepare()
+        do {
+            try engine.start()
+            // Si alguien llamó a `stop()` mientras arrancábamos, se respeta.
+            let keep = state.withLock { state -> Bool in
+                if !state.wantsRunning { state.engine.stop() }
+                return state.wantsRunning
+            }
+            guard keep else { return }
+            Self.logger.info("Motor de audio rearrancado tras cambio de configuración")
+            eventContinuation.yield(.restarted)
+        } catch {
+            Self.logger.error("No se pudo rearrancar el motor de audio: \(error.localizedDescription, privacy: .public)")
+            eventContinuation.yield(.restartFailed(error.localizedDescription))
         }
     }
+
+    /// El grafo interno conserva el formato canónico fijado en `init` (frecuencia de la salida en
+    /// ese momento). Si el dispositivo nuevo tiene otra frecuencia o canales, `mainMixerNode → output`
+    /// se reconecta con el formato actual del hardware y es `mainMixerNode` quien convierte
+    /// (SRC + canales) en ese único punto.
+    private static func reconnectOutput(_ engine: AVAudioEngine) {
+        let hardware = engine.outputNode.outputFormat(forBus: 0)
+        guard hardware.sampleRate > 0, hardware.channelCount > 0,
+              let format = AVAudioFormat(standardFormatWithSampleRate: hardware.sampleRate,
+                                         channels: min(hardware.channelCount, 2)) else { return }
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: format)
+    }
+
+    /// Para el motor por debajo, como haría el sistema en un cambio de dispositivo (tests).
+    func simulateSystemStop() { state.withLock { $0.engine.stop() } }
 
     public var isRunning: Bool { state.withLock { $0.engine.isRunning } }
 

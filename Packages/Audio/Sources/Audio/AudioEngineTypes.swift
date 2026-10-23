@@ -8,6 +8,26 @@ public enum AudioEngineError: Error, Equatable {
     case notInManualRenderingMode
 }
 
+/// Eventos del ciclo de vida de `AudioEngine` (ver `AudioEngine.events`).
+public enum AudioEngineEvent: Sendable, Equatable {
+    /// El sistema cambió la configuración de la salida y paró el motor.
+    case configurationChanged
+    /// El motor volvió a arrancar tras el cambio.
+    case restarted
+    /// No se pudo rearrancar; `isRunning` es false. Descripción del error.
+    case restartFailed(String)
+}
+
+/// `AVAudioEngine` compartido fuera del Mutex de `AudioEngine`.
+///
+/// `@unchecked Sendable`: solo se usa sin el Mutex en la cola serie de ciclo de vida para
+/// `prepare()`/`start()` (operaciones que `AVAudioEngine` serializa internamente); las mutaciones
+/// del grafo siguen haciéndose siempre bajo el Mutex.
+final class EngineHandle: @unchecked Sendable {
+    let engine: AVAudioEngine
+    init(_ engine: AVAudioEngine) { self.engine = engine }
+}
+
 /// Configuración de `AudioEngine`.
 public struct AudioEngineConfiguration: Sendable {
     public enum RenderMode: Sendable, Equatable {
