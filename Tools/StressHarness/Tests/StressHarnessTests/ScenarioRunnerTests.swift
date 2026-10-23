@@ -73,6 +73,28 @@ struct ScenarioRunnerTests {
         #expect(decoded.schemaVersion == StressReport.currentSchemaVersion)
     }
 
+    @Test func reportsWithSameTimestampGetUniqueNames() async throws {
+        let config = ScenarioConfig(name: "test-names", kind: .switchEvery(seconds: 1, transition: .cut, fadeSeconds: 0),
+                                    durationSeconds: 0.2, canvas: Self.canvas, sampleIntervalSeconds: 0.1)
+        let report = try await ScenarioRunner(config: config, factory: MockPipelineFactory()).run()
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("minimix-stress-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let first = try report.write(to: dir)
+        let second = try report.write(to: dir)
+        #expect(first != second)
+        #expect(second.lastPathComponent.hasSuffix("-2.json"))
+        #expect(first.lastPathComponent.range(of: #"-\d{8}-\d{6}-\d{3}\.json$"#, options: .regularExpression) != nil)
+    }
+
+    @Test func cliRejectsInvalidValues() throws {
+        let ok = try StressOptions.parse(["--duration", "12.5", "--fps", "59.94", "--size", "1280x720"])
+        #expect(ok.duration == 12.5 && ok.fps == .fps59_94 && ok.size == .hd720)
+        for args in [["--duration", "abc"], ["--duration", "-3"], ["--fps", "fast"], ["--fps", "0"],
+                     ["--size", "1280"], ["--duration"], ["--bogus"]] {
+            #expect(throws: StressOptions.UsageError.self, "\(args)") { try StressOptions.parse(args) }
+        }
+    }
+
     @Test func statsPercentiles() {
         let stats = StressReport.Stats((1...100).map(Double.init))
         #expect(stats.mean == 50.5 && stats.max == 100)

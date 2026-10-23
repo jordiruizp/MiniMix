@@ -105,9 +105,16 @@ public struct StressReport: Codable, Sendable {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let url = directory.appendingPathComponent("\(scenario.name)-\(pipeline)-\(formatter.string(from: startedAt)).json")
-        try jsonData().write(to: url, options: .atomic)
+        formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
+        // Milisegundos + sufijo si aun así existe: nunca se sobrescribe un informe.
+        let stem = "\(scenario.name)-\(pipeline)-\(formatter.string(from: startedAt))"
+        var url = directory.appendingPathComponent("\(stem).json")
+        var suffix = 2
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = directory.appendingPathComponent("\(stem)-\(suffix).json")
+            suffix += 1
+        }
+        try jsonData().write(to: url, options: .withoutOverwriting)
         return url
     }
 }
