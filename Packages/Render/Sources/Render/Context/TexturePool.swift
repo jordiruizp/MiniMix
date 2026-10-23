@@ -105,16 +105,30 @@ public final class TexturePool: @unchecked Sendable {
 
     /// Devuelve una textura al pool. Solo si la GPU ya no la usa; si no, usar
     /// `recycle(_:after:)`.
-    public func recycle(_ texture: MTLTexture) {
+    ///
+    /// Solo se aceptan texturas que el pool podría haber creado: 2D, de este
+    /// dispositivo, con un único nivel y una muestra, sin IOSurface (las de
+    /// `CVMetalTextureCache` pertenecen a su CVPixelBuffer) y que no sean vistas
+    /// de otra textura o buffer. El resto se ignora y devuelve `false`.
+    @discardableResult
+    public func recycle(_ texture: MTLTexture) -> Bool {
+        guard isPoolable(texture) else { return false }
         let key = Key(texture)
         let bytes = texture.allocatedSize
-        state.withLock { st in
-            guard bytes <= st.memoryLimit else { return }
+        return state.withLock { st in
+            guard bytes <= st.memoryLimit else { return false }
             st.clock &+= 1
             st.free[key, default: []].append(Entry(texture: texture, bytes: bytes, stamp: st.clock))
             st.freeBytes += bytes
             Self.trim(&st)
+            return true
         }
+    }
+
+    func isPoolable(_ texture: MTLTexture) -> Bool {
+        texture.iosurface == nil && texture.textureType == .type2D && texture.device === device
+            && texture.mipmapLevelCount == 1 && texture.sampleCount == 1 && texture.arrayLength == 1
+            && texture.parent == nil && texture.buffer == nil
     }
 
     /// Devuelve la textura cuando `commandBuffer` termine (llamar antes de `commit`).

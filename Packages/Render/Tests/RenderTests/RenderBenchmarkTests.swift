@@ -51,7 +51,7 @@ struct RenderBenchmarkTests {
             last = commandBuffer
         }
         last?.waitUntilCompleted()
-        for _ in 0..<200 where gpuTimes.values.count < Self.frames { usleep(1_000) }
+        _ = waitUntil { gpuTimes.values.count >= Self.frames }
 
         let samples = gpuTimes.values
         #expect(samples.count == Self.frames)

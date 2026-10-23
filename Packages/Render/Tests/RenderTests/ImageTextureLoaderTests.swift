@@ -66,7 +66,7 @@ struct ImageTextureLoaderTests {
         #expect(abs(Int(right.alpha) - 128) <= 1, "\(right)")
 
         // Sobre blanco con el compositor: (255, 127, 127) a la derecha, blanco a la izquierda.
-        let compositor = try Compositor(context: GPU.context, collectsStats: false)
+        let compositor = try Compositor(context: GPU.context, statsMode: .disabled)
         compositor.backgroundColor = RGBAColor(red: 1, green: 1, blue: 1)
         let target = GPU.target(width: 64, height: 32)
         GPU.run { compositor.encode(CompositorFrame(a: texture, b: nil, mix: 0, kind: .cut, fitA: .stretch),
@@ -141,6 +141,22 @@ struct ImageTextureLoaderTests {
         #expect(texture.width == 32 && texture.height == 16)
         let center = GPU.read(texture)[8 * 32 + 16]
         #expect(center.green > 230 && center.red < 30 && center.blue < 30 && center.alpha == 255, "\(type): \(center)")
+    }
+
+    @Test func decodesOffTheCooperativePool() async throws {
+        let image = Self.makeImage(width: 64, height: 64) { Self.fill($0, [1, 1, 0, 1], CGRect(x: 0, y: 0, width: 64, height: 64)) }
+        let url = try #require(Self.write(image, type: .png))
+        defer { try? FileManager.default.removeItem(at: url) }
+        let before = ImageTextureLoader.dedicatedDecodes.withLock { $0 }
+        // Varias cargas concurrentes: se serializan en la cola de decodificación.
+        let sizes = try await withThrowingTaskGroup(of: Int.self) { group in
+            for _ in 0..<4 {
+                group.addTask { try await loader.loadTexture(from: url, maxSize: .hd1080).width }
+            }
+            return try await group.reduce(into: [Int]()) { $0.append($1) }
+        }
+        #expect(sizes == [64, 64, 64, 64])
+        #expect(ImageTextureLoader.dedicatedDecodes.withLock { $0 } >= before + 4)
     }
 
     @Test func missingFileThrows() async {
