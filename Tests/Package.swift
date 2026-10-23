@@ -4,6 +4,10 @@ import PackageDescription
 let package = Package(
     name: "MiniMixIntegration",
     platforms: [.macOS(.v15)],
+    products: [
+        // Lo usa también Tools/StressHarness (medidor de memoria/CPU, metadatos de máquina).
+        .library(name: "TestSupport", targets: ["TestSupport"])
+    ],
     dependencies: [
         .package(path: "../Packages/Core"),
         .package(path: "../Packages/Render"),
