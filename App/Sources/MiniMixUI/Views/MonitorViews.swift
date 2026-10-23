@@ -61,6 +61,22 @@ struct InputThumbnail: View {
     }
 }
 
+/// Tiempo restante de una entrada. Subvista propia: es lo único que depende del refresco de 4 Hz
+/// (`AppViewModel.now`), así el monitor o la tarjeta que la contiene no se reevalúan.
+struct RemainingTimeLabel: View {
+    let app: AppViewModel
+    let id: InputID
+    var showsUnknown = false
+
+    var body: some View {
+        if let remaining = app.remaining(for: id) {
+            Text(Formatting.remaining(remaining)).font(.caption.monospacedDigit())
+        } else if showsUnknown {
+            Text(Formatting.remaining(nil)).font(.caption.monospacedDigit())
+        }
+    }
+}
+
 /// Monitor PVW o PGM con cabecera de color (verde/rojo) a 16:9.
 struct MonitorPane: View {
     let app: AppViewModel
@@ -75,9 +91,7 @@ struct MonitorPane: View {
                     .foregroundStyle(.white)
                 Text(input?.name ?? "—").font(.caption).lineLimit(1)
                 Spacer()
-                if let id = input?.id {
-                    Text(Formatting.remaining(app.remaining(for: id))).font(.caption.monospacedDigit())
-                }
+                if let id = input?.id { RemainingTimeLabel(app: app, id: id, showsUnknown: true) }
             }
             app.monitorFactory.make(content)
                 .aspectRatio(16 / 9, contentMode: .fit)

@@ -79,9 +79,7 @@ struct InputCard: View {
             HStack(spacing: 4) {
                 Text(input.name).font(.callout).lineLimit(1)
                 Spacer(minLength: 2)
-                if let remaining = app.remaining(for: input.id) {
-                    Text(Formatting.remaining(remaining)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                }
+                RemainingTimeLabel(app: app, id: input.id).foregroundStyle(.secondary)
                 if input.kind != .color && input.kind != .image {
                     Button { togglePlay() } label: {
                         Image(systemName: app.isPlaying(input.id) ? "pause.fill" : "play.fill")
@@ -108,6 +106,13 @@ struct InputCard: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Entrada \(number): \(input.name), \(input.kind.localizedName)\(busDescription)")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction { app.selectInput(input.id) }
+        .accessibilityAction(named: "Poner en Preview") { app.selectInput(input.id) }
+        .accessibilityAction(named: app.isPlaying(input.id) ? "Pausar" : "Reproducir") { togglePlay() }
+        .accessibilityAction(named: "Renombrar") {
+            newName = input.name
+            isRenaming = true
+        }
     }
 
     private var isSelected: Bool { app.selectedInputID == input.id }
@@ -160,7 +165,7 @@ struct InputContextMenu: View {
         }
         Divider()
         Button("Quitar", role: .destructive) { app.removeInput(input.id) }
-            .disabled(app.project.program == input.id)
+            .disabled(app.isInTransition(input.id))
     }
 }
 

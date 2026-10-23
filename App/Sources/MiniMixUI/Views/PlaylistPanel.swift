@@ -1,5 +1,7 @@
+import AppKit
 import Core
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Panel de playlist de la entrada seleccionada (T51).
 struct PlaylistPanel: View {
@@ -120,28 +122,69 @@ private struct PlaylistItemList: View {
     let model: PlaylistViewModel
     let id: InputID
     let playlist: Playlist
+    @State private var selection = Set<ItemID>()
 
     var body: some View {
         let current = model.currentIndex(for: id)
         let next = model.nextIndex(for: id)
-        List {
+        List(selection: $selection) {
             ForEach(Array(playlist.items.enumerated()), id: \.element.id) { index, item in
                 PlaylistItemRow(model: model, id: id, item: item, index: index,
                                 isCurrent: index == current, isNext: index == next)
+                    .tag(item.id)
                     .listRowBackground(rowBackground(isCurrent: index == current, isNext: index == next))
+                    .contextMenu {
+                        Button("Saltar a este item") { model.jump(id, to: item.id) }
+                            .disabled(!item.enabled)
+                        Button(item.enabled ? "Desactivar" : "Activar") {
+                            model.setEnabled(!item.enabled, item: item.id, in: id)
+                        }
+                        Divider()
+                        Button("Quitar", role: .destructive) { remove(contextItem: item.id) }
+                    }
             }
             .onMove { model.moveItems(in: id, from: $0, to: $1) }
-            .onDelete { model.removeItems(in: id, at: $0) }
             .dropDestination(for: URL.self) { urls, index in
                 model.addItems(in: id, from: urls, at: index)
             }
         }
         .listStyle(.inset(alternatesRowBackgrounds: false))
-        .dropDestination(for: URL.self) { urls, _ in model.addItems(in: id, from: urls) > 0 }
-        .contextMenu {
-            Button("Añadir color") { model.addColorItem(in: id) }
+        .onDeleteCommand { removeSelection() }
+        .onKeyPress(.delete) {
+            removeSelection()
+            return .handled
         }
+        .dropDestination(for: URL.self) { urls, _ in model.addItems(in: id, from: urls) > 0 }
         .accessibilityLabel("Items de la playlist")
+        HStack {
+            Button("Añadir archivos…") { addFiles() }
+            Button("Añadir color") { model.addColorItem(in: id) }
+            Button("Quitar seleccionados") { removeSelection() }
+                .disabled(selection.isEmpty)
+            Spacer()
+        }
+        .controlSize(.small)
+    }
+
+    private func removeSelection() {
+        model.removeItems(in: id, withIDs: selection)
+        selection = []
+    }
+
+    /// Menú contextual: si la fila forma parte de la selección se quitan todas las seleccionadas.
+    private func remove(contextItem: ItemID) {
+        if selection.contains(contextItem) {
+            removeSelection()
+        } else {
+            model.removeItems(in: id, withIDs: [contextItem])
+        }
+    }
+
+    private func addFiles() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.movie, .audio, .image]
+        if panel.runModal() == .OK { model.addItems(in: id, from: panel.urls) }
     }
 
     private func rowBackground(isCurrent: Bool, isNext: Bool) -> Color {

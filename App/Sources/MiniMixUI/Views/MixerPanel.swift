@@ -33,7 +33,7 @@ private struct ChannelStrip: View {
             HStack(alignment: .bottom, spacing: 4) {
                 VerticalFader(value: channel.volume) { mixer.setVolume($0, for: channel.id) }
                     .accessibilityLabel("Volumen de \(channel.name)")
-                VUMeter(levels: channel.levels)
+                ChannelMeter(mixer: mixer, id: channel.id)
             }
             .frame(height: 110)
             Text(Formatting.decibels(gain: channel.volume)).font(.caption2.monospacedDigit())
@@ -64,7 +64,7 @@ private struct MasterStrip: View {
             HStack(alignment: .bottom, spacing: 4) {
                 VerticalFader(value: mixer.masterVolume) { mixer.setMasterVolume($0) }
                     .accessibilityLabel("Volumen Master")
-                VUMeter(levels: mixer.masterLevels)
+                ChannelMeter(mixer: mixer, id: nil)
             }
             .frame(height: 110)
             Text(Formatting.decibels(gain: mixer.masterVolume)).font(.caption2.monospacedDigit())
@@ -74,10 +74,12 @@ private struct MasterStrip: View {
     }
 }
 
-/// Fader vertical de ganancia lineal 0…2 (1 = 0 dB a la mitad).
+/// Fader vertical de ganancia lineal 0…2 (1 = 0 dB a la mitad). Arrastre relativo: no salta a la
+/// posición del clic. Doble clic → 0 dB.
 struct VerticalFader: View {
     let value: Float
     let onChange: (Float) -> Void
+    @State private var dragStart: Float?
 
     var body: some View {
         GeometryReader { geo in
@@ -91,10 +93,11 @@ struct VerticalFader: View {
             }
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
-                let newFraction = 1 - min(max(drag.location.y / geo.size.height, 0), 1)
-                onChange(Float(newFraction) * 2)
-            })
+            .gesture(DragGesture(minimumDistance: 1).onChanged { drag in
+                let start = dragStart ?? value
+                dragStart = start
+                onChange(Self.value(start: start, deltaY: drag.translation.height, height: geo.size.height))
+            }.onEnded { _ in dragStart = nil })
             .onTapGesture(count: 2) { onChange(1) }
         }
         .frame(width: 26)
@@ -104,6 +107,20 @@ struct VerticalFader: View {
             onChange(direction == .increment ? min(value + 0.05, 2) : max(value - 0.05, 0))
         }
     }
+
+    /// Ganancia tras arrastrar `deltaY` puntos (hacia abajo positivo) en una pista de `height`.
+    static func value(start: Float, deltaY: CGFloat, height: CGFloat) -> Float {
+        guard height > 0 else { return start }
+        return min(max(start - Float(deltaY / height) * 2, 0), 2)
+    }
+}
+
+/// Vúmetro que solo observa el nivel de su canal (nil = Master).
+private struct ChannelMeter: View {
+    let mixer: MixerViewModel
+    let id: InputID?
+
+    var body: some View { VUMeter(levels: mixer.levels(for: id)) }
 }
 
 /// Vúmetro por canal (dBFS −60…0).

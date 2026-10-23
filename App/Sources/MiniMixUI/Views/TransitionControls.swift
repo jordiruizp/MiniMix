@@ -4,11 +4,16 @@ import SwiftUI
 /// Columna central: T-bar, CUT y FADE con selector de duración.
 struct TransitionControls: View {
     let app: AppViewModel
+    /// La palanca física; durante un fundido automático (palanca en 0) muestra su progreso.
+    private var displayedTBar: Double {
+        app.tbarPosition > 0 || app.isDraggingTBar ? app.tbarPosition : app.transitionProgress ?? 0
+    }
+
     static let fadePresets: [Double] = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 5]
 
     var body: some View {
         VStack(spacing: 10) {
-            TBar(axis: .vertical, progress: app.transitionProgress) { app.send(.tbar($0)) }
+            TBar(axis: .vertical, position: displayedTBar, onChange: app.moveTBar(to:), onRelease: app.releaseTBar)
                 .frame(width: 44, height: 150)
             Button { app.send(.cut) } label: {
                 Text("CUT").font(.headline).frame(width: 96)
@@ -38,44 +43,51 @@ struct TransitionControls: View {
     }
 }
 
-/// T-bar: arrastrar envía la posición absoluta 0…1; al llegar a 1 vuelve a 0.
+/// T-bar: el arrastre es relativo (no salta a la posición del clic) y envía la posición absoluta
+/// 0…1; al soltar, el ViewModel decide si la palanca vuelve a 0 (rearme).
 struct TBar: View {
     enum Axis { case vertical, horizontal }
     let axis: Axis
-    /// Progreso de una transición en curso (para reflejar un fade automático).
-    let progress: Double?
+    /// Posición mostrada (palanca física o progreso de un fundido automático).
+    let position: Double
     let onChange: (Double) -> Void
-    @State private var dragValue: Double?
+    let onRelease: () -> Void
+    @State private var dragStart: Double?
 
     var body: some View {
         GeometryReader { geo in
             let length = axis == .vertical ? geo.size.height : geo.size.width
-            let value = dragValue ?? progress ?? 0
             ZStack(alignment: axis == .vertical ? .top : .leading) {
                 RoundedRectangle(cornerRadius: 6).fill(.quaternary)
                 RoundedRectangle(cornerRadius: 3).fill(Color.accentColor)
                     .frame(width: axis == .vertical ? geo.size.width - 8 : 14,
                            height: axis == .vertical ? 14 : geo.size.height - 8)
-                    .offset(x: axis == .vertical ? 4 : value * (length - 14),
-                            y: axis == .vertical ? value * (length - 14) : 4)
+                    .offset(x: axis == .vertical ? 4 : position * (length - 14),
+                            y: axis == .vertical ? position * (length - 14) : 4)
             }
             .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
-                let position = axis == .vertical ? drag.location.y : drag.location.x
-                let newValue = min(max(position / length, 0), 1)
-                dragValue = newValue
-                onChange(newValue)
+            .gesture(DragGesture(minimumDistance: 1).onChanged { drag in
+                let start = dragStart ?? position
+                dragStart = start
+                let delta = axis == .vertical ? drag.translation.height : drag.translation.width
+                onChange(Self.position(start: start, delta: delta, length: length))
             }.onEnded { _ in
-                dragValue = nil
+                dragStart = nil
+                onRelease()
             })
         }
         .accessibilityElement()
         .accessibilityLabel("T-bar")
-        .accessibilityValue("\(Int(((dragValue ?? progress ?? 0) * 100).rounded())) %")
+        .accessibilityValue("\(Int((position * 100).rounded())) %")
         .accessibilityAdjustableAction { direction in
-            let current = dragValue ?? progress ?? 0
-            let next = direction == .increment ? min(current + 0.1, 1) : max(current - 0.1, 0)
-            onChange(next)
+            onChange(direction == .increment ? min(position + 0.1, 1) : max(position - 0.1, 0))
+            onRelease()
         }
+    }
+
+    /// Posición tras arrastrar `delta` puntos desde `start` en una pista de `length` puntos.
+    static func position(start: Double, delta: Double, length: Double) -> Double {
+        guard length > 0 else { return start }
+        return min(max(start + delta / length, 0), 1)
     }
 }

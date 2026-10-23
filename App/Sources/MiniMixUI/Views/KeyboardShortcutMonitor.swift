@@ -1,15 +1,42 @@
 import AppKit
 import SwiftUI
 
+/// Condiciones para que una pulsación sea un atajo de la ventana principal (testeable sin AppKit).
+public struct ShortcutContext: Hashable, Sendable {
+    /// El evento va a la ventana que contiene `RootView` (no a un popover, panel u otra ventana).
+    public var isMainWindow: Bool
+    public var isKeyWindow: Bool
+    /// Hoja adjunta (alertas de SwiftUI, paneles de guardar/abrir) o ventana modal activa.
+    public var hasSheetOrModal: Bool
+    public var isRepeat: Bool
+    /// Hay un campo de texto editándose.
+    public var isEditingText: Bool
+
+    public init(isMainWindow: Bool, isKeyWindow: Bool, hasSheetOrModal: Bool, isRepeat: Bool, isEditingText: Bool) {
+        self.isMainWindow = isMainWindow
+        self.isKeyWindow = isKeyWindow
+        self.hasSheetOrModal = hasSheetOrModal
+        self.isRepeat = isRepeat
+        self.isEditingText = isEditingText
+    }
+
+    public var allowsShortcuts: Bool {
+        isMainWindow && isKeyWindow && !hasSheetOrModal && !isRepeat && !isEditingText
+    }
+}
+
 /// Atajos de una tecla de la ventana principal (1–9, Espacio, Intro, ←/→, P).
-/// Usa un monitor local de AppKit para no depender del foco de SwiftUI; no actúa mientras se
-/// edita texto ni con ⌘/⌃/⌥ (esos los gestionan los menús).
+/// Usa un monitor local de AppKit para no depender del foco de SwiftUI. Solo actúa en la ventana
+/// principal cuando es la ventana clave, sin hojas/alertas/modales, sin autorrepetición y sin
+/// edición de texto; las combinaciones con ⌘/⌃/⌥ las gestionan los menús.
 struct KeyboardShortcutMonitor: ViewModifier {
     let app: AppViewModel
     @State private var monitor: Any?
+    @State private var window = WindowReference()
 
     func body(content: Content) -> some View {
         content
+            .background(WindowReader(reference: window))
             .onAppear {
                 guard monitor == nil else { return }
                 monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -24,8 +51,16 @@ struct KeyboardShortcutMonitor: ViewModifier {
 
     @MainActor
     private func handle(_ event: NSEvent) -> Bool {
-        if event.window?.firstResponder is NSText { return false }
-        guard let action = ShortcutMap.action(for: Self.keyInput(from: event)) else { return false }
+        guard let main = window.window else { return false }
+        let context = ShortcutContext(
+            isMainWindow: event.window === main,
+            isKeyWindow: main.isKeyWindow,
+            hasSheetOrModal: main.attachedSheet != nil || NSApp.modalWindow != nil,
+            isRepeat: event.isARepeat,
+            isEditingText: main.firstResponder is NSText
+        )
+        guard context.allowsShortcuts,
+              let action = ShortcutMap.action(for: Self.keyInput(from: event)) else { return false }
         app.perform(action)
         return true
     }
@@ -41,5 +76,35 @@ struct KeyboardShortcutMonitor: ViewModifier {
         let modifiers = event.modifierFlags.intersection([.command, .control, .option])
         return KeyInput(characters: event.charactersIgnoringModifiers ?? "", special: special,
                         hasCommandModifiers: !modifiers.isEmpty)
+    }
+}
+
+/// Referencia débil a la ventana que aloja la vista.
+@MainActor
+final class WindowReference {
+    weak var window: NSWindow?
+}
+
+/// Captura la `NSWindow` que contiene la jerarquía SwiftUI.
+private struct WindowReader: NSViewRepresentable {
+    let reference: WindowReference
+
+    func makeNSView(context: Context) -> ReaderView {
+        let view = ReaderView()
+        view.reference = reference
+        return view
+    }
+
+    func updateNSView(_ view: ReaderView, context: Context) {
+        view.reference = reference
+        reference.window = view.window
+    }
+
+    final class ReaderView: NSView {
+        var reference: WindowReference?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            reference?.window = window
+        }
     }
 }
