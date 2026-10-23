@@ -37,6 +37,8 @@ public struct PlaylistSequencer: PlaylistSequencing {
 
     /// Item que sonará tras el actual (precarga A/B): playing(i) → next(i); held → cued;
     /// idle/ended → primero habilitado (lo que arrancaría play).
+    /// Con un único item habilitado en bucle puede ser igual a `currentIndex`: el mismo item
+    /// vuelve a sonar (la precarga A/B debe preparar otra instancia o reiniciar la actual).
     public var upcomingIndex: Int? {
         switch state {
         case .idle, .ended: firstEnabled
@@ -56,9 +58,20 @@ public struct PlaylistSequencer: PlaylistSequencing {
     /// Item actual (playing o held).
     public var currentItem: PlaylistItem? { currentIndex.map { playlist.items[$0] } }
 
+    /// `true` si el último `handle(_:)` exige reiniciar desde el principio el item actual sin que
+    /// cambie su índice: `restartItem`, `previous` en el primero sin bucle, `itemEnded` de un único
+    /// item en bucle, `play` desde held con el propio item como cued, o `jump` al item que ya suena.
+    /// `false` si el evento no cambió nada (p. ej. `next` en el último sin bucle) o si cambió de
+    /// item (el cambio de índice ya implica empezar el nuevo). Las ediciones de `playlist` no lo tocan.
+    public private(set) var lastEventRestartsItem = false
+
     @discardableResult
     public mutating func handle(_ event: SequencerEvent) -> SequencerState {
-        if let newState = transition(for: event) { state = newState }
+        let previousIndex = currentIndex
+        lastEventRestartsItem = false
+        guard let newState = transition(for: event) else { return state }
+        if case .playing(let index) = newState, index == previousIndex { lastEventRestartsItem = true }
+        state = newState
         return state
     }
 

@@ -215,6 +215,39 @@ struct PlaylistSequencerTests {
         #expect(seq.handle(.restartItem) == .playing(index: 1))
     }
 
+    @Test func restartSignal() {
+        var seq = sequencer(items(3))
+        seq.handle(.play)
+        #expect(!seq.lastEventRestartsItem, "Empieza un item nuevo: el índice cambia")
+        seq.handle(.previous)
+        #expect(seq.lastEventRestartsItem, "previous en el primero sin bucle")
+        seq.handle(.next)
+        #expect(!seq.lastEventRestartsItem)
+        seq.handle(.restartItem)
+        #expect(seq.lastEventRestartsItem)
+        seq.handle(.play)
+        #expect(!seq.lastEventRestartsItem, "play mientras suena no hace nada")
+        seq.handle(.next)
+        seq.handle(.next)
+        #expect(seq.state == .playing(index: 2) && !seq.lastEventRestartsItem, "next en el último sin bucle")
+        seq.handle(.jump(seq.playlist.items[2].id))
+        #expect(seq.lastEventRestartsItem, "jump al item que ya suena")
+    }
+
+    @Test func restartSignalForSingleItemLoop() {
+        var seq = sequencer(items(1), loop: true)
+        seq.handle(.play)
+        #expect(seq.upcomingIndex == seq.currentIndex)
+        seq.handle(.itemEnded)
+        #expect(seq.state == .playing(index: 0) && seq.lastEventRestartsItem)
+        var held = sequencer(items(1), mode: .stopAfterEach, loop: true)
+        held.handle(.play)
+        held.handle(.itemEnded)
+        #expect(held.state == .held(index: 0, cued: 0) && !held.lastEventRestartsItem)
+        held.handle(.play)
+        #expect(held.lastEventRestartsItem)
+    }
+
     // MARK: Edición mientras suena
 
     @Test func insertingBeforeCurrentShiftsIndex() {
