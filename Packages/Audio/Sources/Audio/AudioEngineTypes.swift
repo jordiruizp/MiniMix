@@ -8,6 +8,16 @@ public enum AudioEngineError: Error, Equatable {
     case notInManualRenderingMode
 }
 
+/// Eventos del ciclo de vida de `AudioEngine` (ver `AudioEngine.events`).
+public enum AudioEngineEvent: Sendable, Equatable {
+    /// El sistema cambió la configuración de la salida y paró el motor.
+    case configurationChanged
+    /// El motor volvió a arrancar tras el cambio.
+    case restarted
+    /// No se pudo rearrancar; `isRunning` es false. Descripción del error.
+    case restartFailed(String)
+}
+
 /// Configuración de `AudioEngine`.
 public struct AudioEngineConfiguration: Sendable {
     public enum RenderMode: Sendable, Equatable {
@@ -57,7 +67,8 @@ struct GainStage {
 ///             └→ soloGate (solo-escucha)                     → soloMixer
 /// ```
 struct Channel {
-    let id: InputID
+    /// Variable: un canal en baja puede recuperarse bajo otro id (re-attach del mismo nodo).
+    var id: InputID
     let source: AVAudioNode
     let ownsSourceNode: Bool
     let input: AVAudioMixerNode
@@ -66,6 +77,13 @@ struct Channel {
     let soloGate: GainStage
 
     var nodes: [AVAudioNode] { [input, fader.node, programGate.node, soloGate.node] }
+}
+
+/// Canal dado de baja que espera a que termine su rampa a 0 para desmontarse.
+struct RetiringChannel {
+    let channel: Channel
+    /// Offline: muestra renderizada a partir de la cual se desmonta; nil = temporizador (tiempo real).
+    let deadlineFrame: Int?
 }
 
 /// Ganancias objetivo de las etapas de un canal (diagnóstico y tests).

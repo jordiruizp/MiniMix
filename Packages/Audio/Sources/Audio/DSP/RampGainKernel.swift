@@ -1,12 +1,13 @@
 import AudioToolbox
 
-/// Procesado de una etapa de ganancia: rampa lineal de ganancia, medidor de pico y
-/// (opcional) línea de retardo para la compensación de latencia.
+/// Propietario de los recursos de una etapa de ganancia: rampa lineal de ganancia, medidor de
+/// pico y (opcional) línea de retardo para la compensación de latencia.
 ///
 /// Concurrencia: la configuración (`rampSeconds`, `metering`, `maxDelaySeconds`) se fija antes de
-/// `allocate`; después, `process` solo se llama desde el hilo de audio y es la única que toca el
-/// estado mutable. La comunicación con el control es solo a través de `RampGainControl` (atómicos).
-/// `process` no asigna memoria, no toma cerrojos y no hace E/S.
+/// `allocate`. El estado de render vive en `dsp`, un `UnsafeMutablePointer<RampGainDSP>` (struct
+/// POD, sin referencias): el render block captura el puntero y `control`, así que en el hilo de
+/// audio no hay accesos a propiedades de clase (ni comprobaciones dinámicas de exclusividad, ni
+/// retain/release del kernel). `allocate`/`deallocate` solo se llaman con el render parado.
 final class RampGainKernel {
     let control: RampGainControl
     var rampSeconds: Double = 0.02
@@ -15,75 +16,92 @@ final class RampGainKernel {
     /// 0 = sin línea de retardo.
     var maxDelaySeconds: Double = 0
 
-    // Rampa
-    private var rampFrames = 960
-    private var gain: Float = 1
-    private var lastTarget: Float = 1
-    private var step: Float = 0
-    private var remaining = 0
-
-    // Búfer propio para cuando el host entrega `mData == nil`.
-    private var scratch: UnsafeMutablePointer<Float>?
-    private var scratchFrames = 0
-    private var scratchChannels = 0
-
-    // Línea de retardo (un anillo por canal).
-    private var ring: UnsafeMutablePointer<Float>?
-    private var ringFrames = 0
-    private var ringChannels = 0
-    private var maxDelayFrames = 0
-    private var writeIndex = 0
-    private var currentDelay = 0
-    private var fade: Float = 1
-    private var fadeStep: Float = 1
-
-    private(set) var sampleRate: Double = 48_000
+    /// Estado del hilo de audio. Vive lo mismo que el kernel (y el kernel lo mismo que la unidad,
+    /// que es quien entrega el render block).
+    let dsp: UnsafeMutablePointer<RampGainDSP>
 
     init(control: RampGainControl) {
         self.control = control
+        dsp = .allocate(capacity: 1)
+        dsp.initialize(to: RampGainDSP())
     }
 
-    deinit { deallocate() }
+    deinit {
+        deallocate()
+        dsp.deinitialize(count: 1)
+        dsp.deallocate()
+    }
+
+    /// Máximo de muestras por ciclo de render (0 sin recursos asignados).
+    var capacityFrames: Int { dsp.pointee.capacityFrames }
 
     func allocate(maxFrames: Int, channels: Int, sampleRate: Double) {
         deallocate()
-        self.sampleRate = sampleRate
-        rampFrames = max(1, Int((rampSeconds * sampleRate).rounded()))
-        gain = control.target
-        lastTarget = gain
-        remaining = 0
-        control.storeApplied(gain)
+        var state = RampGainDSP()
+        state.metering = metering
+        state.rampFrames = max(1, Int((rampSeconds * sampleRate).rounded()))
+        state.gain = control.target
+        state.lastTarget = state.gain
+        control.storeApplied(state.gain)
 
-        scratchFrames = max(1, maxFrames)
-        scratchChannels = max(1, channels)
-        let scratchBuffer = UnsafeMutablePointer<Float>.allocate(capacity: scratchFrames * scratchChannels)
-        scratchBuffer.initialize(repeating: 0, count: scratchFrames * scratchChannels)
-        scratch = scratchBuffer
+        state.scratchFrames = max(1, maxFrames)
+        state.scratchChannels = max(1, channels)
+        let scratchCount = state.scratchFrames * state.scratchChannels
+        let scratch = UnsafeMutablePointer<Float>.allocate(capacity: scratchCount)
+        scratch.initialize(repeating: 0, count: scratchCount)
+        state.scratch = scratch
 
-        maxDelayFrames = max(0, Int((maxDelaySeconds * sampleRate).rounded()))
-        if maxDelayFrames > 0 {
-            ringFrames = maxDelayFrames + 1
-            ringChannels = max(1, channels)
-            let ringBuffer = UnsafeMutablePointer<Float>.allocate(capacity: ringFrames * ringChannels)
-            ringBuffer.initialize(repeating: 0, count: ringFrames * ringChannels)
-            ring = ringBuffer
-            writeIndex = 0
-            currentDelay = min(control.delayFrames, maxDelayFrames)
-            fade = 1
-            fadeStep = 1 / Float(max(1, Int((delayFadeSeconds * sampleRate).rounded())))
+        state.maxDelayFrames = max(0, Int((maxDelaySeconds * sampleRate).rounded()))
+        if state.maxDelayFrames > 0 {
+            state.ringFrames = state.maxDelayFrames + 1
+            state.ringChannels = max(1, channels)
+            let ringCount = state.ringFrames * state.ringChannels
+            let ring = UnsafeMutablePointer<Float>.allocate(capacity: ringCount)
+            ring.initialize(repeating: 0, count: ringCount)
+            state.ring = ring
+            state.currentDelay = min(control.delayFrames, state.maxDelayFrames)
+            state.fadeStep = 1 / Float(max(1, Int((delayFadeSeconds * sampleRate).rounded())))
         }
+        dsp.pointee = state
     }
 
     func deallocate() {
-        scratch?.deallocate()
-        scratch = nil
-        ring?.deallocate()
-        ring = nil
-        ringFrames = 0
-        maxDelayFrames = 0
+        dsp.pointee.scratch?.deallocate()
+        dsp.pointee.ring?.deallocate()
+        dsp.pointee = RampGainDSP()
     }
+}
 
-    /// Hilo de audio: da memoria propia a los búferes de salida que lleguen sin ella.
+/// Estado y proceso del hilo de audio. Struct POD (solo números y punteros): se usa siempre a
+/// través de `RampGainKernel.dsp`. Sin asignaciones, cerrojos ni E/S.
+struct RampGainDSP {
+    var metering = false
+
+    // Rampa
+    var rampFrames = 960
+    var gain: Float = 1
+    var lastTarget: Float = 1
+    var step: Float = 0
+    var remaining = 0
+
+    // Búfer propio para cuando el host entrega `mData == nil`.
+    var scratch: UnsafeMutablePointer<Float>?
+    var scratchFrames = 0
+    var scratchChannels = 0
+
+    // Línea de retardo (un anillo por canal).
+    var ring: UnsafeMutablePointer<Float>?
+    var ringFrames = 0
+    var ringChannels = 0
+    var maxDelayFrames = 0
+    var writeIndex = 0
+    var currentDelay = 0
+    var fade: Float = 1
+    var fadeStep: Float = 1
+
+    var capacityFrames: Int { scratch == nil ? 0 : scratchFrames }
+
+    /// Da memoria propia a los búferes de salida que lleguen sin ella.
     func prepareOutput(_ buffers: UnsafeMutableAudioBufferListPointer, frameCount: Int) {
         guard let scratch else { return }
         for index in 0..<buffers.count where buffers[index].mData == nil {
@@ -93,8 +111,9 @@ final class RampGainKernel {
         }
     }
 
-    /// Hilo de audio: aplica rampa de ganancia, medidor y retardo en el sitio.
-    func process(_ buffers: UnsafeMutableAudioBufferListPointer, frameCount: Int, silent: Bool) {
+    /// Aplica rampa de ganancia, medidor y retardo en el sitio.
+    mutating func process(_ buffers: UnsafeMutableAudioBufferListPointer, frameCount: Int, silent: Bool,
+                          control: RampGainControl) {
         let target = control.target
         if target != lastTarget {
             // Nueva rampa desde la ganancia actual (aunque haya otra en curso).
@@ -103,24 +122,23 @@ final class RampGainKernel {
             step = (target - gain) / Float(rampFrames)
         }
         let desiredDelay = min(control.delayFrames, maxDelayFrames)
-
-        // Cada canal parte del mismo estado y lo recorre igual (determinista); se confirma al final.
-        var endGain = gain
-        var endRemaining = remaining
-        var endWrite = writeIndex
-        var endDelay = currentDelay
-        var endFade = fade
+        // Copias locales: cada canal parte del mismo estado y lo recorre igual (determinista).
+        let startGain = gain, startRemaining = remaining, rampStep = step, rampTarget = lastTarget
+        let start = DelayState(write: writeIndex, delay: currentDelay, fade: fade)
+        var endGain = startGain
+        var endRemaining = startRemaining
+        var end = start
 
         for channel in 0..<buffers.count {
             guard let data = buffers[channel].mData?.assumingMemoryBound(to: Float.self) else { continue }
             if silent { data.update(repeating: 0, count: frameCount) }
-            var currentGain = gain
-            var rampLeft = remaining
+            var currentGain = startGain
+            var rampLeft = startRemaining
             var peak: Float = 0
             for index in 0..<frameCount {
                 if rampLeft > 0 {
                     rampLeft -= 1
-                    currentGain = rampLeft == 0 ? lastTarget : currentGain + step
+                    currentGain = rampLeft == 0 ? rampTarget : currentGain + rampStep
                 }
                 let sample = data[index] * currentGain
                 peak = max(peak, abs(sample))
@@ -131,27 +149,31 @@ final class RampGainKernel {
             endRemaining = rampLeft
 
             if let ring, channel < ringChannels {
-                let end = delay(data, frameCount: frameCount, line: ring + channel * ringFrames,
-                                desired: desiredDelay)
-                endWrite = end.write
-                endDelay = end.delay
-                endFade = end.fade
+                end = Self.delay(data, frameCount: frameCount, line: ring + channel * ringFrames,
+                                 ringFrames: ringFrames, from: start, desired: desiredDelay, fadeStep: fadeStep)
             }
         }
         gain = endGain
         remaining = endRemaining
-        writeIndex = endWrite
-        currentDelay = endDelay
-        fade = endFade
-        control.storeApplied(gain)
+        writeIndex = end.write
+        currentDelay = end.delay
+        fade = end.fade
+        control.storeApplied(endGain)
     }
 
+    struct DelayState {
+        var write: Int
+        var delay: Int
+        var fade: Float
+    }
+
+    // swiftlint:disable function_parameter_count
     /// Retardo de un canal. Al cambiar el retardo se funde a 0, se cambia y se vuelve a 1 (sin clic).
-    private func delay(_ data: UnsafeMutablePointer<Float>, frameCount: Int,
-                       line: UnsafeMutablePointer<Float>, desired: Int) -> DelayState {
-        var write = writeIndex
-        var delayFrames = currentDelay
-        var fadeGain = fade
+    static func delay(_ data: UnsafeMutablePointer<Float>, frameCount: Int, line: UnsafeMutablePointer<Float>,
+                      ringFrames: Int, from start: DelayState, desired: Int, fadeStep: Float) -> DelayState {
+        var write = start.write
+        var delayFrames = start.delay
+        var fadeGain = start.fade
         for index in 0..<frameCount {
             if delayFrames != desired {
                 fadeGain -= fadeStep
@@ -171,10 +193,5 @@ final class RampGainKernel {
         }
         return DelayState(write: write, delay: delayFrames, fade: fadeGain)
     }
-
-    private struct DelayState {
-        var write: Int
-        var delay: Int
-        var fade: Float
-    }
+    // swiftlint:enable function_parameter_count
 }

@@ -13,10 +13,13 @@ final class MeterPublisher: Sendable {
         var timer: DispatchSourceTimer?
     }
 
-    private let state = Mutex(State())
+    private let state = LockedState(State())
     private let continuation: AsyncStream<[InputID?: [Float]]>.Continuation
     private let queue = DispatchQueue(label: "minimix.audio.meters", qos: .userInteractive)
     private let interval: Double
+    /// Diagnóstico: veces que ha disparado el temporizador (se cuenta en el productor, sin depender
+    /// de cuándo despierte el consumidor del `AsyncStream`).
+    private let timerFireCount = Atomic<Int>(0)
 
     let stream: AsyncStream<[InputID?: [Float]]>
 
@@ -44,7 +47,11 @@ final class MeterPublisher: Sendable {
             guard state.timer == nil, interval > 0 else { return }
             let timer = DispatchSource.makeTimerSource(flags: .strict, queue: queue)
             timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(1))
-            timer.setEventHandler { [weak self] in self?.publish() }
+            timer.setEventHandler { [weak self] in
+                guard let self else { return }
+                timerFireCount.add(1, ordering: .relaxed)
+                publish()
+            }
             timer.resume()
             state.timer = timer
         }
@@ -56,6 +63,8 @@ final class MeterPublisher: Sendable {
             state.timer = nil
         }
     }
+
+    var timerFires: Int { timerFireCount.load(ordering: .relaxed) }
 
     /// Lee los picos acumulados y emite un mensaje (también lo usan los tests).
     func publish() {

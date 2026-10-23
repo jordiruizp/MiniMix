@@ -45,8 +45,16 @@ final class RampGainUnit: AUAudioUnit {
     override var canProcessInPlace: Bool { true }
 
     override func allocateRenderResources() throws {
-        try super.allocateRenderResources()
+        // El proceso es en el sitio: entrada y salida deben tener el mismo formato, Float32 no
+        // entrelazado (un búfer por canal).
+        let input = inputBusses[0].format
         let format = outputBusses[0].format
+        guard input.sampleRate == format.sampleRate, input.channelCount == format.channelCount,
+              format.commonFormat == .pcmFormatFloat32, input.commonFormat == .pcmFormatFloat32,
+              !format.isInterleaved, !input.isInterleaved else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(kAudioUnitErr_FormatNotSupported))
+        }
+        try super.allocateRenderResources()
         kernel.allocate(maxFrames: Int(maximumFramesToRender), channels: Int(format.channelCount),
                         sampleRate: format.sampleRate)
     }
@@ -56,18 +64,29 @@ final class RampGainUnit: AUAudioUnit {
         super.deallocateRenderResources()
     }
 
+    /// Vida útil: el bloque captura `kernel` (no solo su puntero) para que `dsp` no se libere
+    /// mientras el bloque exista, aunque la unidad se suelte antes. `deallocateRenderResources`
+    /// (que reinicia `dsp`) nunca corre a la vez que el render: el host deja de renderizar antes
+    /// de llamarlo (contrato de `AUAudioUnit`), y `AVAudioEngine` lo hace al parar o reconectar.
     override var internalRenderBlock: AUInternalRenderBlock {
         let kernel = kernel
+        let dsp = kernel.dsp
+        let control = kernel.control
         return { _, timestamp, frameCount, _, outputData, _, pullInputBlock in
-            guard let pullInputBlock else { return kAudioUnitErr_NoConnection }
-            let buffers = UnsafeMutableAudioBufferListPointer(outputData)
-            kernel.prepareOutput(buffers, frameCount: Int(frameCount))
-            var pullFlags = AudioUnitRenderActionFlags()
-            let status = pullInputBlock(&pullFlags, timestamp, frameCount, 0, outputData)
-            guard status == noErr else { return status }
-            kernel.process(buffers, frameCount: Int(frameCount),
-                           silent: pullFlags.contains(.unitRenderAction_OutputIsSilence))
-            return noErr
+            withExtendedLifetime(kernel) {
+                guard let pullInputBlock else { return kAudioUnitErr_NoConnection }
+                guard Int(frameCount) <= dsp.pointee.capacityFrames else {
+                    return kAudioUnitErr_TooManyFramesToProcess
+                }
+                let buffers = UnsafeMutableAudioBufferListPointer(outputData)
+                dsp.pointee.prepareOutput(buffers, frameCount: Int(frameCount))
+                var pullFlags = AudioUnitRenderActionFlags()
+                let status = pullInputBlock(&pullFlags, timestamp, frameCount, 0, outputData)
+                guard status == noErr else { return status }
+                dsp.pointee.process(buffers, frameCount: Int(frameCount),
+                                    silent: pullFlags.contains(.unitRenderAction_OutputIsSilence), control: control)
+                return noErr
+            }
         }
     }
 
