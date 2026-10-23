@@ -32,6 +32,7 @@ public final class ScenarioRunner {
         var duration = 0.0
         var processed = 0
         var intervals: [Double] = []
+        var deliveries: [Double] = []
         var cpuFrameTimes: [Double] = []
         var droppedByClock = 0
         var droppedByBackpressure = 0
@@ -55,12 +56,15 @@ public final class ScenarioRunner {
 
         let clock = factory.makeClock(frameRate: canvas.frameRate)
         var lastTick: HostTime?
+        var lastDelivery: ContinuousClock.Instant?
         var firstTick: HostTime?
         let wallStart = ContinuousClock.now
         clock.start()
 
         for await tick in clock.ticks {
             let frameStart = ContinuousClock.now
+            if let lastDelivery { metrics.deliveries.append(lastDelivery.duration(to: frameStart).seconds * 1000) }
+            lastDelivery = frameStart
             if firstTick == nil { firstTick = tick }
             if let last = lastTick {
                 metrics.intervals.append((tick - last) * 1000)
@@ -117,7 +121,8 @@ public final class ScenarioRunner {
             frames: .init(targetFPS: canvas.frameRate.fps, measuredFPS: Double(rendered) / max(metrics.duration, 1e-9),
                           expected: expected, rendered: rendered, dropped: max(0, expected - rendered),
                           droppedByClock: metrics.droppedByClock, droppedByBackpressure: metrics.droppedByBackpressure),
-            tickIntervalMs: .init(metrics.intervals), gpuTimeMs: .init(gpu.gpuTimesMs),
+            tickIntervalMs: .init(metrics.intervals), deliveryIntervalMs: .init(metrics.deliveries),
+            gpuTimeMs: .init(gpu.gpuTimesMs),
             cpuFrameTimeMs: .init(metrics.cpuFrameTimes),
             memory: .init(startMB: metrics.memoryStart, endMB: memoryEnd, peakMB: max(footprints.max() ?? 0, memoryEnd),
                           meanMB: footprints.isEmpty ? memoryEnd : footprints.reduce(0, +) / Double(footprints.count),

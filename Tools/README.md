@@ -15,7 +15,8 @@ Tools/generate-testmedia.sh [--force] [--only REGEX] [--out DIR] [--manifest-onl
 
 Ejecuta un escenario durante N segundos al ritmo del reloj y escribe **un informe JSON por
 ejecución** en `Tools/reports/` (ignorado por git): fps medidos, fotogramas perdidos (huecos del
-reloj y descartes por GPU saturada), intervalos entre ticks, tiempo de GPU y de CPU por fotograma,
+reloj y descartes por GPU saturada), intervalos entre ticks (marcas de la rejilla y llegada real
+`deliveryIntervalMs`, que mide el jitter), tiempo de GPU y de CPU por fotograma,
 RAM (`phys_footprint`, muestreada), CPU del proceso, estado térmico con muestreo temporal,
 eventos (cortes, transiciones, items de playlist, máx. items cargados, fotogramas sin item listo)
 y metadatos de máquina/OS.

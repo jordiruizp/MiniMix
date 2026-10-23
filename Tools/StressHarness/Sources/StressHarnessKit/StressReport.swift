@@ -71,8 +71,11 @@ public struct StressReport: Codable, Sendable {
     public var durationSeconds: Double
     public var machine: MachineInfo
     public var frames: Frames
-    /// Intervalo entre ticks del reloj procesados (ms).
+    /// Intervalo entre las marcas de tiempo (HostTime) de ticks consecutivos (ms). Son marcas de la
+    /// rejilla: solo revelan saltos de fotograma, no el jitter.
     public var tickIntervalMs: Stats
+    /// Intervalo real (ContinuousClock) entre la llegada de ticks consecutivos al bucle (ms): jitter.
+    public var deliveryIntervalMs: Stats
     /// Tiempo de GPU por fotograma (ms).
     public var gpuTimeMs: Stats
     /// Tiempo de CPU del bucle por fotograma (ms).

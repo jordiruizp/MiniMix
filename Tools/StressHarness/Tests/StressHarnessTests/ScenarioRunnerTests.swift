@@ -22,6 +22,10 @@ struct ScenarioRunnerTests {
         #expect(!report.samples.isEmpty)
         #expect(report.memory.peakMB > 1)
         #expect(report.machine.memoryGB > 1)
+        // Llegada real de los ticks (30 fps → ~33 ms), distinta de las marcas ideales.
+        #expect((20...60).contains(report.deliveryIntervalMs.p50), "\(report.deliveryIntervalMs)")
+        #expect(report.deliveryIntervalMs.max >= report.deliveryIntervalMs.p50)
+        #expect(report.deliveryIntervalMs.mean != report.tickIntervalMs.mean)
     }
 
     @Test func fadeScenarioCompletesTransitions() async throws {
