@@ -120,6 +120,8 @@ extension AppViewModel {
         }
         services.audio.setMasterVolume(project.masterVolume)
         services.inputs.setVisible(Set([project.preview, project.program].compactMap { $0 }))
+        // El Programa inicial (o el del proyecto abierto) también debe sonar.
+        services.audio.transition(from: nil, to: project.program, progress: 1)
     }
 
     private func register(_ descriptor: InputDescriptor) {

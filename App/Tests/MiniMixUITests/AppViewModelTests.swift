@@ -25,6 +25,13 @@ struct AppViewModelTests {
         #expect(call?.from == program && call?.to == preview && call?.progress == 1)
     }
 
+    @Test func initialProgramReachesAudio() async {
+        let harness = Harness()
+        await harness.app.registerAllInputs()
+        let call = harness.audio.recorded.current.lastTransition
+        #expect(call?.from == nil && call?.to == harness.video && call?.progress == 1)
+    }
+
     @Test func fadeDurationIsClamped() {
         let harness = Harness()
         harness.app.fadeDuration = 0.01
