@@ -13,7 +13,7 @@ struct CompositorTests {
     let compositor: Compositor
 
     init() throws {
-        compositor = try Compositor(context: GPU.context, collectsStats: false)
+        compositor = try Compositor(context: GPU.context, statsMode: .disabled)
     }
 
     private func render(_ frame: CompositorFrame) -> MTLTexture {
@@ -70,7 +70,7 @@ struct CompositorTests {
     }
 
     @Test func clearBackgroundKeepsTransparency() throws {
-        let transparent = try Compositor(context: GPU.context, collectsStats: false)
+        let transparent = try Compositor(context: GPU.context, statsMode: .disabled)
         transparent.backgroundColor = .clear
         let target = GPU.target(width: 16, height: 9)
         GPU.run { transparent.encode(CompositorFrame(a: nil, b: nil, mix: 0, kind: .cut), into: target, commandBuffer: $0) }
@@ -78,7 +78,7 @@ struct CompositorTests {
     }
 
     @Test func premultipliedAlphaOverWhite() throws {
-        let white = try Compositor(context: GPU.context, collectsStats: false)
+        let white = try Compositor(context: GPU.context, statsMode: .disabled)
         white.backgroundColor = RGBAColor(red: 1, green: 1, blue: 1)
         // Rojo al 50 % premultiplicado: (128, 0, 0, 128).
         let halfRed = GPU.solid(width: 16, height: 9, Pixel(red: 128, green: 0, blue: 0, alpha: 128))
@@ -161,7 +161,7 @@ struct CompositorTests {
     // MARK: Pipelines no preparados
 
     @Test func unpreparedFormatClearsWithoutCompiling() throws {
-        let local = try Compositor(context: GPU.context, collectsStats: false)
+        let local = try Compositor(context: GPU.context, statsMode: .disabled)
         let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: 16, height: 9,
                                                             mipmapped: false)
         desc.usage = [.renderTarget, .shaderRead]
@@ -224,6 +224,28 @@ struct CompositorTests {
         for _ in 0..<100 where tracked.stats.gpuTimeMs == 0 { usleep(1_000) }
         #expect(tracked.stats.gpuTimeMs > 0)
         #expect(tracked.stats.fps > 0)
+    }
+
+    @Test func externalPacingCountsTicksNotEncodes() throws {
+        let paced = try Compositor(context: GPU.context, frameRate: .fps60, statsMode: .external)
+        let target = GPU.target(width: 16, height: 9)
+        // Tres encodes en el mismo fotograma: no cuentan como fotogramas.
+        for _ in 0..<3 {
+            GPU.run { paced.encode(CompositorFrame(a: redSource, b: nil, mix: 0, kind: .cut), into: target,
+                                   commandBuffer: $0) }
+        }
+        #expect(paced.stats.fps == 0)
+        #expect(waitUntil { paced.stats.gpuTimeMs > 0 })
+        // El ritmo lo marca el tick; un tick saltado es un perdido.
+        paced.frameSubmitted(at: 10)
+        paced.frameSubmitted(at: 10 + 1.0 / 60)
+        paced.frameSubmitted(at: 10 + 3.0 / 60)
+        #expect(paced.stats.droppedFrames == 1)
+        #expect(abs(paced.stats.fps - 40) < 0.5)
+
+        let perEncode = try Compositor(context: GPU.context, statsMode: .perEncode)
+        perEncode.frameSubmitted(at: 1) // ignorado fuera de `.external`
+        #expect(perEncode.stats == RenderStats())
     }
 }
 

@@ -161,3 +161,14 @@ func percentile(_ values: [Double], _ p: Double) -> Double {
     let rank = Int((p / 100 * Double(sorted.count - 1)).rounded(.up))
     return sorted[min(sorted.count - 1, max(0, rank))]
 }
+
+/// Espera activa (solo tests) a que se cumpla `condition`, hasta `timeout` segundos.
+/// Para efectos de completion handlers de Metal, que llegan tras `waitUntilCompleted`.
+func waitUntil(timeout: Double = 1, _ condition: () -> Bool) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while !condition() {
+        if Date() > deadline { return false }
+        usleep(1_000)
+    }
+    return true
+}

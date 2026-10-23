@@ -66,7 +66,7 @@ struct ImageTextureLoaderTests {
         #expect(abs(Int(right.alpha) - 128) <= 1, "\(right)")
 
         // Sobre blanco con el compositor: (255, 127, 127) a la derecha, blanco a la izquierda.
-        let compositor = try Compositor(context: GPU.context, collectsStats: false)
+        let compositor = try Compositor(context: GPU.context, statsMode: .disabled)
         compositor.backgroundColor = RGBAColor(red: 1, green: 1, blue: 1)
         let target = GPU.target(width: 64, height: 32)
         GPU.run { compositor.encode(CompositorFrame(a: texture, b: nil, mix: 0, kind: .cut, fitA: .stretch),
