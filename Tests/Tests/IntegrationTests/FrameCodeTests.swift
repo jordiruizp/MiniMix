@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreVideo
 import Metal
 import Testing
 @testable import TestSupport
@@ -113,6 +114,18 @@ struct FrameCodeTests {
         #expect(reading.code == FrameCode(clipID: 6, frameIndex: 42))
         #expect(reading.clapLit)
         #expect(try RGBAImage(pixelBuffer: buffer) == image)
+    }
+
+    @Test func unsupportedFormatsThrow() throws {
+        var buffer: CVPixelBuffer?
+        CVPixelBufferCreate(nil, 64, 64, kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange, nil, &buffer)
+        let tenBit = try #require(buffer)
+        #expect(throws: RGBAImageError.self) { try FrameCodeReader.read(pixelBuffer: tenBit) }
+        #expect(throws: RGBAImageError.self) { try RGBAImage(pixelBuffer: tenBit) }
+        guard let device = MTLCreateSystemDefaultDevice() else { return }
+        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: 8, height: 8, mipmapped: false)
+        let half = try #require(device.makeTexture(descriptor: desc))
+        #expect(throws: RGBAImageError.self) { try FrameCodeReader.read(texture: half) }
     }
 
     @Test func readsMetalTexture() throws {

@@ -126,6 +126,17 @@ public struct FrameCodeReading: Hashable, Sendable {
     public var isBlack: Bool { averageLuma < 0.03 }
 }
 
+/// Lector del código de fotograma.
+///
+/// Formatos soportados:
+/// - `RGBAImage` (RGBA8) y cualquier `LumaSampling`.
+/// - `CVPixelBuffer`: `kCVPixelFormatType_32BGRA`, `kCVPixelFormatType_32RGBA` y 4:2:0 biplanar **8 bit**
+///   (`420YpCbCr8BiPlanarVideoRange` / `FullRange`; solo se lee el plano de luma).
+/// - `MTLTexture`: `bgra8Unorm(_srgb)` y `rgba8Unorm(_srgb)`, compartida o privada (se copia con un blit).
+///
+/// No soportados (lanzan `RGBAImageError.unsupportedPixelFormat`): 10 bit (`x420`, `p010`), 4:2:2,
+/// medio flotante (`rgba16Float`) ni ProRes RAW. Para leerlos, pide a AVAssetReader/al compositor BGRA
+/// u 8 bit 4:2:0.
 public enum FrameCodeReader {
     /// Contraste mínimo entre las celdas de calibración para aceptar el código.
     public static let minimumContrast = 0.35
