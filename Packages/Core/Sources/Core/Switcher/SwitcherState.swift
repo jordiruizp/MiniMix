@@ -5,7 +5,9 @@
 // - Durante una transición `preview`/`program` conservan sus valores (saliente = program,
 //   entrante = preview) hasta que se completa.
 // - `selectPreview` durante una transición se ignora (la entrante queda bloqueada).
-//   Si el id ya es el de Preview tampoco produce efectos.
+//   Si el id ya es el de Preview tampoco produce efectos. SwitcherState no conoce el catálogo
+//   de entradas: acepta cualquier id; validar que existe es cosa de quien envía el comando
+//   (App/T80). Al eliminar una entrada, llama a `removeInput(_:at:)` (SwitcherState+Inputs.swift).
 // - `cut` sin Preview o con Preview == Programa no hace nada. `cut` durante una transición
 //   la completa inmediatamente.
 // - `fade` sin Preview o con Preview == Programa no hace nada. La duración se limita a
@@ -25,23 +27,23 @@
 import Foundation
 
 public struct SwitcherState: SwitcherStateMachine {
-    public private(set) var preview: InputID?
-    public private(set) var program: InputID?
+    public internal(set) var preview: InputID?
+    public internal(set) var program: InputID?
     public var transition: TransitionState {
         guard let active else { return .idle }
         return .running(kind: active.kind, progress: active.progress)
     }
 
     /// `true` si una T-bar completada espera volver a 0 antes de aceptar otra transición.
-    public private(set) var tbarNeedsRearm = false
+    public internal(set) var tbarNeedsRearm = false
 
-    private enum Driver: Hashable, Sendable {
+    enum Driver: Hashable, Sendable {
         /// Fade temporizado: de `startProgress` a 1 entre `start` y `start + duration`.
         case timed(start: HostTime, duration: Double, startProgress: Double)
         case manual
     }
 
-    private struct Active: Hashable, Sendable {
+    struct Active: Hashable, Sendable {
         var kind: TransitionKind
         var driver: Driver
         var progress: Double
@@ -49,7 +51,7 @@ public struct SwitcherState: SwitcherStateMachine {
         var usedTBar: Bool
     }
 
-    private var active: Active?
+    var active: Active?
 
     public init(preview: InputID? = nil, program: InputID? = nil) {
         self.preview = preview

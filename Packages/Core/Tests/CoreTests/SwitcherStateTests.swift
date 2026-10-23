@@ -271,6 +271,46 @@ struct SwitcherStateTests {
         #expect(sw.apply(.fade(duration: 1), at: .zero).count == 2)
     }
 
+    // MARK: Baja de entradas
+
+    @Test func removingUnusedInputHasNoEffect() {
+        var sw = makeSwitcher()
+        #expect(sw.removeInput(c, at: .zero).isEmpty)
+        _ = sw.apply(.fade(duration: 1), at: .zero)
+        #expect(sw.removeInput(c, at: .zero).isEmpty)
+        #expect(sw.transition == .running(kind: .fade, progress: 0))
+    }
+
+    @Test func removingBusInputWhileIdleClearsBus() {
+        var sw = makeSwitcher()
+        #expect(sw.removeInput(b, at: .zero) == [.busesChanged(preview: nil, program: a)])
+        #expect(sw.removeInput(a, at: .zero) == [.busesChanged(preview: nil, program: nil)])
+        var same = SwitcherState(preview: a, program: a)
+        #expect(same.removeInput(a, at: .zero) == [.busesChanged(preview: nil, program: nil)])
+    }
+
+    @Test func removingInputInFadeCancelsTransition() {
+        var sw = makeSwitcher()
+        _ = sw.apply(.fade(duration: 1), at: .zero)
+        _ = sw.tick(at: time(0.5))
+        #expect(sw.removeInput(b, at: time(0.5)) == [.transitionCompleted, .busesChanged(preview: nil, program: a)])
+        #expect(sw.transition == .idle && !sw.tbarNeedsRearm)
+        #expect(sw.tick(at: time(1)).isEmpty)
+    }
+
+    @Test func removingProgramDuringTBarCancelsAndNeedsRearm() {
+        var sw = makeSwitcher()
+        _ = sw.apply(.tbar(0.5), at: .zero)
+        #expect(sw.removeInput(a, at: .zero) == [.transitionCompleted, .busesChanged(preview: b, program: nil)])
+        #expect(sw.transition == .idle && sw.tbarNeedsRearm)
+    }
+
+    @Test func selectPreviewAcceptsAnyID() {
+        var sw = makeSwitcher()
+        let unknown = InputID()
+        #expect(sw.apply(.selectPreview(unknown), at: .zero) == [.busesChanged(preview: unknown, program: a)])
+    }
+
     // MARK: Reenvío
 
     @Test func nonBusCommandsAreForwarded() {
