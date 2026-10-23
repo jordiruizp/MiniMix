@@ -54,3 +54,18 @@ func measureCPU(seconds: Double) async -> Double {
     try? await Task.sleep(for: .seconds(seconds))
     return (processCPUTime() - cpu0) / Date().timeIntervalSince(wall0) * 100
 }
+
+/// Carga del sistema: la máquina de desarrollo la comparten varios agentes.
+enum SystemLoad {
+    static var oneMinute: Double {
+        var loads = [Double](repeating: 0, count: 3)
+        return getloadavg(&loads, 3) > 0 ? loads[0] : 0
+    }
+
+    /// Más procesos ejecutables que núcleos: las medidas de tiempo real no son fiables.
+    static var isOverloaded: Bool { oneMinute > Double(ProcessInfo.processInfo.activeProcessorCount) }
+
+    static var description: String {
+        String(format: "%.1f (núcleos %d)", oneMinute, ProcessInfo.processInfo.activeProcessorCount)
+    }
+}

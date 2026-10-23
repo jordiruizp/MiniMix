@@ -65,6 +65,22 @@ actor TestMediaFactory {
         }
     }
 
+    static let ffmpeg = "/opt/homebrew/bin/ffmpeg"
+    static var hasFFmpeg: Bool { FileManager.default.isExecutableFile(atPath: ffmpeg) }
+
+    /// MP3 (AVFoundation no codifica MP3): se convierte un WAV con ffmpeg.
+    func mp3(seconds: Double = 2) async throws -> URL {
+        let wav = try await audio(.wav, seconds: seconds)
+        return try await cached("tone-\(seconds).mp3") { url in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: Self.ffmpeg)
+            process.arguments = ["-loglevel", "error", "-y", "-i", wav.path, "-codec:a", "libmp3lame", "-b:a", "128k", url.path]
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { throw CocoaError(.fileWriteUnknown) }
+        }
+    }
+
     func png(width: Int = 400, height: Int = 200) async throws -> URL {
         try await cached("image-\(width)x\(height).png") { url in
             try Self.writePNG(width: width, height: height, to: url)
