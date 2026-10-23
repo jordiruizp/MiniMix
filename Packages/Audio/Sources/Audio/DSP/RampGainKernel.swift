@@ -74,6 +74,9 @@ final class RampGainKernel {
         }
     }
 
+    /// Máximo de muestras por ciclo de render (tamaño del búfer propio).
+    var capacityFrames: Int { scratch == nil ? 0 : scratchFrames }
+
     func deallocate() {
         scratch?.deallocate()
         scratch = nil

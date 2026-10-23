@@ -1,0 +1,59 @@
+import AudioToolbox
+import AVFAudio
+import Foundation
+import Testing
+@testable import Audio
+
+/// Pruebas directas de la unidad (sin `AVAudioEngine`): se llama a su render block.
+@Suite struct RampGainUnitTests {
+    static let stereo = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)!
+
+    static func makeUnit(maxFrames: AUAudioFrameCount = 512) throws -> RampGainUnit {
+        let unit = try RampGainUnit(componentDescription: RampGainUnit.componentDescription)
+        unit.maximumFramesToRender = maxFrames
+        return unit
+    }
+
+    /// Llama al render block con una entrada constante `value` (y opcionalmente marcada como silencio).
+    static func renderDirect(_ unit: RampGainUnit, frames: AVAudioFrameCount, value: Float,
+                             silent: Bool = false, into buffer: AVAudioPCMBuffer) -> AUAudioUnitStatus {
+        buffer.frameLength = buffer.frameCapacity
+        var flags = AudioUnitRenderActionFlags()
+        var timestamp = AudioTimeStamp()
+        let pull: AURenderPullInputBlock = { pullFlags, _, count, _, data in
+            for audioBuffer in UnsafeMutableAudioBufferListPointer(data) {
+                audioBuffer.mData?.assumingMemoryBound(to: Float.self).update(repeating: value, count: Int(count))
+            }
+            if silent { pullFlags.pointee.insert(.unitRenderAction_OutputIsSilence) }
+            return noErr
+        }
+        return unit.internalRenderBlock(&flags, &timestamp, frames, 0, buffer.mutableAudioBufferList, nil, pull)
+    }
+
+    @Test func rejectsMismatchedFormats() throws {
+        let unit = try Self.makeUnit()
+        try unit.inputBusses[0].setFormat(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!)
+        try unit.outputBusses[0].setFormat(Self.stereo)
+        #expect {
+            try unit.allocateRenderResources()
+        } throws: { error in
+            (error as NSError).domain == NSOSStatusErrorDomain
+                && (error as NSError).code == Int(kAudioUnitErr_FormatNotSupported)
+        }
+
+        let other = try Self.makeUnit()
+        try other.inputBusses[0].setFormat(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!)
+        try other.outputBusses[0].setFormat(Self.stereo)
+        #expect(throws: (any Error).self) { try other.allocateRenderResources() }
+    }
+
+    @Test func rejectsTooManyFrames() throws {
+        let unit = try Self.makeUnit(maxFrames: 64)
+        try unit.allocateRenderResources()
+        defer { unit.deallocateRenderResources() }
+        let buffer = AVAudioPCMBuffer(pcmFormat: Self.stereo, frameCapacity: 256)!
+        #expect(Self.renderDirect(unit, frames: 128, value: 0.5, into: buffer) == kAudioUnitErr_TooManyFramesToProcess)
+        #expect(Self.renderDirect(unit, frames: 64, value: 0.5, into: buffer) == noErr)
+        #expect(buffer.floatChannelData![0][63] == 0.5)
+    }
+}

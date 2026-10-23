@@ -45,8 +45,16 @@ final class RampGainUnit: AUAudioUnit {
     override var canProcessInPlace: Bool { true }
 
     override func allocateRenderResources() throws {
-        try super.allocateRenderResources()
+        // El proceso es en el sitio: entrada y salida deben tener el mismo formato, Float32 no
+        // entrelazado (un búfer por canal).
+        let input = inputBusses[0].format
         let format = outputBusses[0].format
+        guard input.sampleRate == format.sampleRate, input.channelCount == format.channelCount,
+              format.commonFormat == .pcmFormatFloat32, input.commonFormat == .pcmFormatFloat32,
+              !format.isInterleaved, !input.isInterleaved else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(kAudioUnitErr_FormatNotSupported))
+        }
+        try super.allocateRenderResources()
         kernel.allocate(maxFrames: Int(maximumFramesToRender), channels: Int(format.channelCount),
                         sampleRate: format.sampleRate)
     }
@@ -60,6 +68,7 @@ final class RampGainUnit: AUAudioUnit {
         let kernel = kernel
         return { _, timestamp, frameCount, _, outputData, _, pullInputBlock in
             guard let pullInputBlock else { return kAudioUnitErr_NoConnection }
+            guard Int(frameCount) <= kernel.capacityFrames else { return kAudioUnitErr_TooManyFramesToProcess }
             let buffers = UnsafeMutableAudioBufferListPointer(outputData)
             kernel.prepareOutput(buffers, frameCount: Int(frameCount))
             var pullFlags = AudioUnitRenderActionFlags()
