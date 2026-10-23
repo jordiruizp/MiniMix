@@ -17,8 +17,9 @@
 #
 # Contenido común a todos los vídeos e imágenes (ver "frameCode" en manifest.json):
 #   - testsrc2 de ffmpeg: barras en movimiento + contador visible (timecode y nº de frame) arriba izq.
-#   - Código de fotograma legible por máquina abajo a la izquierda (19 celdas de s×s px,
-#     s = min(ancho, alto) / 45): [blanco][negro][16 bits LSB→MSB][paridad par].
+#   - Código de fotograma legible por máquina abajo a la izquierda (23 celdas de s×s px,
+#     s = min(ancho, alto) / 45): [blanco][negro][16 bits LSB→MSB][paridad par][CRC-4 bit0..bit3]
+#     (CRC-4-ITU, x⁴+x+1, init 0, sobre los 16 bits de MSB a LSB).
 #     valor = clipID << 11 | nº de frame. Lector: Tests/Sources/TestSupport/FrameCode.swift.
 #   - Claqueta: parche de 4s×4s abajo a la derecha, blanco en el primer frame con pts ≥ k s
 #     (k entero) y negro el resto; el audio lleva un pitido de 1 kHz de 40 ms en t = k s
@@ -26,7 +27,7 @@
 set -euo pipefail
 export LC_ALL=C
 
-GENERATOR_VERSION=1
+GENERATOR_VERSION=2
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/TestMedia"
 FFMPEG="${FFMPEG:-/opt/homebrew/bin/ffmpeg}"
@@ -93,13 +94,32 @@ produce() {
   GENERATED=$((GENERATED + 1))
 }
 
+# CRC-4-ITU (x⁴+x+1, init 0) de un valor de 16 bits, de MSB a LSB. Igual que FrameCode.crc4.
+crc4() {
+  local v="$1" crc=0 b bit fb
+  for ((b = 15; b >= 0; b--)); do
+    bit=$(((v >> b) & 1)); fb=$((((crc >> 3) & 1) ^ bit)); crc=$(((crc << 1) & 15))
+    ((fb)) && crc=$((crc ^ 3))
+  done
+  echo "$crc"
+}
+
+# El CRC es lineal: el bit j del CRC es la paridad de los bits de datos i con crc4(1<<i) bit j = 1.
+CRC_TERMS=("" "" "" "")
+for i in $(seq 0 15); do
+  c="$(crc4 $((1 << i)))"
+  for j in 0 1 2 3; do
+    if (( (c >> j) & 1 )); then CRC_TERMS[j]+="${CRC_TERMS[j]:++}mod(floor((n+BASE)/$((1 << i))),2)"; fi
+  done
+done
+
 # Filtro drawbox del código de fotograma, la claqueta y el fondo negro de ambos.
 # $1 ancho, $2 alto, $3 base del código (clipID << 11), $4 duración de frame (s), $5 claqueta 0/1
 overlay_filters() {
   local w="$1" h="$2" base="$3" fd="$4" clap="$5"
   local s; s="$(cell_of "$w" "$h")"
   local y=$((h - 2 * s)) f parity="" k pow bit
-  f="drawbox=x=$((s / 2)):y=$((h - 5 * s / 2)):w=$((20 * s)):h=$((2 * s)):color=black:t=fill"
+  f="drawbox=x=$((s / 2)):y=$((h - 5 * s / 2)):w=$((24 * s)):h=$((2 * s)):color=black:t=fill"
   f+=",drawbox=x=$s:y=$y:w=$s:h=$s:color=white:t=fill"
   for k in $(seq 0 15); do
     pow=$((1 << k))
@@ -108,6 +128,10 @@ overlay_filters() {
     f+=",drawbox=x=$((s * (k + 3))):y=$y:w=$s:h=$s:color=white:t=fill:enable='$bit'"
   done
   f+=",drawbox=x=$((s * 19)):y=$y:w=$s:h=$s:color=white:t=fill:enable='mod($parity,2)'"
+  local j
+  for j in 0 1 2 3; do
+    f+=",drawbox=x=$((s * (20 + j))):y=$y:w=$s:h=$s:color=white:t=fill:enable='mod(${CRC_TERMS[j]//BASE/$base},2)'"
+  done
   if [[ "$clap" -eq 1 ]]; then
     f+=",drawbox=x=$((w - 5 * s)):y=$((h - 5 * s)):w=$((4 * s)):h=$((4 * s)):color=black:t=fill"
     f+=",drawbox=x=$((w - 5 * s)):y=$((h - 5 * s)):w=$((4 * s)):h=$((4 * s)):color=white:t=fill"
@@ -123,7 +147,7 @@ alpha_mask() {
   printf '%s' "color=c=black:s=${w}x${h}:r=$rate,format=gray"
   printf '%s' ",drawbox=x=$((w / 5)):y=$((h / 5)):w=$((3 * w / 5)):h=$((3 * h / 5)):color=white:t=fill"
   printf '%s' ",drawbox=x=0:y=$((h / 10)):w=$w:h=$((h / 20)):color=0x808080:t=fill"
-  printf '%s' ",drawbox=x=0:y=$((h - 3 * s)):w=$((21 * s)):h=$((3 * s)):color=white:t=fill"
+  printf '%s' ",drawbox=x=0:y=$((h - 3 * s)):w=$((25 * s)):h=$((3 * s)):color=white:t=fill"
   printf '%s' ",drawbox=x=$((w - 6 * s)):y=$((h - 6 * s)):w=$((6 * s)):h=$((6 * s)):color=white:t=fill"
 }
 
@@ -323,7 +347,8 @@ printf '%s\n' "${ENTRIES[@]}" | jq -s --argjson gen "$GENERATOR_VERSION" --argjs
   generatorVersion: $gen,
   generator: "Tools/generate-testmedia.sh",
   frameCode: {
-    description: "Tira de 19 celdas cuadradas abajo a la izquierda: [blanco][negro][bit0..bit15][paridad par]",
+    description: "Tira de 23 celdas cuadradas abajo a la izquierda: [blanco][negro][bit0..bit15][paridad par][crc0..crc3]",
+    crc: "CRC-4-ITU (x^4+x+1, init 0) de los 16 bits de datos, procesados de MSB a LSB",
     cellSize: "min(width, height) / 45",
     origin: "x = cellSize, y = height - 2 * cellSize (celda i en x = cellSize * (1 + i))",
     value: "clipID << 11 | frameIndex",

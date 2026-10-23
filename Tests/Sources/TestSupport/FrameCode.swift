@@ -4,12 +4,13 @@ import Foundation
 /// Código de fotograma legible por máquina que `Tools/generate-testmedia.sh` dibuja en cada
 /// vídeo/imagen de TestMedia (ver `TestMedia/manifest.json`, clave `frameCode`).
 ///
-/// Tira de 19 celdas cuadradas abajo a la izquierda: `[blanco][negro][bit0…bit15][paridad par]`.
+/// Tira de 23 celdas cuadradas abajo a la izquierda:
+/// `[blanco][negro][bit0…bit15][paridad par][crc0…crc3]` (CRC-4-ITU, x⁴+x+1, init 0, MSB→LSB).
 /// `value = clipID << 11 | frameIndex`.
 public struct FrameCode: Hashable, Sendable, CustomStringConvertible {
     public static let dataBits = 16
     public static let frameBits = 11
-    public static let cellCount = 19
+    public static let cellCount = 23
     public static let maxValue = (1 << dataBits) - 1
 
     public let value: Int
@@ -28,11 +29,23 @@ public struct FrameCode: Hashable, Sendable, CustomStringConvertible {
     public var frameIndex: Int { value & ((1 << Self.frameBits) - 1) }
     public var description: String { "clip \(clipID) frame \(frameIndex)" }
 
-    /// Estado (blanco = true) de las 19 celdas.
+    /// Estado (blanco = true) de las 23 celdas.
     public var cells: [Bool] {
         let bits = (0..<Self.dataBits).map { value >> $0 & 1 == 1 }
         let parity = bits.filter { $0 }.count % 2 == 1
-        return [true, false] + bits + [parity]
+        let crc = Self.crc4(value)
+        return [true, false] + bits + [parity] + (0..<4).map { crc >> $0 & 1 == 1 }
+    }
+
+    /// CRC-4-ITU (x⁴+x+1, init 0) de los 16 bits, de MSB a LSB. Igual que `crc4` del generador.
+    public static func crc4(_ value: Int) -> Int {
+        var crc = 0
+        for bit in stride(from: dataBits - 1, through: 0, by: -1) {
+            let feedback = (crc >> 3 & 1) ^ (value >> bit & 1)
+            crc = (crc << 1) & 0xF
+            if feedback == 1 { crc ^= 0x3 }
+        }
+        return crc
     }
 }
 
@@ -57,7 +70,7 @@ public struct FrameCodeLayout: Sendable {
     /// Fondo negro que rodea la tira.
     public var stripBackground: CGRect {
         let s = cellSize
-        return CGRect(x: contentRect.minX + s / 2, y: contentRect.maxY - 2.5 * s, width: 20 * s, height: 2 * s)
+        return CGRect(x: contentRect.minX + s / 2, y: contentRect.maxY - 2.5 * s, width: 24 * s, height: 2 * s)
     }
 
     /// Parche de la claqueta (blanco en el primer frame de cada segundo).
@@ -116,6 +129,9 @@ public struct FrameCodeReading: Hashable, Sendable {
 public enum FrameCodeReader {
     /// Contraste mínimo entre las celdas de calibración para aceptar el código.
     public static let minimumContrast = 0.35
+    /// Distancia mínima de cada celda al umbral, en fracción del contraste. En un fundido entre dos
+    /// códigos, las celdas que difieren quedan cerca del umbral y la lectura se descarta.
+    public static let minimumCellMargin = 0.25
 
     public static func read(_ frame: some LumaSampling, layout: FrameCodeLayout? = nil) -> FrameCodeReading {
         let layout = layout ?? FrameCodeLayout(width: frame.width, height: frame.height)
@@ -126,12 +142,14 @@ public enum FrameCodeReader {
         let clap = frame.meanLuma(in: layout.clapRect) > max(threshold, 0.5)
         var reading = FrameCodeReading(code: nil, clapLit: clap, averageLuma: frame.averageLuma, contrast: contrast)
         guard contrast >= minimumContrast else { return reading }
-        let cells = (0..<FrameCode.cellCount).map { frame.meanLuma(in: layout.cellRect($0)) > threshold }
-        let bits = cells[2..<(2 + FrameCode.dataBits)]
-        let ones = bits.filter { $0 }.count + (cells[FrameCode.cellCount - 1] ? 1 : 0)
-        guard ones % 2 == 0 else { return reading }
-        let value = bits.enumerated().reduce(0) { $0 | ($1.element ? 1 << $1.offset : 0) }
-        reading.code = FrameCode(value: value)
+        let levels = (0..<FrameCode.cellCount).map { frame.meanLuma(in: layout.cellRect($0)) }
+        guard levels.allSatisfy({ abs($0 - threshold) >= minimumCellMargin * contrast }) else { return reading }
+        let cells = levels.map { $0 > threshold }
+        let value = (0..<FrameCode.dataBits).reduce(0) { $0 | (cells[2 + $1] ? 1 << $1 : 0) }
+        let code = FrameCode(value: value)
+        // Paridad y CRC: las celdas leídas deben ser exactamente las que dibujaría ese valor.
+        guard code.cells == cells else { return reading }
+        reading.code = code
         return reading
     }
 }

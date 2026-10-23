@@ -24,8 +24,8 @@ Requisitos: `ffmpeg` (`brew install ffmpeg`, se usa `/opt/homebrew/bin/ffmpeg` o
 Todos los vídeos e imágenes llevan:
 
 - **Contador visible** (`testsrc2`: timecode y número de frame arriba a la izquierda).
-- **Código de fotograma** legible por máquina abajo a la izquierda: 19 celdas de `s = min(w,h)/45`
-  px — `[blanco][negro][bit0…bit15][paridad par]`; valor = `clipID << 11 | frame`. Cada archivo
+- **Código de fotograma** legible por máquina abajo a la izquierda: 23 celdas de `s = min(w,h)/45`
+  px — `[blanco][negro][bit0…bit15][paridad par][CRC-4]`; valor = `clipID << 11 | frame`. Cada archivo
   tiene un `clipID` distinto, así que un test gapless sabe qué clip y qué frame ve (0 negros,
   0 repetidos, 0 saltos). Lector: `Tests/Sources/TestSupport/FrameCode.swift`.
 - **Claqueta**: parche blanco de 4s×4s abajo a la derecha en el primer frame de cada segundo

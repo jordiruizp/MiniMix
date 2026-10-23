@@ -10,7 +10,38 @@ struct FrameCodeTests {
         #expect(code.value == 6174)
         #expect(code.cells.count == FrameCode.cellCount)
         #expect(code.cells[0] && !code.cells[1])
-        #expect(code.cells.dropFirst(2).filter { $0 }.count % 2 == 0)
+        #expect(code.cells[2..<19].filter { $0 }.count % 2 == 0)
+        // CRC-4 de referencia (mismo algoritmo que Tools/generate-testmedia.sh).
+        let crcs = [1, 2048, 6174, 43690, 65535].map(FrameCode.crc4)
+        #expect(crcs == [3, 1, 7, 2, 3])
+        #expect(code.cells[19..<23] == [true, true, true, false][...])
+    }
+
+    @Test func halfBlendOfTwoCodesIsUnreadable() {
+        // Fundido al 50 % entre dos fotogramas (o dos clips): nunca debe inventar un código.
+        let pairs = [(6174, 6175), (2048, 4096), (0x5555, 0xAAAA), (100, 101)]
+        for (first, second) in pairs {
+            var a = RGBAImage(width: 1280, height: 720, fill: .init(r: 90, g: 90, b: 90))
+            var b = a
+            FrameCodeWriter.draw(FrameCode(value: first), into: &a)
+            FrameCodeWriter.draw(FrameCode(value: second), into: &b)
+            for mix in [0.4, 0.5, 0.6] {
+                let blended = RGBAImage(width: a.width, height: a.height, bytes: zip(a.bytes, b.bytes).map {
+                    UInt8((Double($0) * (1 - mix) + Double($1) * mix).rounded())
+                })
+                #expect(FrameCodeReader.read(blended).code == nil, "\(first)/\(second) al \(mix)")
+            }
+        }
+    }
+
+    @Test func crcRejectsErrorsThatParityMisses() {
+        var image = RGBAImage(width: 1920, height: 1080, fill: .init(r: 60, g: 60, b: 60))
+        let layout = FrameCodeLayout(width: 1920, height: 1080)
+        FrameCodeWriter.draw(FrameCode(value: 5), into: &image)
+        // Dos bits volteados: la paridad sigue siendo correcta, el CRC no.
+        image.fill(layout.cellRect(10), with: .white)
+        image.fill(layout.cellRect(11), with: .white)
+        #expect(FrameCodeReader.read(image).code == nil)
     }
 
     @Test(arguments: [(1920, 1080), (1280, 720), (1080, 1920)])
@@ -31,6 +62,8 @@ struct FrameCodeTests {
         #expect(layout.cellSize == 24)
         #expect(layout.cellRect(0) == CGRect(x: 24, y: 1032, width: 24, height: 24))
         #expect(layout.cellRect(18) == CGRect(x: 456, y: 1032, width: 24, height: 24))
+        #expect(layout.cellRect(22) == CGRect(x: 552, y: 1032, width: 24, height: 24))
+        #expect(layout.stripBackground == CGRect(x: 12, y: 1020, width: 576, height: 48))
         #expect(layout.clapRect == CGRect(x: 1800, y: 960, width: 96, height: 96))
     }
 

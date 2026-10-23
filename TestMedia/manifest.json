@@ -1,9 +1,10 @@
 {
   "schemaVersion": 1,
-  "generatorVersion": 1,
+  "generatorVersion": 2,
   "generator": "Tools/generate-testmedia.sh",
   "frameCode": {
-    "description": "Tira de 19 celdas cuadradas abajo a la izquierda: [blanco][negro][bit0..bit15][paridad par]",
+    "description": "Tira de 23 celdas cuadradas abajo a la izquierda: [blanco][negro][bit0..bit15][paridad par][crc0..crc3]",
+    "crc": "CRC-4-ITU (x^4+x+1, init 0) de los 16 bits de datos, procesados de MSB a LSB",
     "cellSize": "min(width, height) / 45",
     "origin": "x = cellSize, y = height - 2 * cellSize (celda i en x = cellSize * (1 + i))",
     "value": "clipID << 11 | frameIndex",
