@@ -7,8 +7,15 @@ import Metal
 /// agrupadas: como máximo una pendiente por observador hasta que dibuja. Un mismo
 /// feed puede alimentar varias vistas, y una vista recreada con el mismo feed no
 /// interfiere con la anterior: cada una se da de baja solo con su propio token.
-/// La textura no debe reescribirse mientras se muestra: el productor debe rotar
-/// texturas (p. ej. con `TexturePool`) en lugar de reutilizar siempre la misma.
+///
+/// **Regla de propiedad de la textura publicada:**
+/// - Con `display(_:returningTo: pool)` la textura pasa a ser del feed: el
+///   productor no debe volver a escribirla ni reciclarla. El feed la devuelve a
+///   `pool` cuando (1) otra textura la sustituye y (2) han terminado todos los
+///   command buffers de monitor que la leían (`TextureLease`).
+/// - Con `display(_:)` sin pool, el productor conserva la propiedad y debe
+///   garantizar que no la reescribe ni la recicla mientras sea la actual o haya
+///   monitores dibujándola; lo normal es usar la variante con pool.
 public final class MonitorFeed: @unchecked Sendable {
     /// Identifica a un observador registrado con `addObserver(_:)`.
     public struct ObserverToken: Hashable, Sendable {
@@ -21,7 +28,7 @@ public final class MonitorFeed: @unchecked Sendable {
     }
 
     private struct State {
-        var texture: MTLTexture?
+        var lease: TextureLease?
         var observers: [UInt64: Observer] = [:]
         var nextID: UInt64 = 0
     }
@@ -30,24 +37,32 @@ public final class MonitorFeed: @unchecked Sendable {
 
     public init() {}
 
+    deinit {
+        state.withLock { $0.lease }?.release()
+    }
+
     /// Publica la textura a mostrar y pide un redibujado a cada observador que no
     /// tenga ya uno pendiente. Seguro desde cualquier hilo; los avisos se llaman
-    /// fuera del cerrojo.
-    public func display(_ texture: MTLTexture?) {
-        let handlers: [@Sendable () -> Void] = state.withLock { st in
-            st.texture = texture
+    /// fuera del cerrojo. Con `pool`, la textura anterior vuelve al pool cuando ya
+    /// nadie la usa (ver la regla de propiedad arriba).
+    public func display(_ texture: MTLTexture?, returningTo pool: TexturePool? = nil) {
+        let lease = texture.map { TextureLease(texture: $0, pool: pool) }
+        let (previous, handlers): (TextureLease?, [@Sendable () -> Void]) = state.withLock { st in
+            let previous = st.lease
+            st.lease = lease
             var due: [@Sendable () -> Void] = []
             for (id, observer) in st.observers where !observer.pending {
                 st.observers[id]?.pending = true
                 due.append(observer.handler)
             }
-            return due
+            return (previous, due)
         }
+        previous?.release()
         for handler in handlers { handler() }
     }
 
     /// Última textura publicada.
-    public var currentTexture: MTLTexture? { state.withLock { $0.texture } }
+    public var currentTexture: MTLTexture? { state.withLock { $0.lease?.texture } }
 
     /// Registra un observador; `handler` se llama (en cualquier hilo) cuando hay
     /// una textura nueva y el observador no tenía ya un redibujado pendiente.
@@ -66,11 +81,48 @@ public final class MonitorFeed: @unchecked Sendable {
 
     public var observerCount: Int { state.withLock { $0.observers.count } }
 
-    /// El observador toma la textura actual y libera su petición pendiente.
-    public func takeForDrawing(_ token: ObserverToken) -> MTLTexture? {
+    /// El observador toma la textura actual (prestada) y libera su petición pendiente.
+    /// Debe llamar a `release(after:)` con el command buffer que la lee (o `release()`
+    /// si no llega a codificar nada).
+    public func acquireForDrawing(_ token: ObserverToken) -> TextureLease? {
         state.withLock { st in
             st.observers[token.id]?.pending = false
-            return st.texture
+            st.lease?.retain()
+            return st.lease
         }
     }
+}
+
+/// Préstamo con recuento de referencias de una textura publicada en un `MonitorFeed`:
+/// una referencia mientras es la textura actual y una por cada dibujo en vuelo.
+/// Al llegar a cero vuelve a su `TexturePool` (si tiene).
+public final class TextureLease: @unchecked Sendable {
+    public let texture: MTLTexture
+    private let pool: TexturePool?
+    private let refs = UnfairLocked(1)
+
+    init(texture: MTLTexture, pool: TexturePool?) {
+        self.texture = texture
+        self.pool = pool
+    }
+
+    func retain() {
+        refs.withLock { $0 += 1 }
+    }
+
+    /// Suelta una referencia ya.
+    public func release() {
+        let remaining = refs.withLock { count -> Int in
+            count -= 1
+            return count
+        }
+        if remaining == 0 { pool?.recycle(texture) }
+    }
+
+    /// Suelta la referencia cuando `commandBuffer` termine (llamar antes de `commit`).
+    public func release(after commandBuffer: MTLCommandBuffer) {
+        commandBuffer.addCompletedHandler { [self] _ in release() }
+    }
+
+    var referenceCount: Int { refs.withLock { $0 } }
 }

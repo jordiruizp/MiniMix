@@ -194,13 +194,60 @@ struct MonitorRendererTests {
         feed.display(texture)
         #expect(callsA.value == 1 && callsB.value == 1)
         // Solo A dibuja: solo A vuelve a recibir aviso.
-        #expect(feed.takeForDrawing(tokenA) === texture)
+        let lease = feed.acquireForDrawing(tokenA)
+        #expect(lease?.texture === texture)
+        lease?.release()
         feed.display(nil)
         #expect(callsA.value == 2 && callsB.value == 1)
         #expect(feed.currentTexture == nil)
-        _ = feed.takeForDrawing(tokenB)
+        feed.acquireForDrawing(tokenB)?.release()
         feed.display(texture)
         #expect(callsB.value == 2)
+    }
+
+    @Test func publishedTextureReturnsToPoolOnlyWhenUnused() throws {
+        let pool = TexturePool(device: GPU.context.device)
+        let feed = MonitorFeed()
+        let token = feed.addObserver {}
+        let first = try #require(pool.dequeue(width: 16, height: 16))
+        let second = try #require(pool.dequeue(width: 16, height: 16))
+
+        feed.display(first, returningTo: pool)
+        let drawing = try #require(feed.acquireForDrawing(token))
+        #expect(drawing.texture === first)
+
+        // Sustituida pero aún dibujándose: no vuelve al pool.
+        feed.display(second, returningTo: pool)
+        #expect(pool.cachedCount == 0)
+
+        // El command buffer del monitor termina: ahora sí.
+        GPU.run { commandBuffer in
+            commandBuffer.makeBlitCommandEncoder()!.endEncoding()
+            drawing.release(after: commandBuffer)
+        }
+        #expect(waitUntil { pool.cachedCount == 1 })
+        #expect(pool.dequeue(width: 16, height: 16) === first)
+
+        // Sin dibujos en vuelo, sustituirla la devuelve en el acto.
+        feed.display(nil, returningTo: pool)
+        #expect(pool.cachedCount == 1)
+        #expect(pool.dequeue(width: 16, height: 16) === second)
+    }
+
+    @Test func textureWithoutPoolIsNotRecycled() throws {
+        let pool = TexturePool(device: GPU.context.device)
+        let feed = MonitorFeed()
+        feed.display(pool.dequeue(width: 8, height: 8)!)
+        feed.display(nil)
+        #expect(pool.cachedCount == 0)
+    }
+
+    @Test func releasingFeedReturnsCurrentTexture() throws {
+        let pool = TexturePool(device: GPU.context.device)
+        var feed: MonitorFeed? = MonitorFeed()
+        feed?.display(pool.dequeue(width: 8, height: 8)!, returningTo: pool)
+        feed = nil
+        #expect(pool.cachedCount == 1)
     }
 
     @Test func recreatedObserverSurvivesOldRemoval() {

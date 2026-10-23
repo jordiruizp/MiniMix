@@ -103,13 +103,17 @@ public struct MonitorView: NSViewRepresentable {
 
         public func draw(in view: MTKView) {
             guard let token else { return }
-            let texture = feed.takeForDrawing(token)
+            let lease = feed.acquireForDrawing(token)
             guard let renderer, let pass = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
-                  let commandBuffer = renderer.context.commandQueue.makeCommandBuffer() else { return }
+                  let commandBuffer = renderer.context.commandQueue.makeCommandBuffer() else {
+                lease?.release()
+                return
+            }
             commandBuffer.label = "MiniMix.Monitor"
             let scale = view.window?.backingScaleFactor ?? 2
             let border = borderColor.map { MonitorBorder(color: $0, width: Float(borderWidth * scale)) }
-            renderer.encode(texture, pass: pass, border: border, commandBuffer: commandBuffer)
+            renderer.encode(lease?.texture, pass: pass, border: border, commandBuffer: commandBuffer)
+            lease?.release(after: commandBuffer)
             commandBuffer.present(drawable)
             commandBuffer.commit()
         }
