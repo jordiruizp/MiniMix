@@ -77,4 +77,25 @@ import Testing
         #expect(buffer.floatChannelData![1][255] == 0.5)
         #expect(unit.kernel.control.takePeaks() == [0.5, 0.5])
     }
+
+    /// El render block mantiene vivo el kernel (y su estado) aunque se suelte la unidad: al
+    /// destruirse, la unidad libera sus recursos de render y el bloque rehúsa con un error en
+    /// lugar de leer memoria liberada.
+    @Test func renderBlockOutlivesUnit() throws {
+        var unit: RampGainUnit? = try Self.makeUnit()
+        try unit?.allocateRenderResources()
+        let block = try #require(unit?.internalRenderBlock)
+        unit = nil
+        let buffer = AVAudioPCMBuffer(pcmFormat: Self.stereo, frameCapacity: 64)!
+        buffer.frameLength = 64
+        var flags = AudioUnitRenderActionFlags()
+        var timestamp = AudioTimeStamp()
+        let status = block(&flags, &timestamp, 64, 0, buffer.mutableAudioBufferList, nil) { _, _, count, _, data in
+            for audioBuffer in UnsafeMutableAudioBufferListPointer(data) {
+                audioBuffer.mData?.assumingMemoryBound(to: Float.self).update(repeating: 0.25, count: Int(count))
+            }
+            return noErr
+        }
+        #expect(status == kAudioUnitErr_TooManyFramesToProcess)
+    }
 }

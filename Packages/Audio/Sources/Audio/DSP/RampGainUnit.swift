@@ -64,21 +64,29 @@ final class RampGainUnit: AUAudioUnit {
         super.deallocateRenderResources()
     }
 
+    /// Vida útil: el bloque captura `kernel` (no solo su puntero) para que `dsp` no se libere
+    /// mientras el bloque exista, aunque la unidad se suelte antes. `deallocateRenderResources`
+    /// (que reinicia `dsp`) nunca corre a la vez que el render: el host deja de renderizar antes
+    /// de llamarlo (contrato de `AUAudioUnit`), y `AVAudioEngine` lo hace al parar o reconectar.
     override var internalRenderBlock: AUInternalRenderBlock {
-        // Solo se capturan el puntero al estado POD y los atómicos de control (ver RampGainKernel).
+        let kernel = kernel
         let dsp = kernel.dsp
         let control = kernel.control
         return { _, timestamp, frameCount, _, outputData, _, pullInputBlock in
-            guard let pullInputBlock else { return kAudioUnitErr_NoConnection }
-            guard Int(frameCount) <= dsp.pointee.capacityFrames else { return kAudioUnitErr_TooManyFramesToProcess }
-            let buffers = UnsafeMutableAudioBufferListPointer(outputData)
-            dsp.pointee.prepareOutput(buffers, frameCount: Int(frameCount))
-            var pullFlags = AudioUnitRenderActionFlags()
-            let status = pullInputBlock(&pullFlags, timestamp, frameCount, 0, outputData)
-            guard status == noErr else { return status }
-            dsp.pointee.process(buffers, frameCount: Int(frameCount),
-                                silent: pullFlags.contains(.unitRenderAction_OutputIsSilence), control: control)
-            return noErr
+            withExtendedLifetime(kernel) {
+                guard let pullInputBlock else { return kAudioUnitErr_NoConnection }
+                guard Int(frameCount) <= dsp.pointee.capacityFrames else {
+                    return kAudioUnitErr_TooManyFramesToProcess
+                }
+                let buffers = UnsafeMutableAudioBufferListPointer(outputData)
+                dsp.pointee.prepareOutput(buffers, frameCount: Int(frameCount))
+                var pullFlags = AudioUnitRenderActionFlags()
+                let status = pullInputBlock(&pullFlags, timestamp, frameCount, 0, outputData)
+                guard status == noErr else { return status }
+                dsp.pointee.process(buffers, frameCount: Int(frameCount),
+                                    silent: pullFlags.contains(.unitRenderAction_OutputIsSilence), control: control)
+                return noErr
+            }
         }
     }
 
