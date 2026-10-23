@@ -65,17 +65,19 @@ final class RampGainUnit: AUAudioUnit {
     }
 
     override var internalRenderBlock: AUInternalRenderBlock {
-        let kernel = kernel
+        // Solo se capturan el puntero al estado POD y los atómicos de control (ver RampGainKernel).
+        let dsp = kernel.dsp
+        let control = kernel.control
         return { _, timestamp, frameCount, _, outputData, _, pullInputBlock in
             guard let pullInputBlock else { return kAudioUnitErr_NoConnection }
-            guard Int(frameCount) <= kernel.capacityFrames else { return kAudioUnitErr_TooManyFramesToProcess }
+            guard Int(frameCount) <= dsp.pointee.capacityFrames else { return kAudioUnitErr_TooManyFramesToProcess }
             let buffers = UnsafeMutableAudioBufferListPointer(outputData)
-            kernel.prepareOutput(buffers, frameCount: Int(frameCount))
+            dsp.pointee.prepareOutput(buffers, frameCount: Int(frameCount))
             var pullFlags = AudioUnitRenderActionFlags()
             let status = pullInputBlock(&pullFlags, timestamp, frameCount, 0, outputData)
             guard status == noErr else { return status }
-            kernel.process(buffers, frameCount: Int(frameCount),
-                           silent: pullFlags.contains(.unitRenderAction_OutputIsSilence))
+            dsp.pointee.process(buffers, frameCount: Int(frameCount),
+                                silent: pullFlags.contains(.unitRenderAction_OutputIsSilence), control: control)
             return noErr
         }
     }
