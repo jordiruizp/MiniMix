@@ -7,7 +7,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | Ola | Estado |
 |---|---|
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
-| 1 · A, B, C, E, G(mocks), H | 🟦 A, B, E, G integrados · H con menores (PR #3) · C en curso (T31/T32) |
+| 1 · A, B, C, E, G(mocks), H | 🟦 A, B, E, G, H integrados · C en curso (T31/T32) |
 | 2 · D, F, G-real, ORQ T80 | ⬜ |
 | 3 · H rendimiento, E sync, G pulido | ⬜ |
 | 4 · T99 release | ⬜ |
@@ -32,8 +32,8 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T41 | E | Audio sigue a Programa + fundido | ✅ | feat/e-audio → main | contra el contrato (AudioMixing + TransitionCurve); no necesita T11 |
 | T50 | G | Layout con mocks | ✅ | feat/g-ui-mocks → main | fase mocks; conexión real en Ola 2 |
 | T51 | G | Panel de playlist | ✅ | feat/g-ui-mocks → main | fase mocks; conexión real en Ola 2 |
-| T60 | H | Generador TestMedia | 🟦 | feat/h-qa | |
-| T61 | H | Harness de estrés | 🟦 | feat/h-qa | |
+| T60 | H | Generador TestMedia | ✅ | feat/h-qa → main | |
+| T61 | H | Harness de estrés | ✅ | feat/h-qa → main | |
 | T70 | D | PlaylistInput A/B | ⬜ | | Ola 2 |
 | T71 | D | Fundido entre items + hold | ⬜ | | Ola 2 |
 | T80 | ORQ | Integración switcher | ⬜ | | Ola 2 |
@@ -81,8 +81,12 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | #1 | feat/e-audio-fixes | ✅ integrado (4dd30c8) · re-revisión APROBAR · CI verde Swift 6.3 |
 | #2 | feat/b-render-fixes | ✅ integrado (ffddbab) |
 | #5 | feat/b-render-fixes2 | ✅ integrado (8b4a90e) |
-| #3 | feat/h-qa (T60, T61) | R: APROBAR CON MENORES · H corrigiendo · espera a #1 (Tests depende de Audio) |
+| #3 | feat/h-qa (T60, T61) | ✅ integrado · Core/Render/Audio verificados en local (Actions sin minutos) |
 | #4 | feat/g-ui-mocks (T50, T51) | ✅ integrado (5b3c5a3) |
+
+## Bloqueo: GitHub Actions
+
+- 2026-10-23: jobs no arrancados por «recent account payments have failed or your spending limit needs to be increased». Mientras tanto, la puerta de calidad vuelve a ser `scripts/ci.sh` local para lo que no ejecute Actions.
 
 ## Deuda menor (no bloqueante, para Ola 3)
 
