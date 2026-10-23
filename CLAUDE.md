@@ -88,6 +88,9 @@ Si necesitas un cambio fuera de tu carpeta (incluido un `Package.swift` o una de
   activos, pausar entradas no visibles, como máximo 2 items cargados por playlist.
 - macOS 15+, solo arm64. Sin dependencias externas (SPM) salvo acuerdo con el orquestador.
 - No usar la marca «vMix» en código, textos ni recursos.
+- **Tests de rendimiento** (fps, ms/frame, drops, CPU, deriva): miden y escriben el resultado siempre, pero solo
+  *exigen* el objetivo si no están en CI (`ProcessInfo.processInfo.environment["CI"] == nil`). Los runners macOS de
+  GitHub son VMs con GPU paravirtualizada y no representan el MacBook Neo.
 - Tests para cada criterio de aceptación del backlog; los tests que requieren GPU deben
   salir limpiamente si `MTLCreateSystemDefaultDevice()` es nil.
 
