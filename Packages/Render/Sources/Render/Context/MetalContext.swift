@@ -25,6 +25,13 @@ public final class MetalContext: @unchecked Sendable {
     /// Contexto del dispositivo por defecto; `nil` si no hay GPU Metal.
     public static let shared: MetalContext? = MetalContext()
 
+    /// Libera las texturas de `textureCache` que ya no se usan (CVMetalTextureCacheFlush).
+    /// Llamar periódicamente (p. ej. al quitar una entrada de vídeo o ante aviso de memoria)
+    /// para que los IOSurface de fotogramas antiguos vuelvan a su CVPixelBufferPool.
+    public func flushTextureCache() {
+        CVMetalTextureCacheFlush(textureCache, 0)
+    }
+
     /// Biblioteca con todos los shaders de Render, compilada una sola vez
     /// (`makeLibrary(source:options:)`: no hay compilador `metal` en el entorno).
     /// Llamar en la configuración, no en el hilo de render.

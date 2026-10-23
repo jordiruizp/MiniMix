@@ -1,4 +1,5 @@
 import Core
+import CoreVideo
 import Foundation
 import IOSurface
 import Metal
@@ -14,6 +15,22 @@ struct ContextTests {
         #expect(library.functionNames.contains("minimix_monitor_fragment"))
         #expect(try context.shaderLibrary() === library)
         #expect(MetalContext(device: nil) == nil)
+    }
+
+    @Test func flushTextureCacheReleasesUnusedTextures() throws {
+        let context = GPU.context
+        var pixelBuffer: CVPixelBuffer?
+        let attrs = [kCVPixelBufferMetalCompatibilityKey: true, kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary
+        #expect(CVPixelBufferCreate(nil, 32, 18, kCVPixelFormatType_32BGRA, attrs, &pixelBuffer) == kCVReturnSuccess)
+        var cvTexture: CVMetalTexture?
+        let status = CVMetalTextureCacheCreateTextureFromImage(
+            nil, context.textureCache, try #require(pixelBuffer), nil, .bgra8Unorm, 32, 18, 0, &cvTexture)
+        #expect(status == kCVReturnSuccess)
+        let texture = try #require(cvTexture.flatMap { CVMetalTextureGetTexture($0) })
+        #expect(texture.iosurface != nil)
+        cvTexture = nil
+        context.flushTextureCache() // no debe fallar ni invalidar texturas aún retenidas
+        #expect(texture.width == 32)
     }
 
     @Test func poolReusesByKey() throws {
