@@ -265,17 +265,18 @@ public final class AudioEngine: AudioMixing, Sendable {
                 state.channels[id] = nil
                 retire(previous, in: &state)
             }
-            // Re-attach de un nodo que aún se está dando de baja: se recupera el canal y la rampa
-            // vuelve a subir desde donde esté (sin desconectar → sin clic).
+            // Re-attach de un nodo que aún se está dando de baja (con el mismo id o con otro): se
+            // reutilizan sus nodos y la rampa vuelve a subir desde donde esté, con los ajustes del
+            // id nuevo (sin desconectar a mitad de rampa → sin clic).
             for (key, entry) in state.retiring where entry.channel.source === sourceNode {
                 state.retiring[key] = nil
-                if entry.channel.id == id {
-                    state.channels[id] = entry.channel
-                    Self.applyGains(&state)
-                    meterPublisher.register(entry.channel.fader.control, for: id)
-                    return
-                }
-                Self.teardown(entry.channel, in: state.engine)
+                var channel = entry.channel
+                channel.id = id
+                if state.settings[id] == nil { state.settings[id] = ChannelSettings() }
+                state.channels[id] = channel
+                Self.applyGains(&state)
+                meterPublisher.register(channel.fader.control, for: id)
+                return
             }
             let channel = Channel(
                 id: id,

@@ -67,7 +67,8 @@ struct GainStage {
 ///             └→ soloGate (solo-escucha)                     → soloMixer
 /// ```
 struct Channel {
-    let id: InputID
+    /// Variable: un canal en baja puede recuperarse bajo otro id (re-attach del mismo nodo).
+    var id: InputID
     let source: AVAudioNode
     let ownsSourceNode: Bool
     let input: AVAudioMixerNode

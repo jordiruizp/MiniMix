@@ -76,6 +76,27 @@ import Testing
         #expect(source.node?.engine == nil)
     }
 
+    @Test func reattachSameNodeUnderAnotherIdDuringRampOutWithoutClick() throws {
+        let engine = try makeOfflineEngine()
+        let original = makeSource(.sine(frequency: 1_000, amplitude: Self.amplitude))
+        let renamed = MockAudioSource(id: InputID(), node: original.node)
+        for id in [original.id, renamed.id] { engine.setAudioFollowsProgram(false, for: id) }
+        engine.setVolume(0.5, for: renamed.id)
+        try engine.attach(original)
+        try engine.start()
+        var samples = try render(engine, frames: 2_400)
+        engine.detach(original.id)
+        samples += try render(engine, frames: 300) // a mitad de la rampa
+        try engine.attach(renamed)
+        #expect(engine.attachedInputs == [renamed.id])
+        #expect(engine.retiringCount == 0)
+        samples += try render(engine, frames: 4_800)
+
+        #expect(maxEnvelopeJump(envelope(samples, window: 48)) < Self.maxJump)
+        // Suena con los ajustes del id nuevo (volumen 0,5).
+        #expect(abs(peak(samples, last: 480) - 0.5 * Self.amplitude) < 1e-3)
+    }
+
     /// Ruta de tiempo real de las bajas (temporizador de pared + `finishRetiring`). No hay
     /// dispositivo en CI, así que se fuerza esa ruta en un motor offline: mientras no se renderiza,
     /// la ganancia aplicada no llega a 0 y el canal no se desmonta (como con un búfer de E/S
