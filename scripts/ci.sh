@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/env.sh
-all=(Packages/Core Packages/Render Packages/Media Packages/Audio Packages/Output Packages/Persistence App Tests)
+all=(Packages/Core Packages/Render Packages/Media Packages/Audio Packages/Output Packages/Persistence App Tests Tools/StressHarness)
 pkgs=("${@:-${all[@]}}")
 if command -v swiftlint >/dev/null; then
   echo "▶ swiftlint"

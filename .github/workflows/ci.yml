@@ -25,7 +25,7 @@ jobs:
       fail-fast: false
       matrix:
         package: [Packages/Core, Packages/Render, Packages/Media, Packages/Audio,
-                  Packages/Output, Packages/Persistence, App, Tests]
+                  Packages/Output, Packages/Persistence, App, Tests, Tools/StressHarness]
     steps:
       - uses: actions/checkout@v4
       - uses: maxim-lobanov/setup-xcode@v1
