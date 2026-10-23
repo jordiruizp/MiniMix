@@ -182,11 +182,13 @@ extension PlaylistItem {
 // MARK: - Playlist
 
 extension ItemTransition {
+    /// `fade(seconds: 0)` es válido (está en 0…2) y se conserva tal cual: en reproducción equivale
+    /// a un corte. Normalizar nunca altera un valor válido; fuera de rango se limita a 0…2 y un
+    /// valor no finito pasa a `.cut`.
     public func normalized() -> ItemTransition {
         guard case .fade(let seconds) = self else { return self }
         guard seconds.isFinite else { return .cut }
-        let value = clamped(seconds, to: ModelLimits.itemFade)
-        return value == 0 ? .cut : .fade(seconds: value)
+        return .fade(seconds: clamped(seconds, to: ModelLimits.itemFade))
     }
 }
 

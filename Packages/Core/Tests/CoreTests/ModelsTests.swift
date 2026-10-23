@@ -175,6 +175,11 @@ struct ColorHexTests {
         #expect(try #require(RGBAColor(hex: text)).hexString == text)
     }
 
+    @Test func trimsWhitespaceAndNewlines() {
+        #expect(RGBAColor(hex: "  #FF0000\n") == RGBAColor(red: 1, green: 0, blue: 0))
+        #expect(RGBAColor(hex: "\t00FF00FF\r\n")?.green == 1)
+    }
+
     @Test func formatsAndClamps() {
         #expect(RGBAColor.black.hexString == "#000000")
         #expect(RGBAColor.black.hexString(includingAlpha: true) == "#000000FF")
@@ -220,7 +225,10 @@ struct ValidationTests {
 
     @Test func itemFadeNormalization() {
         #expect(ItemTransition.fade(seconds: 3).normalized() == .fade(seconds: 2))
-        #expect(ItemTransition.fade(seconds: -1).normalized() == .cut)
+        #expect(ItemTransition.fade(seconds: -1).normalized() == .fade(seconds: 0))
+        // Un valor válido nunca cambia al normalizar, ni siquiera 0.
+        #expect(Playlist(itemTransition: .fade(seconds: 0)).validationIssues().isEmpty)
+        #expect(ItemTransition.fade(seconds: 0).normalized() == .fade(seconds: 0))
         #expect(ItemTransition.fade(seconds: .nan).normalized() == .cut)
         #expect(ItemTransition.cut.normalized() == .cut)
     }

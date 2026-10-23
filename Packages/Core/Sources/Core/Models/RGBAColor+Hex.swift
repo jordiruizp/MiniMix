@@ -3,11 +3,12 @@
 import Foundation
 
 extension RGBAColor {
-    /// Crea un color desde `"#RRGGBB"` o `"#RRGGBBAA"` (el `#` es opcional; mayúsculas o minúsculas).
+    /// Crea un color desde `"#RRGGBB"` o `"#RRGGBBAA"` (el `#` es opcional; mayúsculas o minúsculas;
+    /// se ignoran espacios y saltos de línea alrededor).
     /// Devuelve nil si la cadena no tiene 6 u 8 dígitos hexadecimales.
     /// Los componentes se interpretan directamente como valores 0…1 (`0xFF` = 1), sin conversión de gamma.
     public init?(hex: String) {
-        var digits = Substring(hex.trimmingCharacters(in: .whitespaces))
+        var digits = Substring(hex.trimmingCharacters(in: .whitespacesAndNewlines))
         if digits.hasPrefix("#") { digits = digits.dropFirst() }
         guard digits.count == 6 || digits.count == 8,
               digits.allSatisfy(\.isHexDigit),
