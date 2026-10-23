@@ -3,11 +3,10 @@
 
 import Core
 import Foundation
-import os
 
 /// Caja con cerrojo para estado mutable en mocks `Sendable`.
 public final class Locked<Value>: @unchecked Sendable {
-    private let lock = OSAllocatedUnfairLock()
+    private let lock = NSLock()
     private var value: Value
     public init(_ value: Value) { self.value = value }
     public func withLock<R>(_ body: (inout Value) throws -> R) rethrows -> R {
