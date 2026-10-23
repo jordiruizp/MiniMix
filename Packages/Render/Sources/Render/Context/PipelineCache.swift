@@ -37,7 +37,8 @@ final class PipelineCache: @unchecked Sendable {
             return (nil, st.loggedMisses.insert(format.rawValue).inserted)
         }
         if shouldLog {
-            renderLog.error("\(self.name, privacy: .public): pipeline not prepared for pixel format \(format.rawValue); drawing fallback clear")
+            renderLog.error(
+                "\(self.name, privacy: .public): no pipeline for pixel format \(format.rawValue); fallback clear")
         }
         return pipeline
     }
