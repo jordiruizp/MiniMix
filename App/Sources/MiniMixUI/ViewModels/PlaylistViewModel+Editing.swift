@@ -13,6 +13,11 @@ extension PlaylistViewModel {
         app?.updatePlaylist(id) { $0.items.remove(atOffsets: offsets) }
     }
 
+    public func removeItems(in id: InputID, withIDs items: Set<ItemID>) {
+        guard !items.isEmpty else { return }
+        app?.updatePlaylist(id) { $0.items.removeAll { items.contains($0.id) } }
+    }
+
     /// Añade archivos al final (o en `index`); ignora extensiones desconocidas.
     @discardableResult
     public func addItems(in id: InputID, from urls: [URL], at index: Int? = nil) -> Int {
@@ -71,7 +76,7 @@ extension PlaylistViewModel {
     public func setTransition(_ transition: ItemTransition, in id: InputID) {
         let clamped: ItemTransition = switch transition {
         case .cut: .cut
-        case .fade(let seconds): .fade(seconds: min(max(seconds, 0), 2))
+        case .fade(let seconds): .fade(seconds: min(max(seconds, ModelLimits.itemFade.lowerBound), ModelLimits.itemFade.upperBound))
         }
         app?.updatePlaylist(id) { $0.itemTransition = clamped }
     }

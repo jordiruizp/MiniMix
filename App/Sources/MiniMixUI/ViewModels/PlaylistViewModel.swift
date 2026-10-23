@@ -9,6 +9,8 @@ public final class PlaylistViewModel {
     private var sequencers: [InputID: any PlaylistSequencing] = [:]
     /// Reloj del item actual de cada playlist.
     private var itemClocks: [InputID: PlaybackInfo] = [:]
+    /// Item al que pertenece cada reloj (para reajustar tras ediciones).
+    @ObservationIgnored private var clockItems: [InputID: ItemID] = [:]
     @ObservationIgnored private let makeSequencer: @MainActor (Playlist) -> any PlaylistSequencing
     @ObservationIgnored weak var app: AppViewModel?
 
@@ -21,6 +23,7 @@ public final class PlaylistViewModel {
     func reset(for project: Project) {
         sequencers = [:]
         itemClocks = [:]
+        clockItems = [:]
         for input in project.inputs {
             if let playlist = input.content.playlist { register(input.id, playlist: playlist) }
         }
@@ -31,9 +34,15 @@ public final class PlaylistViewModel {
     func unregister(_ id: InputID) {
         sequencers[id] = nil
         itemClocks[id] = nil
+        clockItems[id] = nil
     }
 
-    func sync(_ id: InputID, playlist: Playlist) { sequencers[id]?.playlist = playlist }
+    /// Asigna la playlist editada al secuenciador (que sigue el item actual por su id) y reajusta
+    /// el reloj si el item actual cambió (p. ej. se borró) o la playlist terminó.
+    func sync(_ id: InputID, playlist: Playlist) {
+        sequencers[id]?.playlist = playlist
+        reconcileClock(for: id, restart: false)
+    }
 
     // MARK: Consultas
 
@@ -62,8 +71,7 @@ public final class PlaylistViewModel {
 
     /// Duración útil de un item (con recortes), si se conoce.
     public func duration(of item: PlaylistItem) -> Double? {
-        if item.source.isStill { return item.duration ?? PlaylistItem.defaultStillDuration }
-        if let duration = item.duration { return duration }
+        if let duration = item.effectiveDuration { return duration }
         let full = item.source.mediaReference.flatMap { app?.mediaDurations[$0.path] }
         guard let end = item.outPoint ?? full else { return nil }
         return max(0, end - (item.inPoint ?? 0))
@@ -83,6 +91,7 @@ public final class PlaylistViewModel {
     /// Tiempo restante de la playlist: item actual + items habilitados posteriores (sin bucle).
     public func playlistRemaining(for id: InputID) -> Double? {
         guard let playlist = playlist(for: id) else { return nil }
+        if state(for: id) == .ended { return 0 }
         let start: Int
         var total: Double = 0
         if let current = currentIndex(for: id) {
@@ -118,25 +127,50 @@ public final class PlaylistViewModel {
         let before = sequencer.state
         let after = sequencer.handle(event)
         sequencers[id] = sequencer
+        reconcileClock(for: id, restart: Self.restartsItem(sequencer, event: event))
+        // M2: siguiente/anterior/saltar/reiniciar desde espera (o fin) vuelve a reproducir.
+        if case .playing = after, before != after || event == .restartItem,
+           let state = app?.playback[id]?.state, state == .held || state == .ended {
+            app?.startPlayback(id)
+            itemClocks[id]?.play(at: app?.now ?? 0)
+        }
+    }
+
+    /// `true` si el evento exige empezar de nuevo el item actual sin cambiar de índice.
+    /// `PlaylistSequencer` lo informa (`lastEventRestartsItem`: bucle de un item, anterior en el
+    /// primero, saltar al actual…); con otras implementaciones solo `restartItem`.
+    private static func restartsItem(_ sequencer: any PlaylistSequencing, event: SequencerEvent) -> Bool {
+        if let real = sequencer as? PlaylistSequencer { return real.lastEventRestartsItem }
+        return event == .restartItem
+    }
+
+    /// Ajusta el reloj del item al estado del secuenciador: nuevo item (o `restart`) → desde 0;
+    /// held/idle → parado; ended → sin reloj y la entrada pasa a terminada.
+    private func reconcileClock(for id: InputID, restart: Bool) {
         let now = app?.now ?? 0
-        let playing = app?.isPlaying(id) ?? false
-        switch after {
+        let state = state(for: id)
+        let item = currentIndex(for: id).flatMap { playlist(for: id)?.items[safe: $0]?.id }
+        switch state {
         case .playing:
-            if before != after || event == .restartItem || event == .play {
+            if restart || item != clockItems[id] {
                 var clock = PlaybackInfo()
-                if playing { clock.play(at: now) } else { clock.state = .paused }
+                if app?.isPlaying(id) == true { clock.play(at: now) } else { clock.state = .paused }
                 itemClocks[id] = clock
             }
-        case .held, .idle:
+        case .held:
+            if item != clockItems[id] { itemClocks[id] = PlaybackInfo() }
             itemClocks[id, default: PlaybackInfo()].pause(at: now)
-            if case .held = after, app?.playback[id] != nil {
+            if app?.playback[id] != nil, app?.playback[id]?.state != .held {
                 app?.playback[id]?.pause(at: now)
                 app?.playback[id]?.state = .held
             }
+        case .idle:
+            itemClocks[id] = nil
         case .ended:
             itemClocks[id] = nil
-            app?.playback[id]?.end(at: now)
+            if app?.playback[id] != nil { app?.playback[id]?.end(at: now) }
         }
+        clockItems[id] = item
     }
 
     func pauseClock(for id: InputID) {
