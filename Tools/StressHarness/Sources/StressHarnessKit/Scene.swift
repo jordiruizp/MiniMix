@@ -124,10 +124,15 @@ final class PlaylistState {
         var loops = 0
     }
 
+    /// Fuentes de items. `live` cuenta todas las creadas y aún no liberadas, incluidas las que se
+    /// están preparando o se desalojaron mientras se preparaban (siguen ocupando memoria).
     private struct Loaded {
         var sources: [Int: FrameSource] = [:]
-        var pending: Set<Int> = []
-        var maxLoaded = 0
+        /// Carga en curso por índice (token de la tarea).
+        var pending: [Int: UUID] = [:]
+        var tasks: [UUID: Task<Void, Never>] = [:]
+        var live = 0
+        var maxLive = 0
     }
 
     let inputID = InputID()
@@ -155,7 +160,10 @@ final class PlaylistState {
         self.canvas = canvas
     }
 
-    var maxLoaded: Int { loaded.withLock { $0.maxLoaded } }
+    /// Máximo de fuentes de items vivas a la vez (cargadas + preparándose).
+    var maxLoaded: Int { loaded.withLock { $0.maxLive } }
+    /// Fuentes de items vivas ahora mismo.
+    var liveSources: Int { loaded.withLock { $0.live } }
 
     /// Arranca la playlist; devuelve los items iniciados (0 o 1).
     func start() -> Int {
@@ -192,31 +200,59 @@ final class PlaylistState {
     }
 
     /// Mantiene cargados solo el item actual y el siguiente; prepara los que falten en segundo plano.
+    /// Los desalojados se pausan; las cargas que dejan de hacer falta se cancelan (y, si la fuente
+    /// llega a prepararse, se pausa y se libera).
     private func ensureLoaded() {
         var wanted: [Int] = []
         if case .playing(let index) = sequencer.state { wanted.append(index) }
         if let upcoming = sequencer.upcomingIndex, !wanted.contains(upcoming) { wanted.append(upcoming) }
         let items = sequencer.playlist.items
-        let toLoad: [Int] = loaded.withLock { state in
-            state.sources = state.sources.filter { wanted.contains($0.key) }
-            state.pending = state.pending.filter { wanted.contains($0) }
-            let missing = wanted.filter { state.sources[$0] == nil && !state.pending.contains($0) }
-            state.pending.formUnion(missing)
-            state.maxLoaded = max(state.maxLoaded, state.sources.count + state.pending.count)
-            return missing
+        struct Plan {
+            var evicted: [FrameSource]
+            var cancelled: [Task<Void, Never>]
+            var missing: [Int]
         }
-        for index in toLoad {
-            let content = Self.content(of: items[index].source)
-            let source = factory.makeSource(id: InputID(), content: content, canvas: canvas)
-            let loaded = loaded
-            Task.detached(priority: .userInitiated) {
-                try? await source.prepare()
-                source.play()
-                loaded.withLock {
-                    // Si mientras tanto dejó de hacer falta, se descarta.
-                    if $0.pending.remove(index) != nil { $0.sources[index] = source }
+        let plan = loaded.withLock { state -> Plan in
+            let evicted = state.sources.filter { !wanted.contains($0.key) }
+            state.sources = state.sources.filter { wanted.contains($0.key) }
+            state.live -= evicted.count
+            let dropped = state.pending.filter { !wanted.contains($0.key) }
+            state.pending = state.pending.filter { wanted.contains($0.key) }
+            let cancelled = dropped.values.compactMap { state.tasks[$0] }
+            let missing = wanted.filter { state.sources[$0] == nil && state.pending[$0] == nil }
+            return Plan(evicted: Array(evicted.values), cancelled: cancelled, missing: missing)
+        }
+        plan.evicted.forEach { $0.pause() }
+        plan.cancelled.forEach { $0.cancel() }
+        for index in plan.missing { load(index, content: Self.content(of: items[index].source)) }
+    }
+
+    private func load(_ index: Int, content: InputContent) {
+        let source = factory.makeSource(id: InputID(), content: content, canvas: canvas)
+        let token = UUID()
+        let loaded = loaded
+        loaded.withLock {
+            $0.pending[index] = token
+            $0.live += 1
+            $0.maxLive = max($0.maxLive, $0.live)
+        }
+        let task = Task.detached(priority: .userInitiated) {
+            if !Task.isCancelled { try? await source.prepare() }
+            let installed = loaded.withLock { state -> Bool in
+                state.tasks[token] = nil
+                guard state.pending[index] == token, !Task.isCancelled else {
+                    state.live -= 1
+                    return false
                 }
+                state.pending[index] = nil
+                state.sources[index] = source
+                return true
             }
+            if installed { source.play() } else { source.pause() }
+        }
+        loaded.withLock { state in
+            // Si la tarea ya terminó, no queda nada que cancelar.
+            if state.pending[index] == token { state.tasks[token] = task }
         }
     }
 
@@ -229,5 +265,16 @@ final class PlaylistState {
         }
     }
 
-    func tearDown() { loaded.withLock { $0.sources.removeAll() } }
+    /// Pausa y libera todas las fuentes de items y cancela las cargas en curso.
+    func tearDown() {
+        let (sources, tasks) = loaded.withLock { state -> ([FrameSource], [Task<Void, Never>]) in
+            let sources = Array(state.sources.values)
+            state.live -= sources.count
+            state.sources.removeAll()
+            state.pending.removeAll()
+            return (sources, Array(state.tasks.values))
+        }
+        tasks.forEach { $0.cancel() }
+        sources.forEach { $0.pause() }
+    }
 }
