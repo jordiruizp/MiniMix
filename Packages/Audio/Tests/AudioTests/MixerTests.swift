@@ -83,6 +83,17 @@ import Testing
         #expect(abs(peak(try render(engine, frames: 2_048), last: 480) - 0.25) < 1e-3)
     }
 
+    /// Sin arrancar (no requiere dispositivo de salida): construye el grafo en tiempo real.
+    @Test func realtimeEngineBuildsWithoutStarting() throws {
+        let engine = try AudioEngine()
+        #expect(engine.format.channelCount == 2)
+        #expect(engine.format.sampleRate > 0)
+        #expect(!engine.isRunning)
+        try engine.attach(makeSource(.silence))
+        let buffer = AVAudioPCMBuffer(pcmFormat: engine.format, frameCapacity: 16)!
+        #expect(throws: AudioEngineError.notInManualRenderingMode) { try engine.renderOffline(16, to: buffer) }
+    }
+
     @Test func sourceWithoutNodeIsIgnored() throws {
         let engine = try makeOfflineEngine()
         try engine.attach(MockAudioSource())

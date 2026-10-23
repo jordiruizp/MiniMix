@@ -46,6 +46,9 @@ public final class AudioEngine: AudioMixing, Sendable {
         var masterVolume: Float = 1
         var program = ProgramFollow.empty
         var latencyCompensation: Double = 0
+        /// `start()` llamado y sin `stop()`: tras un cambio de configuración se rearranca.
+        var wantsRunning = false
+        var configurationObserver: (any NSObjectProtocol)?
     }
 
     public let configuration: AudioEngineConfiguration
@@ -88,11 +91,22 @@ public final class AudioEngine: AudioMixing, Sendable {
         Self.buildBusGraph(&initial)
         meterPublisher.register(initial.masterFader.control, for: nil)
         state = Mutex(initial)
+
+        if configuration.renderMode == .realtime {
+            state.withLock { state in
+                state.configurationObserver = NotificationCenter.default.addObserver(
+                    forName: .AVAudioEngineConfigurationChange, object: state.engine, queue: nil
+                ) { [weak self] _ in self?.handleConfigurationChange() }
+            }
+        }
     }
 
     deinit {
         meterPublisher.stop()
-        state.withLock { $0.engine.stop() }
+        state.withLock { state in
+            if let observer = state.configurationObserver { NotificationCenter.default.removeObserver(observer) }
+            state.engine.stop()
+        }
     }
 
     // MARK: Ciclo de vida
@@ -102,13 +116,28 @@ public final class AudioEngine: AudioMixing, Sendable {
         try state.withLock { state in
             state.engine.prepare()
             try state.engine.start()
+            state.wantsRunning = true
         }
         meterPublisher.start()
     }
 
     public func stop() {
         meterPublisher.stop()
-        state.withLock { $0.engine.stop() }
+        state.withLock { state in
+            state.wantsRunning = false
+            state.engine.stop()
+        }
+    }
+
+    /// Cambio de dispositivo de salida (p. ej. se conecta una pantalla HDMI con audio): el motor
+    /// se para solo; se rearranca si debía estar en marcha. El formato canónico no cambia: el
+    /// `mainMixerNode` convierte a la nueva frecuencia de la salida.
+    private func handleConfigurationChange() {
+        state.withLock { state in
+            guard state.wantsRunning, !state.engine.isRunning else { return }
+            state.engine.prepare()
+            try? state.engine.start()
+        }
     }
 
     public var isRunning: Bool { state.withLock { $0.engine.isRunning } }
@@ -158,16 +187,14 @@ public final class AudioEngine: AudioMixing, Sendable {
             Self.connect(channel, in: &state)
             state.channels[id] = channel
             Self.applyGains(&state)
-        }
-        if let control = state.withLock({ $0.channels[id]?.fader.control }) {
-            meterPublisher.register(control, for: id)
+            meterPublisher.register(channel.fader.control, for: id)
         }
     }
 
     /// Desconecta y elimina el canal. Los ajustes (volumen, mute…) se conservan.
     public func detach(_ id: InputID) {
-        meterPublisher.unregister(id)
         state.withLock { state in
+            meterPublisher.unregister(id)
             guard let channel = state.channels.removeValue(forKey: id) else { return }
             Self.teardown(channel, in: state.engine)
             Self.applyGains(&state)
