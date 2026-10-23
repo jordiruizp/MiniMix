@@ -69,7 +69,19 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 - **PC3** (G) · `InputManaging.update(_ descriptor:)` para propagar ediciones en directo (color, fit, In/Out, playlist).
 - **PC4** (G) · `FrameSource.currentTime` o evento de posición para tiempos restantes reales.
 - **PC5** (G) · `Command.setFit` y comandos de edición de playlist (MIDI/Stream Deck).
+- **PC7** (G) · Añadir `removeInput(_:at:)` a `SwitcherStateMachine` (hoy G hace cast a `SwitcherState`).
+- **PC8** (G) · Añadir `lastEventRestartsItem` a `PlaylistSequencing` (hoy cast a `PlaylistSequencer`).
+- **PC9** (E) · Documentar en `AudioMixing.meters` «un único consumidor».
 - **PC6** (R-G) · `MasterClockProtocol.ticks` es un único AsyncStream: definir dueño del reloj y difusión a varios consumidores.
+
+## PRs abiertos
+
+| PR | Rama | Estado |
+|---|---|---|
+| #1 | feat/e-audio-fixes | CI ✅ (Swift 6.3) · en revisión |
+| #2 | feat/b-render-fixes | CI en curso · en revisión |
+| #3 | feat/h-qa (T60, T61) | CI en curso · en revisión |
+| #4 | feat/g-ui-mocks (T50, T51) | CI en curso · re-revisión |
 
 ## Bloqueos
 
