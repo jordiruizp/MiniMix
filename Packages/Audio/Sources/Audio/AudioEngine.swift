@@ -226,7 +226,11 @@ public final class AudioEngine: AudioMixing, Sendable {
 
     /// Formato canónico del grafo: estéreo Float32 no entrelazado a la frecuencia de la salida.
     /// Las fuentes se conectan con este formato (ver `attach`).
-    public var format: AVAudioFormat { state.withLock { $0.format } }
+    public var format: AVAudioFormat {
+        // Excepción documentada de `LockedState`: `AVAudioFormat` es inmutable tras crearse
+        // (no es `Sendable` en todos los SDK que compila el CI).
+        state.withLockUnchecked { $0.format }
+    }
 
     /// Solo en modo `.offline`: renderiza `frameCount` muestras de la salida en `buffer`.
     public func renderOffline(_ frameCount: AVAudioFrameCount,
