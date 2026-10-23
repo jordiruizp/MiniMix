@@ -55,13 +55,6 @@ extension ItemSource {
         }
     }
 
-    var isStill: Bool {
-        switch self {
-        case .image, .color: true
-        case .video, .audio: false
-        }
-    }
-
     var displayName: String {
         switch self {
         case .color(let color): "Color \(color.hexString)"

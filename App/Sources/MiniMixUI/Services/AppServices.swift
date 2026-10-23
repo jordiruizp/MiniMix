@@ -1,6 +1,7 @@
 import Core
 import CoreMocks
 import Foundation
+import Render
 import SwiftUI
 
 /// Bus de vídeo que muestra un monitor.
@@ -26,6 +27,18 @@ public struct MonitorFactory {
     public init(make: @escaping @MainActor (MonitorContent) -> AnyView) { self.make = make }
 
     public static let placeholder = MonitorFactory { AnyView(MonitorPlaceholder(content: $0)) }
+
+    /// Monitores Metal de Render. Cada bus pinta lo que se publique en su `MonitorFeed`
+    /// (lo alimenta el compositor en T80). No es el valor por defecto mientras B corrige el
+    /// desmontaje de `MonitorFeed`.
+    public static func render(context: MetalContext, preview: MonitorFeed, program: MonitorFeed) -> MonitorFactory {
+        MonitorFactory { content in
+            let isPreview = content.bus == .preview
+            return AnyView(MonitorView(feed: isPreview ? preview : program, context: context,
+                                       borderColor: isPreview ? RGBAColor(red: 0, green: 0.8, blue: 0.3)
+                                                              : RGBAColor(red: 0.9, green: 0.1, blue: 0.1)))
+        }
+    }
 }
 
 /// Dependencias de la interfaz. Todo se habla a través de los protocolos del contrato.
@@ -51,6 +64,8 @@ public struct AppServices {
     public var simulatesPlayback: Bool
     /// Gancho de demostración llamado en cada refresco (vúmetros falsos). nil en producción.
     public var demoTick: (@MainActor (AppViewModel) -> Void)?
+    /// Demo: tarea lanzada en `start()` (p. ej. hace avanzar `MockClock` a 60 Hz). nil en producción.
+    public var demoStart: (@MainActor () -> Task<Void, Never>)?
 
     public init(
         initialProject: Project,
@@ -66,7 +81,8 @@ public struct AppServices {
         uptime: @escaping @MainActor () -> Double = { ProcessInfo.processInfo.systemUptime },
         mediaDurations: [String: Double] = [:],
         simulatesPlayback: Bool = false,
-        demoTick: (@MainActor (AppViewModel) -> Void)? = nil
+        demoTick: (@MainActor (AppViewModel) -> Void)? = nil,
+        demoStart: (@MainActor () -> Task<Void, Never>)? = nil
     ) {
         self.initialProject = initialProject
         self.makeSwitcher = makeSwitcher
@@ -82,27 +98,42 @@ public struct AppServices {
         self.mediaDurations = mediaDurations
         self.simulatesPlayback = simulatesPlayback
         self.demoTick = demoTick
+        self.demoStart = demoStart
     }
 }
 
 extension AppServices {
-    /// Configuración con CoreMocks y `SampleData.project` (fase de mocks, T50/T51).
+    /// Configuración de la fase de mocks: `SwitcherState` y `PlaylistSequencer` reales de Core;
+    /// reloj, audio, entradas, persistencia y salida de CoreMocks; datos de `SampleData.project`.
     public static func mocks(
         project: Project = SampleData.project,
         audio: MockAudioMixer = MockAudioMixer(),
         demo: Bool = true
     ) -> AppServices {
         let makeSwitcher: @MainActor (Project) -> any SwitcherStateMachine = {
-            MockSwitcher(preview: $0.preview, program: $0.program)
+            SwitcherState(project: $0)
         }
-        let makeSequencer: @MainActor (Playlist) -> any PlaylistSequencing = { MockSequencer(playlist: $0) }
+        let makeSequencer: @MainActor (Playlist) -> any PlaylistSequencing = { PlaylistSequencer(playlist: $0) }
         var demoTick: (@MainActor (AppViewModel) -> Void)?
-        if demo { demoTick = { DemoMeters.emit(into: audio, for: $0) } }
+        var demoStart: (@MainActor () -> Task<Void, Never>)?
+        let clock = MockClock()
+        if demo {
+            demoTick = { DemoMeters.emit(into: audio, for: $0) }
+            // MockClock no avanza solo: sin esto los fundidos de SwitcherState no progresarían.
+            demoStart = {
+                Task {
+                    while !Task.isCancelled {
+                        clock.advance()
+                        try? await Task.sleep(for: .seconds(clock.frameRate.frameDuration))
+                    }
+                }
+            }
+        }
         return AppServices(
             initialProject: project,
             makeSwitcher: makeSwitcher,
             makeSequencer: makeSequencer,
-            clock: MockClock(),
+            clock: clock,
             audio: audio,
             inputs: MockInputManager(),
             store: MockProjectStore(),
@@ -110,7 +141,8 @@ extension AppServices {
             renderStats: { RenderStats(fps: 60, droppedFrames: 0, gpuTimeMs: 5.6) },
             mediaDurations: ["/tmp/clip.mov": 95, "/tmp/a.mp4": 12, "/tmp/m.wav": 184],
             simulatesPlayback: true,
-            demoTick: demoTick
+            demoTick: demoTick,
+            demoStart: demoStart
         )
     }
 }
