@@ -144,6 +144,38 @@ extension MediaSerialTests {
             #expect(abs((input.currentTime ?? -1) - 1.25) < 0.05)
         }
 
+        /// N1: memoria retenida. Reproduciendo a 60 Hz como mucho 6 fotogramas retirados;
+        /// al ocultar o pausar, tras el margen, ninguno (solo el actual).
+        @Test func retiredFramesAreBoundedAndReleasedWhenIdle() async throws {
+            let url = try await TestMediaFactory.shared.video(Spec(width: 320, height: 180, fps: 60, seconds: 4))
+            let input = VideoInput(url: url, textureCache: cache, loop: true)
+            try await input.prepare()
+            input.play()
+            var maxRetired = 0
+            for _ in 0..<60 {
+                _ = input.texture(for: HostClock.hostTime(nanos: HostClock.nowNanos()))
+                maxRetired = max(maxRetired, input.retiredCountForTesting)
+                try await Task.sleep(for: .milliseconds(16))
+            }
+            print("[T31] retirados reproduciendo: máx \(maxRetired) (antes ~12 con 200 ms); por entrada 1080p ≈ \(maxRetired + 1) × 8,3 MB")
+            #expect(maxRetired <= 6)
+            #expect(input.retiredCountForTesting > 0)
+
+            input.setDecodingEnabled(false) // oculta: el render ya no pide fotogramas
+            try await Task.sleep(for: .milliseconds(450))
+            #expect(input.retiredCountForTesting == 0)
+            #expect(input.texture(for: .zero) != nil) // conserva el actual
+
+            input.setDecodingEnabled(true)
+            for _ in 0..<20 {
+                _ = input.texture(for: HostClock.hostTime(nanos: HostClock.nowNanos()))
+                try await Task.sleep(for: .milliseconds(16))
+            }
+            input.pause()
+            try await Task.sleep(for: .milliseconds(450))
+            #expect(input.retiredCountForTesting == 0)
+        }
+
         @Test func missingFileFails() async throws {
             let input = VideoInput(url: URL(fileURLWithPath: "/nonexistent/clip.mov"), textureCache: cache)
             let events = input.events

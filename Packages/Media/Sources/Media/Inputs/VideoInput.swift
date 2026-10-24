@@ -15,8 +15,8 @@ import Metal
 /// - Si el archivo trae audio, `node` es un `AVAudioSourceNode` alimentado por un
 ///   `MTAudioProcessingTap` (ver `PlayerAudioTap`); si no, `node == nil`.
 /// - Vida de las texturas: la `MTLTexture` devuelta sigue siendo válida mientras
-///   se use en un command buffer que termine antes de ~200 ms y de 3 fotogramas
-///   nuevos. **Contrato para el render (T80): como máximo 3 command buffers en
+///   se use en un command buffer que termine antes de ~100 ms (y de 3 fotogramas
+///   nuevos). **Contrato para el render (T80): como máximo 3 command buffers en
 ///   vuelo** (p. ej. un semáforo de 3) y no guardar texturas de un fotograma a otro.
 /// - Formatos: MP4/MOV/M4V con H.264, HEVC (incl. alfa) y ProRes (lo que decodifique AVFoundation).
 public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
@@ -47,7 +47,7 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         var duration: Double?
         /// Último fotograma (retenido mientras se muestre).
         var current: CVMetalTexture?
-        /// Fotogramas anteriores retenidos ≥ 200 ms y ≥ 3 fotogramas para que la GPU
+        /// Fotogramas anteriores retenidos (≥ 100 ms, entre 3 y 6) para que la GPU
         /// termine de leerlos antes de que su IOSurface vuelva al pool del decodificador.
         var retired = RetirementQueue<CVMetalTexture>()
         var stats = Stats()
@@ -151,9 +151,15 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
                     s.current = texture
                     Self.count(frameAt: pts, in: &s.stats)
                 }
+                return state.withLock { s in s.current.flatMap(CVMetalTextureGetTexture) }
             }
         }
-        return state.withLock { s in s.current.flatMap(CVMetalTextureGetTexture) }
+        // Sin fotograma nuevo: podar por edad lo retirado (nadie nuevo lo referencia).
+        let now = HostClock.nowNanos()
+        return state.withLock { s in
+            s.retired.prune(now: now)
+            return s.current.flatMap(CVMetalTextureGetTexture)
+        }
     }
 
     public func play() {
@@ -179,6 +185,7 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
             if s.playback == .playing { s.playback = .paused }
         }
         applyRate()
+        scheduleRetiredFlush()
     }
 
     public func seek(to seconds: Double) async {
@@ -221,9 +228,27 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
             return s.decodingEnabled != enabled
         }
         if changed { applyRate() }
+        if changed, !enabled { scheduleRetiredFlush() }
     }
 
     public var isDecoding: Bool { player.rate != 0 }
+
+    var retiredCountForTesting: Int { state.withLock { $0.retired.count } }
+
+    /// Margen tras pausar/ocultar antes de soltar los fotogramas retirados (más que lo
+    /// que tardan en completarse ≤ 3 command buffers en vuelo).
+    static let retiredFlushDelay: DispatchTimeInterval = .milliseconds(250)
+
+    /// Suelta los fotogramas retirados si, pasado el margen, la entrada sigue parada.
+    /// Así una entrada oculta o en pausa solo retiene su fotograma actual.
+    private func scheduleRetiredFlush() {
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Self.retiredFlushDelay) { [weak self] in
+            guard let self else { return }
+            let stillIdle = self.state.withLock { s in !(s.wantsPlay && s.decodingEnabled && s.playback == .playing) }
+            guard stillIdle else { return }
+            self.state.withLock { $0.retired.removeAll() }
+        }
+    }
 
     // MARK: Internos
 
