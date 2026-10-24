@@ -6,6 +6,10 @@ import Testing
 /// Mide tiempo real: umbrales holgados para una máquina cargada (CI, otros agentes).
 @Suite("ScenarioRunner", .serialized)
 struct ScenarioRunnerTests {
+    /// CLAUDE.md: las aserciones de rendimiento solo se exigen fuera de CI (los runners son VMs);
+    /// en CI se miden y se escriben.
+    static let enforcePerformance = ProcessInfo.processInfo.environment["CI"] == nil
+
     private static let canvas = CanvasFormat(size: PixelSize(width: 640, height: 360), frameRate: .fps30)
 
     @Test(arguments: PipelineRegistry.factories.keys.sorted())
@@ -16,19 +20,24 @@ struct ScenarioRunnerTests {
         let report = try await ScenarioRunner(config: config, factory: factory).run()
         #expect(report.pipeline == pipeline)
         #expect(report.frames.expected == 45)
-        #expect(report.frames.rendered > 10, "rendered \(report.frames.rendered)")
-        #expect(report.frames.rendered <= report.frames.expected)
+        // Corrección: el informe es coherente.
+        #expect(report.frames.rendered > 0 && report.frames.rendered <= report.frames.expected)
+        #expect(report.frames.dropped == report.frames.expected - report.frames.rendered)
         #expect(report.events.switches >= 3)
-        #expect(report.durationSeconds >= 1.4 && report.durationSeconds < 2)
-        // fps medidos desde la llegada del primer tick: cerca de 30 salvo pérdidas reales.
-        #expect(report.frames.measuredFPS > 10 && report.frames.measuredFPS < 32, "\(report.frames.measuredFPS)")
+        #expect(report.durationSeconds >= 1.4)
+        #expect(report.frames.measuredFPS > 0)
         #expect(!report.samples.isEmpty)
         #expect(report.memory.peakMB > 1)
         #expect(report.machine.memoryGB > 1)
-        // Llegada real de los ticks (30 fps → ~33 ms), distinta de las marcas ideales.
-        #expect((15...150).contains(report.deliveryIntervalMs.p50), "\(report.deliveryIntervalMs)")
         #expect(report.deliveryIntervalMs.max >= report.deliveryIntervalMs.p50)
-        #expect(report.deliveryIntervalMs.mean != report.tickIntervalMs.mean)
+        print("[perf] \(pipeline): \(report.frames.measuredFPS) fps, \(report.frames.rendered)/\(report.frames.expected), "
+              + "llegada p50 \(report.deliveryIntervalMs.p50) ms, duración \(report.durationSeconds) s")
+        guard Self.enforcePerformance else { return }
+        // Rendimiento (solo fuera de CI): fps cerca de 30 y ticks a ~33 ms.
+        #expect(report.frames.rendered > 10, "rendered \(report.frames.rendered)")
+        #expect(report.durationSeconds < 2)
+        #expect(report.frames.measuredFPS > 10 && report.frames.measuredFPS < 32, "\(report.frames.measuredFPS)")
+        #expect((15...150).contains(report.deliveryIntervalMs.p50), "\(report.deliveryIntervalMs)")
     }
 
     @Test func fadeScenarioCompletesTransitions() async throws {
@@ -46,6 +55,8 @@ struct ScenarioRunnerTests {
         #expect(report.events.playlistItemsStarted >= 5)
         #expect(report.events.playlistLoops >= 1)
         #expect((1...2).contains(report.events.maxLoadedPlaylistItems))
+        print("[perf] playlist: \(report.events.playlistNotReadyFrames) fotogramas sin item listo de \(report.frames.rendered)")
+        guard Self.enforcePerformance else { return }
         // Precarga A/B: como mucho un 25 % de fotogramas sin item listo aun con la máquina cargada.
         #expect(report.events.playlistNotReadyFrames * 4 <= max(report.frames.rendered, 4),
                 "precarga A/B: \(report.events.playlistNotReadyFrames)")

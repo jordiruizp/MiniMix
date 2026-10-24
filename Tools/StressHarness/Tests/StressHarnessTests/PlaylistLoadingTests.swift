@@ -51,6 +51,7 @@ final class SlowFactory: PipelineFactory, @unchecked Sendable {
     }
 }
 
+/// Pruebas de corrección (no de rendimiento): las esperas sondean con márgenes amplios para las VMs de CI.
 @Suite("PlaylistLoading", .serialized)
 struct PlaylistLoadingTests {
     @Test func countsInFlightLoadsAndPausesEvictedSources() async throws {
@@ -62,8 +63,10 @@ struct PlaylistLoadingTests {
         // Avanzar items mucho más deprisa de lo que se preparan: las cargas desalojadas siguen vivas.
         for step in 1...5 { _ = state.advance(elapsed: Double(step) * 0.02) }
         #expect(state.maxLoaded > 2, "las preparaciones en vuelo cuentan: \(state.maxLoaded)")
-        await state.waitUntilLoaded(timeout: .seconds(2))
-        try await Task.sleep(for: .milliseconds(300))
+        await state.waitUntilLoaded(timeout: .seconds(10))
+        // Las cargas canceladas terminan su espera y se liberan: sondeo con margen amplio (VMs de CI).
+        let deadline = ContinuousClock.now + .seconds(10)
+        while state.liveSources > 2, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
         #expect(state.liveSources == 2)
         state.tearDown()
         #expect(state.liveSources == 0)
@@ -78,10 +81,10 @@ struct PlaylistLoadingTests {
                                   canvas: PixelSize(width: 16, height: 16))
         _ = state.start()
         for step in 1...12 {
-            await state.waitUntilLoaded(timeout: .seconds(1))
+            await state.waitUntilLoaded(timeout: .seconds(10))
             _ = state.advance(elapsed: Double(step) * 0.02)
         }
-        await state.waitUntilLoaded(timeout: .seconds(1))
+        await state.waitUntilLoaded(timeout: .seconds(10))
         #expect(state.maxLoaded == 2)
         state.tearDown()
     }
