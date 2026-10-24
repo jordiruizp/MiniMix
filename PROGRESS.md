@@ -87,7 +87,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | #1 | feat/e-audio-fixes | ✅ integrado (4dd30c8) · re-revisión APROBAR · CI verde Swift 6.3 |
 | #2 | feat/b-render-fixes | ✅ integrado (ffddbab) |
 | #5 | feat/b-render-fixes2 | ✅ integrado (8b4a90e) |
-| #6 | feat/c-media (T30–T32) | correcciones hechas (0c1162d) · compila en Swift 6.3 · 2 tests frágiles en la VM del CI → C corrigiendo · re-revisión en curso |
+| #6 | feat/c-media (T30–T32) | re-revisión: APROBAR CON MENORES + N1 (memoria retenida ~900 MB) y N2 (lock largo) · 2 tests frágiles en CI → C corrigiendo |
 | #7 | feat/b-render-ci | ✅ integrado (19b7cd1) |
 | #8 | feat/f-output-persistence (T81, T82) | ✅ integrado (12c8856) · pendiente probar con pantalla externa real |
 | #3 | feat/h-qa (T60, T61) | ✅ integrado · Core/Render/Audio verificados en local (Actions sin minutos) |
