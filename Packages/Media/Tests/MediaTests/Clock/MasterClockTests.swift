@@ -99,6 +99,20 @@ extension MediaSerialTests {
             PerfGate.check(deltas.contains { abs($0 - 1000.0 / 60) < 0.01 }, "algún tick consecutivo a 60 fps")
         }
 
+        /// Al liberar el reloj sus suscripciones terminan (ningún `for await` queda colgado).
+        @Test(.timeLimit(.minutes(1)))
+        func deinitFinishesSubscriptions() async {
+            var clock: MasterClock? = MasterClock(frameRate: .fps60, tickSource: .timer)
+            let stream = clock!.ticks
+            clock!.start()
+            var iterator = stream.makeAsyncIterator()
+            #expect(await iterator.next() != nil)
+            clock = nil
+            var extra = 0
+            while await iterator.next() != nil { extra += 1 }
+            #expect(extra <= 1)
+        }
+
         @Test func multicastAndRestart() async {
             let clock = MasterClock(frameRate: .fps60, tickSource: .timer)
             let s1 = clock.ticks

@@ -14,8 +14,11 @@ import os
 /// - `setFrameRate(_:)` cambia la cadencia en caliente: la rejilla nueva se ancla
 ///   en el siguiente límite de fotograma de la antigua (sin saltos ni retrocesos).
 ///
-/// Cada acceso a `ticks` crea una suscripción independiente (multicast) con
-/// `bufferingNewest(1)`. `stop()` termina las suscripciones activas.
+/// Suscripciones (contracts-v2): **cada acceso a `ticks` crea una suscripción
+/// nueva** (difusión a varios consumidores) con `bufferingNewest(1)`.
+/// `stop()` termina para siempre las suscripciones activas en ese momento: tras
+/// un `start()` posterior hay que volver a leer `ticks`. Al liberarse el reloj
+/// (`deinit`) también se terminan, así que ningún `for await` queda colgado.
 public final class MasterClock: MasterClockProtocol {
     public enum TickSource: Sendable, Equatable {
         /// `CADisplayLink` si hay pantalla; si no, temporizador.
@@ -54,7 +57,14 @@ public final class MasterClock: MasterClockProtocol {
         driver = resolved == .displayLink ? DisplayLinkTickDriver() : TimerTickDriver()
     }
 
-    deinit { driver.stop() }
+    deinit {
+        driver.stop()
+        let subscribers = state.withLock { s -> [AsyncStream<HostTime>.Continuation] in
+            defer { s.subscribers.removeAll() }
+            return Array(s.subscribers.values)
+        }
+        subscribers.forEach { $0.finish() }
+    }
 
     public var frameRate: FrameRate { state.withLock { $0.rate } }
 
