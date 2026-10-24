@@ -7,8 +7,8 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | Ola | Estado |
 |---|---|
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
-| 1 · A, B, C, E, G(mocks), H | 🟦 A, B, E, G, H integrados · C en curso (T31/T32) |
-| 2 · D, F, G-real, ORQ T80 | ✅ F integrado (T81/T82) · D y G-real esperan a Media · T80 desbloqueado (contracts-v2) |
+| 1 · A, B, C, E, G(mocks), H | ✅ todos integrados |
+| 2 · D, F, G-real, ORQ T80 | ✅ F integrado (T81/T82) · D en curso · G-real tras T80 · T80 desbloqueado (contracts-v2) |
 | 3 · H rendimiento, E sync, G pulido | ⬜ |
 | 4 · T99 release | ⬜ |
 
@@ -25,9 +25,9 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T20 | B | MetalContext, TexturePool, MonitorView | ✅ | feat/b-render → main | |
 | T21 | B | Compositor + shaders | ✅ | feat/b-render → main | |
 | T22 | B | ImageInput → textura | ✅ | feat/b-render → main | |
-| T30 | C | MasterClock | 🟦 | feat/c-media | |
-| T31 | C | VideoInput | 🟦 | feat/c-media | CVMetalTextureCache propio; se pasa a MetalContext al integrar |
-| T32 | C | AudioInput + InputManager | 🟦 | feat/c-media | |
+| T30 | C | MasterClock | ✅ | feat/c-media → main | |
+| T31 | C | VideoInput | ✅ | feat/c-media → main | |
+| T32 | C | AudioInput + InputManager | ✅ | feat/c-media → main | |
 | T40 | E | AudioEngine | ✅ | feat/e-audio → main | |
 | T41 | E | Audio sigue a Programa + fundido | ✅ | feat/e-audio → main | contra el contrato (AudioMixing + TransitionCurve); no necesita T11 |
 | T50 | G | Layout con mocks | ✅ | feat/g-ui-mocks → main | fase mocks; conexión real en Ola 2 |
@@ -87,7 +87,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | #1 | feat/e-audio-fixes | ✅ integrado (4dd30c8) · re-revisión APROBAR · CI verde Swift 6.3 |
 | #2 | feat/b-render-fixes | ✅ integrado (ffddbab) |
 | #5 | feat/b-render-fixes2 | ✅ integrado (8b4a90e) |
-| #6 | feat/c-media (T30–T32) | re-revisión: APROBAR CON MENORES + N1 (memoria retenida ~900 MB) y N2 (lock largo) · 2 tests frágiles en CI → C corrigiendo |
+| #6 | feat/c-media (T30–T32) | ✅ integrado (8181341) · memoria retenida peor caso ~900 → ~120 MB |
 | #7 | feat/b-render-ci | ✅ integrado (19b7cd1) |
 | #8 | feat/f-output-persistence (T81, T82) | ✅ integrado (12c8856) · pendiente probar con pantalla externa real |
 | #3 | feat/h-qa (T60, T61) | ✅ integrado · Core/Render/Audio verificados en local (Actions sin minutos) |
