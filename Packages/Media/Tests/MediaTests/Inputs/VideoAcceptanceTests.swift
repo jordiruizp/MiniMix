@@ -17,6 +17,11 @@ extension MediaSerialTests {
                 try await input.prepare()
                 inputs.append(input)
             }
+            // Calentamiento explícito: hasta que cada entrada entrega su primer fotograma
+            // (arranque del decodificador; en una VM lenta tarda). Que llegue es corrección.
+            for input in inputs {
+                #expect(await waitForTexture(input, timeout: 10) != nil, "sin primer fotograma: \(input.url.lastPathComponent)")
+            }
             let active = Array(inputs.prefix(2))
             active.forEach { $0.play() }
 
@@ -59,6 +64,7 @@ extension MediaSerialTests {
                 \(String(format: "%.3f", (worstCold?.seconds ?? 0) * 1000)) ms (tick \(worstCold?.tick ?? -1), sin calentar), \
                 peor tras 1 s \(String(format: "%.3f", worstWarm)) ms, en \(durations.count) llamadas
                 """)
+            // Tras el primer fotograma, `texture(for:)` nunca devuelve nil (retiene el último).
             #expect(missing == 0)
             if SystemLoad.isOverloaded {
                 // Máquina compartida saturada (otros agentes compilando): se registra la
