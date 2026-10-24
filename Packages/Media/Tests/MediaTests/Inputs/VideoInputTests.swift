@@ -117,6 +117,33 @@ extension MediaSerialTests {
             #expect(abs((input.stats.lastPresentationTime ?? 0) - 1.5) < 0.05)
         }
 
+        @Test func concurrentPrepareLoadsOnce() async throws {
+            let url = try await TestMediaFactory.shared.video(Spec(width: 320, height: 180, fps: 30, seconds: 2))
+            let input = VideoInput(url: url, textureCache: cache)
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for _ in 0..<5 { group.addTask { try await input.prepare() } }
+                try await group.waitForAll()
+            }
+            #expect(input.loadCountForTesting == 1)
+            try await input.prepare()
+            #expect(input.loadCountForTesting == 1)
+        }
+
+        @Test func currentTimeTracksPlayback() async throws {
+            let url = try await TestMediaFactory.shared.video(Spec(width: 320, height: 180, fps: 30, seconds: 2))
+            let input = VideoInput(url: url, textureCache: cache, inPoint: 0.5)
+            #expect(input.currentTime == nil)
+            try await input.prepare()
+            #expect(abs((input.currentTime ?? -1) - 0.5) < 0.05)
+            input.play()
+            try await Task.sleep(for: .milliseconds(400))
+            input.pause()
+            let t = try #require(input.currentTime)
+            #expect(t > 0.7 && t < 1.5)
+            await input.seek(to: 1.25)
+            #expect(abs((input.currentTime ?? -1) - 1.25) < 0.05)
+        }
+
         @Test func missingFileFails() async throws {
             let input = VideoInput(url: URL(fileURLWithPath: "/nonexistent/clip.mov"), textureCache: cache)
             let events = input.events

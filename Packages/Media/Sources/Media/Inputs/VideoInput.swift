@@ -38,6 +38,9 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         var wantsPlay = false
         var decodingEnabled = true
         var prepared = false
+        /// Carga en curso: `prepare()` concurrentes esperan la misma (un solo AVPlayerItem).
+        var loadTask: Task<Void, Error>?
+        var loadCount = 0
         var loop: Bool
         var inPoint: Double?
         var outPoint: Double?
@@ -100,15 +103,35 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
     public var usesVideoDecoder: Bool { true }
     var audioTapForTesting: PlayerAudioTap? { state.withLock { $0.audioTap } }
 
+    /// Reentrante: las llamadas concurrentes comparten una única carga; si falla,
+    /// una llamada posterior puede reintentarlo.
     public func prepare() async throws {
-        if state.withLock({ $0.prepared }) { return }
-        do {
-            try await load()
-        } catch {
-            continuation.yield(.error(String(describing: error)))
-            throw error
+        let task = state.withLock { s -> Task<Void, Error>? in
+            if s.prepared { return nil }
+            if let running = s.loadTask { return running }
+            let task = Task {
+                do {
+                    try await self.load()
+                } catch {
+                    self.state.withLock { $0.loadTask = nil }
+                    self.continuation.yield(.error(String(describing: error)))
+                    throw error
+                }
+            }
+            s.loadTask = task
+            return task
         }
+        try await task?.value
     }
+
+    /// Posición actual en el archivo (s), sin bloquear; nil antes de `prepare`.
+    public var currentTime: Double? {
+        guard state.withLock({ $0.prepared }) else { return nil }
+        let time = player.currentTime()
+        return time.isValid ? time.seconds : nil
+    }
+
+    var loadCountForTesting: Int { state.withLock { $0.loadCount } }
 
     public func texture(for time: HostTime) -> MTLTexture? {
         let itemTime = output.itemTime(forHostTime: time.seconds)
@@ -201,6 +224,7 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
     // MARK: Internos
 
     private func load() async throws {
+        state.withLock { $0.loadCount += 1 }
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         let duration: CMTime
         let videoTrack: AVAssetTrack?
