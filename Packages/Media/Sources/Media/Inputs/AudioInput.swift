@@ -25,9 +25,21 @@ public final class AudioInput: FrameSource, AudioSource {
         /// Invalida las finalizaciones de segmentos programados antes de un stop/seek.
         var generation = 0
         var queuedSegments = 0
+        /// Segmentos programados en el nodo, en orden (segundos del archivo).
+        var segments: [Segment] = []
+        /// Duración de los segmentos ya reproducidos desde el último `stop` del nodo
+        /// (el `sampleTime` del nodo es acumulado desde entonces).
+        var finishedSeconds: Double = 0
+        /// Última posición conocida (pausa, seek, final).
+        var lastPosition: Double?
         /// Posición desde la que programar al arrancar (nil = In).
         var startPosition: Double?
         var pendingStart = false
+    }
+
+    private struct Segment {
+        let start: Double
+        let duration: Double
     }
 
     public let id: InputID
@@ -61,6 +73,32 @@ public final class AudioInput: FrameSource, AudioSource {
     public var duration: Double? { state.withLock { $0.duration } }
     /// true si el nodo está sonando (o tiene segmentos y está en play).
     public var isNodePlaying: Bool { player.isPlaying }
+
+    /// Posición en el archivo (s). Con el nodo sonando la calcula con
+    /// `playerTime(forNodeTime:)` (solo toma el cerrojo corto del motor; no es para el
+    /// hilo de render); en pausa devuelve la última posición conocida.
+    public var currentTime: Double? {
+        struct Snapshot {
+            let front: Segment?
+            let finished: Double
+            let fallback: Double
+            let playing: Bool
+        }
+        let snapshot = state.withLock { s -> Snapshot? in
+            guard s.file != nil else { return nil }
+            return Snapshot(front: s.segments.first, finished: s.finishedSeconds,
+                            fallback: s.startPosition ?? s.lastPosition ?? s.inPoint ?? 0,
+                            playing: s.playback == .playing)
+        }
+        guard let snapshot else { return nil }
+        guard snapshot.playing, let front = snapshot.front, player.engine != nil,
+              let nodeTime = player.lastRenderTime, let playerTime = player.playerTime(forNodeTime: nodeTime),
+              playerTime.sampleRate > 0 else { return snapshot.fallback }
+        let elapsed = Double(playerTime.sampleTime) / playerTime.sampleRate
+        let position = front.start + min(max(0, elapsed - snapshot.finished), front.duration)
+        state.withLock { $0.lastPosition = position }
+        return position
+    }
 
     public func prepare() async throws {
         if state.withLock({ $0.file != nil }) { return }
@@ -99,7 +137,9 @@ public final class AudioInput: FrameSource, AudioSource {
     }
 
     public func pause() {
+        let position = currentTime
         state.withLock { s in
+            s.lastPosition = position
             s.wantsPlay = false
             s.pendingStart = false
             if s.playback == .playing { s.playback = .paused }
@@ -118,12 +158,20 @@ public final class AudioInput: FrameSource, AudioSource {
     /// Vuelve al punto In conservando play/pausa.
     public func restart() async { await seek(to: state.withLock { $0.inPoint ?? 0 }) }
 
+    /// Activar el bucle programa una vuelta más; desactivarlo con la vuelta siguiente
+    /// ya en cola reprograma desde la posición actual (micro-corte inaudible en la
+    /// práctica) para que no suene una vuelta de más.
     public func setLoop(_ loop: Bool) {
-        let generation = state.withLock { s -> Int? in
+        let (extraGeneration, dropQueued) = state.withLock { s -> (Int?, Bool) in
             s.loop = loop
-            return loop && s.queuedSegments == 1 ? s.generation : nil
+            if loop { return (s.queuedSegments == 1 ? s.generation : nil, false) }
+            return (nil, s.queuedSegments > 1)
         }
-        if let generation { scheduleSegment(from: nil, generation: generation) }
+        if let extraGeneration { scheduleSegment(from: nil, generation: extraGeneration) }
+        if dropQueued {
+            reschedule(from: currentTime)
+            startNodeIfPossible()
+        }
     }
 
     public func setInOut(inPoint: Double?, outPoint: Double?) {
@@ -142,19 +190,22 @@ public final class AudioInput: FrameSource, AudioSource {
         state.withLock { s in
             s.generation += 1
             s.queuedSegments = 0
+            s.segments = []
+            s.finishedSeconds = 0
             s.startPosition = seconds
+            s.lastPosition = seconds ?? s.inPoint ?? 0
         }
         if player.engine != nil { player.stop() }
     }
 
     /// Programa un segmento [from|In, Out) del archivo.
     private func scheduleSegment(from seconds: Double?, generation: Int) {
-        struct Segment {
+        struct Scheduled {
             let file: AVAudioFile
             let start: AVAudioFramePosition
             let count: AVAudioFrameCount
         }
-        let segment = state.withLock { s -> Segment? in
+        let segment = state.withLock { s -> Scheduled? in
             guard let file = s.file, s.generation == generation else { return nil }
             let rate = file.processingFormat.sampleRate
             let length = file.length
@@ -164,11 +215,15 @@ public final class AudioInput: FrameSource, AudioSource {
             let end = min(max(upper, start), length)
             guard end > start else { return nil }
             s.queuedSegments += 1
-            return Segment(file: file, start: start, count: AVAudioFrameCount(end - start))
+            s.segments.append(Segment(start: Double(start) / rate, duration: Double(end - start) / rate))
+            return Scheduled(file: file, start: start, count: AVAudioFrameCount(end - start))
         }
         guard let segment else { return }
         guard player.engine != nil else {
-            state.withLock { $0.queuedSegments -= 1 }
+            state.withLock { s in
+                s.queuedSegments -= 1
+                s.segments.removeLast()
+            }
             return
         }
         player.scheduleSegment(segment.file, startingFrame: segment.start, frameCount: segment.count, at: nil,
@@ -182,6 +237,11 @@ public final class AudioInput: FrameSource, AudioSource {
         let next = state.withLock { s -> Next in
             guard s.generation == generation else { return .none }
             s.queuedSegments -= 1
+            if !s.segments.isEmpty {
+                let done = s.segments.removeFirst()
+                s.finishedSeconds += done.duration
+                s.lastPosition = done.start + done.duration
+            }
             if s.loop { return .scheduleMore }
             guard s.queuedSegments <= 0 else { return .none }
             s.playback = .ended

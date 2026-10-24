@@ -122,6 +122,38 @@ extension MediaSerialTests {
             #expect(input.playbackState == .playing)
         }
 
+        @Test func currentTimeFollowsRenderedAudio() async throws {
+            let input = makeInput(try await TestMediaFactory.shared.audio(.wav, seconds: 2), inPoint: 0.5)
+            #expect(input.currentTime == nil)
+            try await input.prepare()
+            #expect(input.currentTime == 0.5)
+            let engine = try OfflineEngine(attach: input.node!)
+            input.play()
+            _ = try engine.render(seconds: 0.5)
+            #expect(abs((input.currentTime ?? 0) - 1.0) < 0.05)
+            input.pause()
+            #expect(abs((input.currentTime ?? 0) - 1.0) < 0.05)
+            await input.seek(to: 1.5)
+            #expect(input.currentTime == 1.5)
+        }
+
+        /// Desactivar el bucle con la vuelta siguiente en cola no reproduce una vuelta de más.
+        @Test func disablingLoopDropsQueuedLap() async throws {
+            let input = makeInput(try await TestMediaFactory.shared.audio(.wav, seconds: 0.5), loop: true)
+            let events = input.events
+            try await input.prepare()
+            let engine = try OfflineEngine(attach: input.node!)
+            input.play()
+            _ = try engine.render(seconds: 0.2)
+            input.setLoop(false)
+            let peaks = try engine.render(seconds: 1)
+            // Quedaban ~0,3 s de la vuelta actual; después, silencio (sin la vuelta en cola).
+            #expect(peaks[1] > 0.3)
+            #expect(peaks[5...].allSatisfy { $0 == 0 })
+            let ended = await firstEvent(events, timeout: 2) { $0 == .ended }
+            #expect(ended == .ended)
+        }
+
         @Test func inOutPoints() async throws {
             let input = makeInput(try await TestMediaFactory.shared.audio(.wav, seconds: 2), inPoint: 0.5, outPoint: 1.0)
             let events = input.events
