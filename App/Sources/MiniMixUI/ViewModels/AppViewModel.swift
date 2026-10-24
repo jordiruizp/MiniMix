@@ -171,6 +171,7 @@ public final class AppViewModel {
             handle(effect)
         }
         transition = switcher.transition
+        publishBusState()
         if completed, isDraggingTBar { tbarLockedUntilRelease = true }
         if completed, tbarPosition > 0, !isDraggingTBar { rearmTBar() }
     }
@@ -225,6 +226,7 @@ public final class AppViewModel {
     func updateVisibility() {
         let ids = [project.preview, project.program, transitionInputs?.from, transitionInputs?.to].compactMap { $0 }
         services.inputs.setVisible(Set(ids))
+        publishBusState()
     }
 
     // MARK: Consultas

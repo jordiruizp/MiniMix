@@ -66,6 +66,8 @@ public struct AppServices {
     public var demoTick: (@MainActor (AppViewModel) -> Void)?
     /// Demo: tarea lanzada en `start()` (p. ej. hace avanzar `MockClock` a 60 Hz). nil en producción.
     public var demoStart: (@MainActor () -> Task<Void, Never>)?
+    /// T80: recibe los buses/transición/encajes cada vez que cambian (lo consume el render).
+    public var busStateSink: (@MainActor (BusState) -> Void)?
 
     public init(
         initialProject: Project,

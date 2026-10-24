@@ -30,3 +30,4 @@ jobs:
       - run: brew install swiftlint
       - run: scripts/ci.sh
       - run: scripts/bundle-app.sh release
+      - run: scripts/smoke-app.sh 10

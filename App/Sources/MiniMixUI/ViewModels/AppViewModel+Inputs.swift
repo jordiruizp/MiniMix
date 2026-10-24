@@ -74,6 +74,7 @@ extension AppViewModel {
     /// Ajuste fit/fill/stretch (no hay `Command`: lo lee el compositor del descriptor en T80).
     public func setFit(_ fit: FitMode, for id: InputID) {
         updateInput(id) { $0.fit = fit }
+        publishBusState()
     }
 
     /// Cambia el color de una entrada de color y la vuelve a registrar en el gestor de entradas.
