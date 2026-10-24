@@ -26,31 +26,38 @@ extension MediaSerialTests {
             clock.start()
             let seconds = 5.0
             let render = Task {
-                var durations: [Double] = []
+                var samples: [(tick: Int, seconds: Double)] = []
                 var missing = 0
+                var index = 0
                 for await tick in ticks {
                     for input in inputs {
                         let t0 = clock.now.seconds
                         if input.texture(for: tick) == nil { missing += 1 }
-                        durations.append(clock.now.seconds - t0)
+                        samples.append((index, clock.now.seconds - t0))
                     }
+                    index += 1
                 }
-                return (durations.sorted(), missing)
+                return (samples, missing)
             }
             let start = active.map(\.stats.deliveredFrames)
             try await Task.sleep(for: .seconds(seconds))
             clock.stop()
-            let (durations, missing) = await render.value
+            let (samples, missing) = await render.value
+            let durations = samples.map(\.seconds).sorted()
             let p99 = durations[durations.count * 99 / 100] * 1000
-            let worst = (durations.last ?? 0) * 1000
+            // Sin calentamiento (incluye el primer segundo: primeras texturas de la caché,
+            // primeros fotogramas del decodificador) y tras 1 s.
+            let worstCold = samples.max { $0.seconds < $1.seconds }
+            let worstWarm = (samples.filter { $0.tick >= 60 }.map(\.seconds).max() ?? 0) * 1000
             let delivered = zip(active, start).map { $0.stats.deliveredFrames - $1 }
             let drops = active.map(\.stats.droppedFrames)
             let expected = Int(seconds * 60)
             print("""
                 [T31] 8×1080p60 cargados, 2 activos, \(seconds) s a 60 Hz: entregados \(delivered) \
                 (esperados ≈ \(expected)), drops \(drops), ticks saltados \(clock.stats.skippedTicks), \
-                texture(for:) p99 \(String(format: "%.3f", p99)) ms, peor \(String(format: "%.3f", worst)) ms \
-                en \(durations.count) llamadas
+                texture(for:) p99 \(String(format: "%.3f", p99)) ms, peor \
+                \(String(format: "%.3f", (worstCold?.seconds ?? 0) * 1000)) ms (tick \(worstCold?.tick ?? -1), sin calentar), \
+                peor tras 1 s \(String(format: "%.3f", worstWarm)) ms, en \(durations.count) llamadas
                 """)
             #expect(missing == 0)
             if SystemLoad.isOverloaded {
