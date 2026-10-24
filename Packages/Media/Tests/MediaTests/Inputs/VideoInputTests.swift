@@ -153,8 +153,11 @@ extension MediaSerialTests {
             #expect(input.texture(for: .zero) == nil)
         }
 
-        @Test func audioTrackIsExposedAsNode() async throws {
-            let url = try await TestMediaFactory.shared.video(Spec(width: 320, height: 180, fps: 30, seconds: 2, audio: true))
+        /// Pistas a 48 kHz y a 44,1 kHz: el tap entrega la frecuencia de la pista (sin desajuste).
+        @Test(arguments: [48_000, 44_100])
+        func audioTrackIsExposedAsNode(rate: Int) async throws {
+            let url = try await TestMediaFactory.shared.video(Spec(width: 320, height: 180, fps: 30, seconds: 2, audio: true,
+                                                                   audioSampleRate: rate))
             let input = VideoInput(url: url, textureCache: cache)
             try await input.prepare()
             let node = try #require(input.node as? AVAudioSourceNode)
@@ -184,6 +187,7 @@ extension MediaSerialTests {
             let tap = try #require(input.audioTapForTesting)
             let mismatch = tap.ring.formatMismatch.load(ordering: .relaxed)
             #expect(!mismatch)
+            #expect(tap.ring.sampleRate == Double(rate))
         }
     }
 }

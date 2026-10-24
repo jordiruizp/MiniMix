@@ -30,8 +30,12 @@ final class AudioRingBuffer: @unchecked Sendable {
     /// Frecuencia que espera el nodo; si el tap entrega otra, se emite silencio.
     let sampleRate: Double
     let formatMismatch = Atomic<Bool>(false)
+    /// Se invoca una sola vez, desde el hilo del tap, con la frecuencia recibida.
+    private let onFormatMismatch: (@Sendable (Double) -> Void)?
 
-    init(channels: Int, sampleRate: Double, capacityFrames: Int = 1 << 15, maxLatencyFrames: Int = 4096) {
+    init(channels: Int, sampleRate: Double, capacityFrames: Int = 1 << 15, maxLatencyFrames: Int = 4096,
+         onFormatMismatch: (@Sendable (Double) -> Void)? = nil) {
+        self.onFormatMismatch = onFormatMismatch
         precondition(capacityFrames > 0 && capacityFrames & (capacityFrames - 1) == 0, "potencia de 2")
         self.channels = max(1, channels)
         self.capacity = capacityFrames
@@ -52,7 +56,7 @@ final class AudioRingBuffer: @unchecked Sendable {
         guard format.mFormatID == kAudioFormatLinearPCM,
               format.mFormatFlags & kAudioFormatFlagIsFloat != 0, format.mBitsPerChannel == 32 else { return }
         if abs(format.mSampleRate - sampleRate) > 0.5 {
-            formatMismatch.store(true, ordering: .relaxed)
+            if !formatMismatch.exchange(true, ordering: .relaxed) { onFormatMismatch?(format.mSampleRate) }
             return
         }
         let srcChannels = max(1, Int(format.mChannelsPerFrame))

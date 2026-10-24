@@ -249,7 +249,10 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
             // El tap (nodo + MTAudioProcessingTap) se crea fuera del main actor: creado
             // dentro de `MainActor.run` el tap no recibe audio (verificado en test). Solo
             // la asignación de `audioMix`, que es @MainActor en el SDK, va al main actor.
-            let (bridge, mix) = try PlayerAudioTap.make(track: audioTrack, sampleRate: sampleRate, channels: channels)
+            let events = continuation
+            let (bridge, mix) = try PlayerAudioTap.make(track: audioTrack, sampleRate: sampleRate, channels: channels) { got in
+                events.yield(.error("Audio a \(Int(got)) Hz en una pista declarada a \(Int(sampleRate)) Hz: se silencia"))
+            }
             let handoff = ImmutableAudioMix(mix: mix)
             await MainActor.run { item.audioMix = handoff.mix }
             tap = bridge

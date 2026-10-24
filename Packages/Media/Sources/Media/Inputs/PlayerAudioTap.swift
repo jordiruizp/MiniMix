@@ -19,8 +19,11 @@ final class PlayerAudioTap: Sendable {
 
     /// Crea el puente y el `AVAudioMix` que hay que asignar al item.
     /// `sampleRate` y `channels` son los de la pista (el tap entrega la frecuencia de la pista).
-    static func make(track: AVAssetTrack, sampleRate: Double, channels: Int) throws -> (PlayerAudioTap, AVAudioMix) {
-        let ring = AudioRingBuffer(channels: min(max(channels, 1), 2), sampleRate: sampleRate)
+    /// `onFormatMismatch` se llama una vez si el tap entrega otra frecuencia (se emite silencio).
+    static func make(track: AVAssetTrack, sampleRate: Double, channels: Int,
+                     onFormatMismatch: (@Sendable (Double) -> Void)? = nil) throws -> (PlayerAudioTap, AVAudioMix) {
+        let ring = AudioRingBuffer(channels: min(max(channels, 1), 2), sampleRate: sampleRate,
+                                   onFormatMismatch: onFormatMismatch)
         guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate,
                                          channels: AVAudioChannelCount(ring.channels)) else {
             throw MediaError.noPlayableTrack("formato de audio no soportado (\(sampleRate) Hz)")

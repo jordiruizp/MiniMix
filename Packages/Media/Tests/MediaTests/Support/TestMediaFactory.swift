@@ -15,13 +15,14 @@ actor TestMediaFactory {
         var fps: Int32 = 60
         var seconds: Double = 4
         var audio = false
+        var audioSampleRate = 48_000
         var container: AVFileType = .mov
 
         enum Codec: String, Sendable { case h264, hevc, hevcAlpha, proRes422 }
 
         var name: String {
             let ext = container == .mp4 ? "mp4" : container == .m4v ? "m4v" : "mov"
-            return "\(codec.rawValue)-\(width)x\(height)-\(fps)-\(seconds)-\(audio ? "a" : "na").\(ext)"
+            return "\(codec.rawValue)-\(width)x\(height)-\(fps)-\(seconds)-\(audio ? "a\(audioSampleRate)" : "na").\(ext)"
         }
     }
 
@@ -125,7 +126,7 @@ actor TestMediaFactory {
         var audioInput: AVAssetWriterInput?
         if spec.audio {
             let input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
-                AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 48_000, AVNumberOfChannelsKey: 2,
+                AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: spec.audioSampleRate, AVNumberOfChannelsKey: 2,
                 AVEncoderBitRateKey: 128_000
             ])
             input.expectsMediaDataInRealTime = false
@@ -138,7 +139,7 @@ actor TestMediaFactory {
         // Escritura entrelazada: AVAssetWriter deja de aceptar vídeo si el audio
         // se queda atrás (y viceversa).
         let frames = Int(Double(spec.fps) * spec.seconds)
-        let sampleRate = 48_000
+        let sampleRate = spec.audioSampleRate
         let totalSamples = audioInput == nil ? 0 : Int(spec.seconds * Double(sampleRate))
         var frame = 0
         var written = 0
