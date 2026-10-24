@@ -108,10 +108,10 @@ public final class AudioEngine: AudioMixing, Sendable {
         var initial = State(
             engine: engine,
             format: format,
-            masterFader: Self.makeStage(gain: 1, ramp: ramp, metering: true),
-            programListen: Self.makeStage(gain: 1, ramp: ramp),
-            soloListen: Self.makeStage(gain: 0, ramp: ramp),
-            output: Self.makeStage(gain: 1, ramp: ramp,
+            masterFader: try Self.makeStage(gain: 1, ramp: ramp, metering: true),
+            programListen: try Self.makeStage(gain: 1, ramp: ramp),
+            soloListen: try Self.makeStage(gain: 0, ramp: ramp),
+            output: try Self.makeStage(gain: 1, ramp: ramp,
                                    maxDelay: max(0, configuration.maxLatencyCompensation))
         )
         Self.buildBusGraph(&initial)
@@ -291,9 +291,9 @@ public final class AudioEngine: AudioMixing, Sendable {
                 ownsSourceNode: sourceNode.engine == nil,
                 input: AVAudioMixerNode(),
                 // El fader nace a 0 y sube con rampa si el motor ya está sonando.
-                fader: Self.makeStage(gain: 0, ramp: ramp, metering: true),
-                programGate: Self.makeStage(gain: 0, ramp: ramp),
-                soloGate: Self.makeStage(gain: 0, ramp: ramp)
+                fader: try Self.makeStage(gain: 0, ramp: ramp, metering: true),
+                programGate: try Self.makeStage(gain: 0, ramp: ramp),
+                soloGate: try Self.makeStage(gain: 0, ramp: ramp)
             )
             if state.settings[id] == nil { state.settings[id] = ChannelSettings() }
             Self.connect(channel, in: &state)
@@ -466,8 +466,8 @@ public final class AudioEngine: AudioMixing, Sendable {
     }
 
     private static func makeStage(gain: Float, ramp: Double, metering: Bool = false,
-                                  maxDelay: Double = 0) -> GainStage {
-        let made = RampGainUnit.makeNode(initialGain: gain, rampSeconds: ramp, metering: metering,
+                                  maxDelay: Double = 0) throws -> GainStage {
+        let made = try RampGainUnit.makeNode(initialGain: gain, rampSeconds: ramp, metering: metering,
                                          maxDelaySeconds: maxDelay)
         return GainStage(node: made.node, control: made.control)
     }
