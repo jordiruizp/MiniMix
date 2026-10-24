@@ -74,13 +74,14 @@ private func tapProcess(_ tap: MTAudioProcessingTap, _ frames: CMItemCount, _ fl
                         _ bufferList: UnsafeMutablePointer<AudioBufferList>,
                         _ framesOut: UnsafeMutablePointer<CMItemCount>,
                         _ flagsOut: UnsafeMutablePointer<MTAudioProcessingTapFlags>) {
-    guard MTAudioProcessingTapGetSourceAudio(tap, frames, bufferList, flagsOut, nil, framesOut) == noErr else {
-        framesOut.pointee = 0
-        return
-    }
-    let ring = Unmanaged<AudioRingBuffer>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue()
     let list = UnsafeMutableAudioBufferListPointer(bufferList)
-    ring.write(list, frames: Int(framesOut.pointee))
+    if MTAudioProcessingTapGetSourceAudio(tap, frames, bufferList, flagsOut, nil, framesOut) == noErr {
+        let ring = Unmanaged<AudioRingBuffer>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue()
+        ring.write(list, frames: Int(framesOut.pointee))
+    } else {
+        // Sin audio de origen: entregar silencio (el búfer de salida puede traer basura).
+        framesOut.pointee = frames
+    }
     // Silenciar la salida directa del AVPlayer: el audio va por el motor de E.
     for buffer in list {
         if let data = buffer.mData { memset(data, 0, Int(buffer.mDataByteSize)) }

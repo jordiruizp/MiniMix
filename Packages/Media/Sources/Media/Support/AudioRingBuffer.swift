@@ -21,7 +21,11 @@ final class AudioRingBuffer: @unchecked Sendable {
     private let writeIndex = Atomic<Int>(0)
     private let readIndex = Atomic<Int>(0)
 
-    /// Formato que entrega el tap (lo fija `prepare`, lo lee `process`; mismo hilo).
+    /// Formato que entrega el tap. Lo escribe el callback `prepare` y lo lee
+    /// `process`: MediaToolbox invoca ambos en serie en el hilo de proceso del tap y
+    /// `prepare` siempre ocurre antes del primer `process` (y tras `unprepare`, antes
+    /// de cualquier `process` con el formato nuevo), así que no hay carrera. El
+    /// consumidor (render del nodo) nunca lo lee.
     var sourceFormat = AudioStreamBasicDescription()
     /// Frecuencia que espera el nodo; si el tap entrega otra, se emite silencio.
     let sampleRate: Double
