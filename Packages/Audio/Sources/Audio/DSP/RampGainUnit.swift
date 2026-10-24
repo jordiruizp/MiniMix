@@ -9,18 +9,40 @@ import AudioToolbox
 /// ≥ 1 buffer y depende del planificador; además no funciona en render manual offline (tests).
 /// Aquí la rampa es por muestra, en el propio hilo de audio, y deterministica.
 final class RampGainUnit: AUAudioUnit {
+    /// `sandboxSafe` es imprescindible: con App Sandbox, AudioToolbox solo instancia en proceso los
+    /// componentes marcados así; sin la marca la creación falla con -3000 (invalidComponentID) y
+    /// `AVAudioUnitEffect(audioComponentDescription:)` lanza una excepción ObjC que termina la app.
     static let componentDescription = AudioComponentDescription(
         componentType: kAudioUnitType_Effect,
         componentSubType: fourCC("mmrg"),
         componentManufacturer: fourCC("MnMx"),
-        componentFlags: 0,
+        componentFlags: AudioComponentFlags.sandboxSafe.rawValue,
         componentFlagsMask: 0
     )
 
-    private static let registration: Void = {
+    /// Registro (una vez) y comprobación de que el componente se puede instanciar, con la API C que
+    /// devuelve `OSStatus` en lugar de lanzar excepciones ObjC.
+    private static let availability: OSStatus = {
         AUAudioUnit.registerSubclass(RampGainUnit.self, as: componentDescription,
                                      name: "MiniMix: RampGain", version: 1)
+        return instantiationStatus(for: componentDescription)
     }()
+
+    /// -3000 («invalidComponentID»): lo que devuelve AudioToolbox con sandbox para un componente sin
+    /// `sandboxSafe` (la constante no está en las cabeceras públicas del SDK).
+    static let invalidComponentID: OSStatus = -3000
+
+    /// `noErr` si `description` se puede instanciar en este proceso (sandbox incluido).
+    static func instantiationStatus(for description: AudioComponentDescription) -> OSStatus {
+        var search = description
+        guard let component = AudioComponentFindNext(nil, &search) else {
+            return RampGainUnit.invalidComponentID
+        }
+        var instance: AudioComponentInstance?
+        let status = AudioComponentInstanceNew(component, &instance)
+        if let instance { AudioComponentInstanceDispose(instance) }
+        return status
+    }
 
     let kernel: RampGainKernel
     private var inputBusArray: AUAudioUnitBusArray!
@@ -91,13 +113,14 @@ final class RampGainUnit: AUAudioUnit {
     }
 
     /// Crea un nodo con esta unidad. La configuración se aplica antes de conectarlo al motor
-    /// (es decir, antes de `allocateRenderResources`).
+    /// (es decir, antes de `allocateRenderResources`). Lanza `audioUnitUnavailable` (error Swift)
+    /// si el componente no se puede instanciar: nunca llega a `AVAudioUnitEffect` en ese caso.
     static func makeNode(initialGain: Float, rampSeconds: Double, metering: Bool = false,
-                         maxDelaySeconds: Double = 0) -> (node: AVAudioUnitEffect, control: RampGainControl) {
-        _ = registration
+                         maxDelaySeconds: Double = 0) throws -> (node: AVAudioUnitEffect, control: RampGainControl) {
+        guard availability == noErr else { throw AudioEngineError.audioUnitUnavailable(availability) }
         let node = AVAudioUnitEffect(audioComponentDescription: componentDescription)
         guard let unit = node.auAudioUnit as? RampGainUnit else {
-            preconditionFailure("RampGainUnit no registrada")
+            throw AudioEngineError.audioUnitUnavailable(RampGainUnit.invalidComponentID)
         }
         unit.kernel.rampSeconds = rampSeconds
         unit.kernel.metering = metering

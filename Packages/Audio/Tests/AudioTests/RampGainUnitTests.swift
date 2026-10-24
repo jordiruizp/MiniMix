@@ -98,4 +98,22 @@ import Testing
         }
         #expect(status == kAudioUnitErr_TooManyFramesToProcess)
     }
+
+    /// App Sandbox solo instancia en proceso componentes `sandboxSafe` (sin la marca: -3000 y
+    /// excepción ObjC). `swift test` no corre en sandbox; la verificación con sandbox real se hace
+    /// con un .app firmado con `App/Resources/MiniMix.entitlements` (ver informe de la tarea).
+    @Test func componentIsSandboxSafeAndInstantiable() throws {
+        let flags = AudioComponentFlags(rawValue: RampGainUnit.componentDescription.componentFlags)
+        #expect(flags.contains(.sandboxSafe))
+        _ = try RampGainUnit.makeNode(initialGain: 1, rampSeconds: 0.02)
+        #expect(RampGainUnit.instantiationStatus(for: RampGainUnit.componentDescription) == noErr)
+    }
+
+    /// La comprobación previa devuelve un `OSStatus` (no lanza excepciones ObjC) si el componente
+    /// no existe; `makeNode` lo convierte en `AudioEngineError.audioUnitUnavailable`.
+    @Test func unknownComponentReportsStatusInsteadOfRaising() {
+        var missing = RampGainUnit.componentDescription
+        missing.componentSubType = 0x6e6f6e65 // 'none'
+        #expect(RampGainUnit.instantiationStatus(for: missing) == RampGainUnit.invalidComponentID)
+    }
 }
