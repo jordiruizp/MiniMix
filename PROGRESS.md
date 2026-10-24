@@ -36,7 +36,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T61 | H | Harness de estrés | ✅ | feat/h-qa → main | |
 | T70 | D | PlaylistInput A/B | 🟦 | feat/d-playlist | sobre feat/c-media |
 | T71 | D | Fundido entre items + hold | 🟦 | feat/d-playlist | |
-| T80 | ORQ | Integración switcher | 🟦 | feat/orq-t80 (PR #9, borrador) | sesión completa verificada en píxeles reales; bloqueado por crash de Audio en sandbox |
+| T80 | ORQ | Integración switcher | 🟨 | feat/orq-t80 (PR #9) | sesión completa verificada en píxeles reales; app con sandbox viva (93 MB) · en revisión |
 | T81 | F | Output externo | ✅ | feat/f-output-persistence → main | |
 | T82 | F | Persistence | ✅ | feat/f-output-persistence → main | |
 | T90 | H | Estrés 1 h / 2 h | ⬜ | | Ola 3 |
@@ -100,8 +100,10 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 - **D13** · Tests de rendimiento: miden siempre y exigen objetivos solo fuera de CI (runners macOS = VM con GPU paravirtualizada).
 - **D12** · CI reducido: un solo job macOS (`scripts/ci.sh` + bundle) en push a main y PRs no borrador, más `core-linux`.
 
-## Bloqueo: Audio en sandbox
+## ~~Bloqueo: Audio en sandbox~~ (resuelto, PR #10)
 
+- Causa: con sandbox solo se crean AU en proceso con `kAudioComponentFlag_SandboxSafe`. Arreglado en c0e05bb;
+  además se sondea con la API C para que un fallo sea un error Swift y no una excepción ObjC.
 - 2026-10-24 (T80): `AudioEngine()` termina la app empaquetada con sandbox (excepción AVFAudio `error -3000` al
   crear el AUv3 propio `RampGainUnit`). Sin sandbox funciona; `swift test` no corre en sandbox. Asignado a E
   (`feat/e-audio-sandbox`). Nueva prueba de humo `scripts/smoke-app.sh` en el CI para que no vuelva a pasar.
