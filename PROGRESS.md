@@ -8,7 +8,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 |---|---|
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | 🟦 A, B, E, G, H integrados · C en curso (T31/T32) |
-| 2 · D, F, G-real, ORQ T80 | 🟦 F lanzado (T81/T82) · D y G-real esperan a Media · T80 desbloqueado (contracts-v2) |
+| 2 · D, F, G-real, ORQ T80 | ✅ F integrado (T81/T82) · D y G-real esperan a Media · T80 desbloqueado (contracts-v2) |
 | 3 · H rendimiento, E sync, G pulido | ⬜ |
 | 4 · T99 release | ⬜ |
 
@@ -37,8 +37,8 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T70 | D | PlaylistInput A/B | ⬜ | | Ola 2 |
 | T71 | D | Fundido entre items + hold | ⬜ | | Ola 2 |
 | T80 | ORQ | Integración switcher | ⬜ | | Ola 2 |
-| T81 | F | Output externo | 🟨 | feat/f-output-persistence | |
-| T82 | F | Persistence | 🟨 | feat/f-output-persistence | |
+| T81 | F | Output externo | ✅ | feat/f-output-persistence → main | |
+| T82 | F | Persistence | ✅ | feat/f-output-persistence → main | |
 | T90 | H | Estrés 1 h / 2 h | ⬜ | | Ola 3 |
 | T91 | G | Pulido UI | ⬜ | | Ola 3 |
 | T99 | ORQ | Firma, notarización, DMG | ⬜ | | Ola 4 |
@@ -87,9 +87,9 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | #1 | feat/e-audio-fixes | ✅ integrado (4dd30c8) · re-revisión APROBAR · CI verde Swift 6.3 |
 | #2 | feat/b-render-fixes | ✅ integrado (ffddbab) |
 | #5 | feat/b-render-fixes2 | ✅ integrado (8b4a90e) |
-| #6 | feat/c-media (T30–T32) | R: APROBAR CON MENORES · importantes 1–5 (vida de CVMetalTexture, carreras en InputManager, watchdog del display link, Swift 6.3) → C corrigiendo |
+| #6 | feat/c-media (T30–T32) | correcciones hechas (0c1162d) · compila en Swift 6.3 · 2 tests frágiles en la VM del CI → C corrigiendo · re-revisión en curso |
 | #7 | feat/b-render-ci | ✅ integrado (19b7cd1) |
-| #8 | feat/f-output-persistence (T81, T82) | en revisión · CI en curso |
+| #8 | feat/f-output-persistence (T81, T82) | ✅ integrado (12c8856) · pendiente probar con pantalla externa real |
 | #3 | feat/h-qa (T60, T61) | ✅ integrado · Core/Render/Audio verificados en local (Actions sin minutos) |
 | #4 | feat/g-ui-mocks (T50, T51) | ✅ integrado (5b3c5a3) |
 
