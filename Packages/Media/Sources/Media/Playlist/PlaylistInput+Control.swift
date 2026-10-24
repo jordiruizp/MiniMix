@@ -62,6 +62,7 @@ extension PlaylistInput {
         case .playing(let next):
             let fade = fadeDuration(outgoing: active, incoming: standby?.index == next ? standby : nil)
             let start = Self.gridTick(endHost - fade, after: time, frame: frame)
+            if let standby, standby.index == next, standby.ready { scheduleStart(of: standby, at: start, now: time) }
             guard start.seconds <= time.seconds + frame * 1.5 else { return }
             guard let standby, standby.index == next, standby.ready else {
                 if endHost <= time.seconds + frame / 2 { markLate(itemIndex: next) }
@@ -107,7 +108,7 @@ extension PlaylistInput {
     private func arm(_ incoming: Slot, at: HostTime, fade: Double) {
         let previous = state.withLock { $0.shown }
         let visual = visual(for: incoming, previous: previous)
-        let id = state.withLock { s -> Int in
+        state.withLock { s in
             if fade > 0 {
                 s.fade = Fade(from: previous ?? .black, to: visual, start: at, duration: fade)
                 s.pending = Pending(at: at, kind: .fade(fade))
@@ -115,18 +116,35 @@ extension PlaylistInput {
                 s.armed = (visual, at)
                 s.pending = Pending(at: at, kind: .cut(visual))
             }
-            s.armID += 1
-            s.scheduledPlay = s.armID
-            return s.armID
         }
-        // Vídeo: arrancar medio fotograma (del lienzo o del clip) antes del tick del cambio,
-        // para que su fotograma 0 sea el que se pide en ese tick.
+        // Sin arranque anticipado (precarga tardía): medio fotograma antes del cambio.
+        scheduleStart(of: incoming, at: at, now: nil)
+    }
+
+    /// Programa el `play()` del vídeo entrante para que su fotograma 0 esté en pantalla en el
+    /// tick `at`: medio fotograma (del clip) antes, más la latencia de arranque de AVPlayer estimada
+    /// (media móvil de las medidas; ~250 ms en frío en MacBook Neo). Con `now` solo programa
+    /// si ya toca (falta menos que esa latencia + 2 ticks); sin `now`, siempre.
+    private func scheduleStart(of incoming: Slot, at: HostTime, now: HostTime?) {
         guard let video = incoming.source as? VideoInput else { return }
         let canvasFrame = environment.clock.frameRate.frameDuration
         let fps = video.stats.nominalFrameRate
-        let lead = min(canvasFrame, fps > 0 ? 1 / fps : canvasFrame) / 2
-        let deadline = DispatchTime(uptimeNanoseconds: UInt64(max(0, HostClock.nanos(at + -lead))))
-        queue.asyncAfter(deadline: deadline) { [weak self] in self?.firePlay(id) }
+        // Medio fotograma del clip: máximo margen frente al error de la estimación.
+        let lead = (fps > 0 ? 1 / fps : canvasFrame) / 2
+        let key = ObjectIdentifier(video)
+        let schedule = state.withLock { s -> (id: Int, latency: Double)? in
+            guard s.scheduledSource != key else { return nil }
+            let latency = now == nil ? 0 : s.startLatency
+            if let now, at.seconds - now.seconds > latency + lead + 2 * canvasFrame { return nil }
+            s.armID += 1
+            s.scheduledPlay = s.armID
+            s.scheduledSource = key
+            return (s.armID, latency)
+        }
+        guard let schedule else { return }
+        let fireAt = at + -(lead + schedule.latency)
+        let deadline = DispatchTime(uptimeNanoseconds: UInt64(max(0, HostClock.nanos(fireAt))))
+        queue.asyncAfter(deadline: deadline) { [weak self] in self?.firePlay(schedule.id) }
     }
 
     private func firePlay(_ id: Int) {
@@ -135,7 +153,32 @@ extension PlaylistInput {
             s.scheduledPlay = nil
             return s.standby?.source ?? s.active?.source
         }
-        source?.play()
+        guard let source else { return }
+        source.play()
+        measureStartLatency(of: source)
+    }
+
+    /// Mide cuánto tarda el reproductor en mover su posición tras `play()` y actualiza la
+    /// estimación (la primera medida sustituye al valor inicial; después, media móvil acotada a 0…0,5 s).
+    private func measureStartLatency(of source: FrameSource) {
+        guard source is VideoInput else { return }
+        let origin = source.currentTime ?? 0
+        let started = HostClock.nowNanos()
+        Task.detached(priority: .high) { [weak self] in
+            while HostClock.nowNanos() - started < 1_000_000_000 {
+                if let position = source.currentTime, position > origin + 0.0005 {
+                    // La posición ya avanzó `position - origin` desde que arrancó.
+                    let latency = Double(HostClock.nowNanos() - started) / 1e9 - (position - origin)
+                    self?.state.withLock { s in
+                        let blended = s.stats.lastStartLatency == nil ? latency : 0.5 * s.startLatency + 0.5 * latency
+                        s.startLatency = min(0.5, max(0, blended))
+                        s.stats.lastStartLatency = latency
+                    }
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+        }
     }
 
     // MARK: Commit
@@ -177,6 +220,7 @@ extension PlaylistInput {
             s.sequencer.handle(.itemEnded)
             let play = s.scheduledPlay != nil || !incoming.isVideo
             s.scheduledPlay = nil
+            s.scheduledSource = nil
             var slot = incoming
             slot.started = true
             slot.elapsedBase = 0

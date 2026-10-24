@@ -169,15 +169,15 @@ extension PlaylistInput {
             }
             s.pending = nil
             s.scheduledPlay = nil
+            s.scheduledSource = nil
             return (armed, s.standby, s.fadeEnd != nil)
         }
-        if wasArmed {
-            renderer.endComposite()
-            // El entrante pudo arrancar ya (medio fotograma antes): volver a su In.
-            if let source = standby?.source, source.playbackState == .playing {
-                source.pause()
-                Task { await source.seek(to: standby?.item.inPoint ?? 0) }
-            }
+        if wasArmed { renderer.endComposite() }
+        // El entrante pudo arrancar ya (arranque anticipado): volver a su In.
+        if let standby, standby.source.playbackState == .playing {
+            let source = standby.source
+            source.pause()
+            Task { await source.seek(to: standby.item.inPoint ?? 0) }
         }
         if fading { finishFade() }
     }

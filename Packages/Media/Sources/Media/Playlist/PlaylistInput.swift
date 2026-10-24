@@ -46,6 +46,8 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
         public var switches = 0
         /// Cambios que esperaron a una precarga no lista a tiempo (se mantuvo el último fotograma).
         public var lateSwitches = 0
+        /// Última latencia de arranque medida de un vídeo entrante (s).
+        public var lastStartLatency: Double?
     }
 
     public let id: InputID
