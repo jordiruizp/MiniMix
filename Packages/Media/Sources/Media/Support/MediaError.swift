@@ -12,6 +12,10 @@ public enum MediaError: Error, Equatable, Sendable, CustomStringConvertible {
     case unsupported(String)
     /// Ya existe una entrada con ese ID.
     case duplicate(String)
+    /// No existe ninguna entrada con ese ID.
+    case notFound(String)
+    /// La operación se abandonó porque la entrada se eliminó o se volvió a editar entretanto.
+    case cancelled(String)
 
     public var description: String {
         switch self {
@@ -20,6 +24,8 @@ public enum MediaError: Error, Equatable, Sendable, CustomStringConvertible {
         case .metal(let s): "Error de Metal: \(s)"
         case .unsupported(let s): "No soportado: \(s)"
         case .duplicate(let s): "Entrada duplicada: \(s)"
+        case .notFound(let s): "Entrada inexistente: \(s)"
+        case .cancelled(let s): "Operación cancelada: \(s)"
         }
     }
 }

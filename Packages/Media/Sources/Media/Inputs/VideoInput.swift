@@ -132,6 +132,10 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
     }
 
     var loadCountForTesting: Int { state.withLock { $0.loadCount } }
+    var isDecodingEnabledForTesting: Bool { state.withLock { $0.decodingEnabled } }
+    var transportForTesting: TransportSettings {
+        state.withLock { TransportSettings(loop: $0.loop, inPoint: $0.inPoint, outPoint: $0.outPoint) }
+    }
 
     public func texture(for time: HostTime) -> MTLTexture? {
         let itemTime = output.itemTime(forHostTime: time.seconds)

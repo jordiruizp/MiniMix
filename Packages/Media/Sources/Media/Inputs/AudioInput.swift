@@ -73,6 +73,9 @@ public final class AudioInput: FrameSource, AudioSource {
     public var duration: Double? { state.withLock { $0.duration } }
     /// true si el nodo está sonando (o tiene segmentos y está en play).
     public var isNodePlaying: Bool { player.isPlaying }
+    var transportForTesting: TransportSettings {
+        state.withLock { TransportSettings(loop: $0.loop, inPoint: $0.inPoint, outPoint: $0.outPoint) }
+    }
 
     /// Posición en el archivo (s). Con el nodo sonando la calcula con
     /// `playerTime(forNodeTime:)` (solo toma el cerrojo corto del motor; no es para el

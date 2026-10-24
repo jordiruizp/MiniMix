@@ -53,6 +53,80 @@ extension MediaSerialTests {
             #expect(known == .durationKnown(1.0))
         }
 
+        @Test func updateAppliesTransportColorAndFitInPlace() async throws {
+            let manager = InputManager(context: context)
+            var video = InputDescriptor(name: "v", content: .video(MediaReference(path: try await smallVideo().path)))
+            var color = InputDescriptor(name: "k", content: .color(.black))
+            try await manager.add(video)
+            try await manager.add(color)
+            let videoSource = try #require(manager.frameSource(for: video.id) as? VideoInput)
+            let colorSource = try #require(manager.frameSource(for: color.id) as? ColorInput)
+
+            video.loop = true
+            video.inPoint = 0.25
+            video.outPoint = 1.5
+            video.fit = .fill
+            try await manager.update(video)
+            #expect(manager.frameSource(for: video.id) === videoSource)
+            let transport = videoSource.transportForTesting
+            #expect(transport.loop && transport.inPoint == 0.25 && transport.outPoint == 1.5)
+            #expect(manager.descriptor(for: video.id)?.fit == .fill)
+
+            let red = RGBAColor(red: 1, green: 0, blue: 0)
+            color.content = .color(red)
+            try await manager.update(color)
+            #expect(manager.frameSource(for: color.id) === colorSource)
+            #expect(colorSource.currentColor == red)
+        }
+
+        @Test func updateReplacesSourceWhenContentChanges() async throws {
+            let manager = InputManager(context: context)
+            let first = try await smallVideo()
+            let second = try await TestMediaFactory.shared.copy(of: first, index: 300)
+            let other = InputDescriptor(name: "o", content: .video(MediaReference(path: first.path)))
+            var d = InputDescriptor(name: "v", content: .video(MediaReference(path: first.path)))
+            try await manager.add(d)
+            try await manager.add(other)
+            let old = try #require(manager.frameSource(for: d.id) as? VideoInput)
+            old.play()
+            manager.setVisible([d.id, other.id])
+
+            d.content = .video(MediaReference(path: second.path))
+            try await manager.update(d)
+            let new = try #require(manager.frameSource(for: d.id) as? VideoInput)
+            #expect(new !== old)
+            #expect(new.url == second)
+            #expect(manager.inputIDs == [d.id, other.id]) // mismo puesto → misma prioridad
+            #expect(manager.activeDecoderIDs == [d.id, other.id])
+            #expect(new.playbackState == .playing)
+            #expect(old.playbackState == .paused && !old.isDecodingEnabledForTesting)
+
+            // Cambio de tipo: vídeo → color.
+            d.content = .color(.black)
+            try await manager.update(d)
+            #expect(manager.frameSource(for: d.id) is ColorInput)
+            #expect(manager.activeDecoderIDs == [other.id])
+            new.pause()
+            (manager.frameSource(for: other.id) as? VideoInput)?.pause()
+        }
+
+        @Test func updateUnknownInputThrows() async {
+            let manager = InputManager(context: context)
+            await #expect(throws: MediaError.self) {
+                try await manager.update(InputDescriptor(name: "x", content: .color(.black)))
+            }
+        }
+
+        @Test func contentComparison() {
+            let a = MediaReference(path: "/a.mov")
+            let b = MediaReference(path: "/b.mov")
+            #expect(!InputManager.needsReplacement(.video(a), .video(MediaReference(path: "/a.mov", bookmark: Data([1])))))
+            #expect(InputManager.needsReplacement(.video(a), .video(b)))
+            #expect(InputManager.needsReplacement(.video(a), .image(a)))
+            #expect(!InputManager.needsReplacement(.color(.black), .color(.clear)))
+            #expect(InputManager.needsReplacement(.audio(a, visual: .black), .audio(a, visual: .card(b))))
+        }
+
         @Test func playlistNeedsFactory() async throws {
             let playlist = InputDescriptor(name: "p", content: .playlist(Playlist()))
             let bare = InputManager(context: context)
