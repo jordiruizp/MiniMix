@@ -66,7 +66,7 @@ Si necesitas un cambio fuera de tu carpeta (incluido un `Package.swift` o una de
 
 ## Contratos
 
-`Packages/Core/Sources/Core/Contracts.swift` está **congelado** (tag `contracts-v1`).
+`Packages/Core/Sources/Core/Contracts.swift` está **congelado** (tag `contracts-v2`; historial en su cabecera).
 - Nadie salvo el orquestador lo modifica. Para cambiarlo: petición en el informe → el orquestador
   consulta al usuario, versiona (`contracts-vN`) y avisa a los afectados.
 - Se pueden añadir **extensiones** de tipos de contrato en archivos propios del módulo

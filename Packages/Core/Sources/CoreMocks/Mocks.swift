@@ -45,6 +45,13 @@ public struct MockSwitcher: SwitcherStateMachine {
     }
 
     public mutating func tick(at time: HostTime) -> [Effect] { [] }
+
+    public mutating func removeInput(_ id: InputID, at time: HostTime) -> [Effect] {
+        guard preview == id || program == id else { return [] }
+        if preview == id { preview = nil }
+        if program == id { program = nil }
+        return [.busesChanged(preview: preview, program: program)]
+    }
 }
 
 /// Secuenciador trivial: avanza linealmente sin modos ni bucle.
@@ -78,17 +85,30 @@ public struct MockSequencer: PlaylistSequencing {
 public final class MockClock: MasterClockProtocol {
     public let frameRate: FrameRate
     private let state = Locked(HostTime.zero)
-    private let continuation: AsyncStream<HostTime>.Continuation
-    public let ticks: AsyncStream<HostTime>
+    private let subscribers = Locked([UUID: AsyncStream<HostTime>.Continuation]())
 
     public init(frameRate: FrameRate = .fps60) {
         self.frameRate = frameRate
-        (ticks, continuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(1))
+    }
+
+    /// contracts-v2: cada acceso crea una suscripción nueva.
+    public var ticks: AsyncStream<HostTime> {
+        let (stream, continuation) = AsyncStream.makeStream(of: HostTime.self, bufferingPolicy: .bufferingNewest(1))
+        let key = UUID()
+        subscribers.withLock { $0[key] = continuation }
+        continuation.onTermination = { [weak self] _ in _ = self?.subscribers.withLock { $0.removeValue(forKey: key) } }
+        return stream
     }
 
     public var now: HostTime { state.current }
     public func start() {}
-    public func stop() { continuation.finish() }
+    public func stop() {
+        let all = subscribers.withLock { subs -> [AsyncStream<HostTime>.Continuation] in
+            defer { subs.removeAll() }
+            return Array(subs.values)
+        }
+        all.forEach { $0.finish() }
+    }
 
     public func advance(frames: Int = 1) {
         for _ in 0..<frames {
@@ -96,7 +116,7 @@ public final class MockClock: MasterClockProtocol {
                 time.seconds += frameRate.frameDuration
                 return time
             }
-            continuation.yield(t)
+            subscribers.withLock { Array($0.values) }.forEach { $0.yield(t) }
         }
     }
 }

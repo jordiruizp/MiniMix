@@ -17,7 +17,7 @@
 //   (ni un nuevo transitionStarted): los siguientes `tick` siguen emitiendo transitionProgress.
 // - `tbar(x)`: x se limita a 0…1 (no finito → se ignora). En reposo, x > 0 inicia una
 //   transición manual (x ≥ 1 la completa al instante). En manual, x ≥ 1 completa y x ≤ 0
-//   cancela (progress 0 + completed, sin cambio de buses). Durante un fade temporizado se ignora.
+//   cancela (progress 0 + transitionCancelled, sin cambio de buses). Durante un fade temporizado se ignora.
 //   Si la T-bar movió la transición (aunque la complete un cut o un fade), al completarse se
 //   ignoran valores > 0 hasta recibir tbar(0) (rearme), para que la palanca física, que queda
 //   arriba o a medias, no dispare otra transición. La UI debería devolver la palanca a 0.
@@ -166,6 +166,6 @@ public struct SwitcherState: SwitcherStateMachine {
 
     private mutating func cancel() -> [Effect] {
         active = nil
-        return [.transitionProgress(0), .transitionCompleted]
+        return [.transitionProgress(0), .transitionCancelled]
     }
 }

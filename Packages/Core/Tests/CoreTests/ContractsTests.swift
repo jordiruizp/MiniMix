@@ -53,6 +53,38 @@ struct ContractsTests {
         #expect(sw.program == a && sw.preview == b)
     }
 
+    @Test func v2CommandsAndEffectsRoundTrip() throws {
+        let id = InputID()
+        let cmd = Command.setFit(id, .fill)
+        #expect(try JSONDecoder().decode(Command.self, from: JSONEncoder().encode(cmd)) == cmd)
+        #expect(Effect.transitionCancelled != .transitionCompleted)
+    }
+
+    @Test func switcherRemoveInputIsPartOfTheProtocol() {
+        let a = InputID(), b = InputID()
+        var sw: any SwitcherStateMachine = SwitcherState(preview: a, program: b)
+        #expect(sw.removeInput(b, at: .zero) == [.busesChanged(preview: a, program: nil)])
+    }
+
+    @Test func tbarCancelEmitsTransitionCancelled() {
+        let a = InputID(), b = InputID()
+        var sw = SwitcherState(preview: a, program: b)
+        _ = sw.apply(.tbar(0.4), at: .zero)
+        #expect(sw.apply(.tbar(0), at: .zero).last == .transitionCancelled)
+        #expect(sw.program == b)
+    }
+
+    @Test func mockClockTicksAreMulticast() async {
+        let clock = MockClock(frameRate: .fps25)
+        var first = clock.ticks.makeAsyncIterator()
+        var second = clock.ticks.makeAsyncIterator()
+        clock.advance()
+        #expect(await first.next() == HostTime(seconds: 0.04))
+        #expect(await second.next() == HostTime(seconds: 0.04))
+        clock.stop()
+        #expect(await first.next() == nil)
+    }
+
     @Test func mockClockAdvancesOneFrame() {
         let clock = MockClock(frameRate: .fps25)
         clock.advance(frames: 2)

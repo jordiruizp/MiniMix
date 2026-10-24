@@ -167,7 +167,7 @@ public final class AppViewModel {
     func apply(_ effects: [Effect]) {
         var completed = false
         for effect in effects {
-            if effect == .transitionCompleted { completed = true }
+            if effect == .transitionCompleted || effect == .transitionCancelled { completed = true }
             handle(effect)
         }
         transition = switcher.transition
@@ -205,7 +205,7 @@ public final class AppViewModel {
             updateVisibility()
         case .transitionProgress(let progress):
             services.audio.transition(from: transitionInputs?.from, to: transitionInputs?.to, progress: progress)
-        case .transitionCompleted:
+        case .transitionCompleted, .transitionCancelled:
             transitionInputs = nil
             updateVisibility()
         case .forward(let command):

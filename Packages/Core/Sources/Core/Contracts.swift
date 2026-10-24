@@ -1,4 +1,8 @@
-// Core/Contracts.swift — contratos congelados de MiniMix (contracts-v1).
+// Core/Contracts.swift — contratos congelados de MiniMix (contracts-v2).
+//
+// Historial: v1 (2026-10-23) · v2 (2026-10-24): PC1–PC9 aprobadas por el usuario
+// (transitionCancelled, sRGB, InputManaging.update, FrameSource.currentTime, setFit,
+// suscripciones de ticks, removeInput y lastEventRestartsItem en los protocolos, meters).
 //
 // Propiedad: ORQUESTADOR. Ningún subagente modifica este archivo.
 // Para pedir un cambio: descríbelo en el informe final; el orquestador decide,
@@ -86,7 +90,8 @@ public struct CanvasFormat: Hashable, Codable, Sendable {
     }
 }
 
-/// Color RGBA lineal en 0…1.
+/// Color RGBA en 0…1, **sRGB codificado** (no lineal) y sin premultiplicar. La mezcla de vídeo
+/// se hace en ese espacio (texturas BGRA8 sRGB, alfa premultiplicado en GPU).
 public struct RGBAColor: Hashable, Codable, Sendable {
     public var red: Double
     public var green: Double
@@ -344,6 +349,8 @@ public enum Command: Hashable, Codable, Sendable {
     case restart(InputID)
     case seek(InputID, seconds: Double)
     case setLoop(InputID, Bool)
+    /// v2: ajuste de encaje de la entrada.
+    case setFit(InputID, FitMode)
     // Audio
     case setVolume(InputID, Float)
     case setMute(InputID, Bool)
@@ -364,6 +371,8 @@ public enum Effect: Hashable, Sendable {
     case transitionStarted(kind: TransitionKind, from: InputID?, to: InputID?, duration: Double?)
     case transitionProgress(Double)
     case transitionCompleted
+    /// v2: transición abandonada sin intercambio de buses (T-bar devuelta a 0 o entrada eliminada).
+    case transitionCancelled
     /// Se reenvían a la fuente correspondiente.
     case forward(Command)
 }
@@ -391,6 +400,8 @@ public protocol SwitcherStateMachine: Sendable {
     mutating func apply(_ cmd: Command, at time: HostTime) -> [Effect]
     /// Avanza las transiciones temporizadas (fade). Se llama una vez por tick del MasterClock.
     mutating func tick(at time: HostTime) -> [Effect]
+    /// v2: la entrada se eliminó del proyecto; la quita de los buses (cancela la transición si la usa).
+    mutating func removeInput(_ id: InputID, at time: HostTime) -> [Effect]
 }
 
 // MARK: - 4. Playlist: secuenciador
@@ -418,7 +429,14 @@ public protocol PlaylistSequencing: Sendable {
     var state: SequencerState { get }
     /// Índice que sonará después del actual (para la precarga A/B), si lo hay.
     var upcomingIndex: Int? { get }
+    /// v2: true si el último evento debe reiniciar el item actual aunque el estado no cambie
+    /// (restartItem, previous en el primero, bucle de un solo item…).
+    var lastEventRestartsItem: Bool { get }
     mutating func handle(_ event: SequencerEvent) -> SequencerState
+}
+
+public extension PlaylistSequencing {
+    var lastEventRestartsItem: Bool { false }
 }
 
 // MARK: - 5. Fuentes y servicios (GPU / audio)
@@ -449,6 +467,8 @@ public protocol MasterClockProtocol: AnyObject, Sendable {
     var frameRate: FrameRate { get }
     var now: HostTime { get }
     /// Un valor por fotograma del proyecto, alineado a la rejilla de fotogramas.
+    /// v2: **cada acceso crea una suscripción nueva** (difusión a varios consumidores, `bufferingNewest(1)`).
+    /// El dueño del reloj (start/stop) es la capa de integración (App/T80).
     var ticks: AsyncStream<HostTime> { get }
     func start()
     func stop()
@@ -464,6 +484,7 @@ public protocol AudioMixing: AnyObject, Sendable {
     /// Aplica el fundido de audio de una transición con `TransitionCurve.audioGains`.
     func transition(from: InputID?, to: InputID?, progress: Double)
     /// Niveles (dBFS pico por canal) ~30 Hz para los vúmetros; `nil` = Master.
+    /// v2: stream con **un único consumidor**; quien lo lea debe redistribuir los niveles.
     var meters: AsyncStream<[InputID?: [Float]]> { get }
 }
 
@@ -515,7 +536,13 @@ public protocol FrameSource: AnyObject, Sendable {
     func pause()
     func seek(to seconds: Double) async
     var playbackState: PlaybackState { get }
+    /// v2: posición actual en segundos dentro del medio (nil si no aplica: color, imagen…).
+    var currentTime: Double? { get }
     var events: AsyncStream<SourceEvent> { get }
+}
+
+public extension FrameSource {
+    var currentTime: Double? { nil }
 }
 
 /// Entrada al compositor para un fotograma: `a` = Programa, `b` = Preview/entrante.
@@ -561,6 +588,8 @@ public protocol AudioSource: AnyObject, Sendable {
 public protocol InputManaging: AnyObject, Sendable {
     func add(_ descriptor: InputDescriptor) async throws
     func remove(_ id: InputID) async
+    /// v2: aplica en directo un descriptor editado (loop, In/Out, fit, color, contenido nuevo…).
+    func update(_ descriptor: InputDescriptor) async throws
     func frameSource(for id: InputID) -> FrameSource?
     func audioSource(for id: InputID) -> AudioSource?
     /// Entradas visibles (PVW, PGM y las que se transicionan). El resto se pausa.

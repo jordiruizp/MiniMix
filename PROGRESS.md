@@ -8,7 +8,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 |---|---|
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | 🟦 A, B, E, G, H integrados · C en curso (T31/T32) |
-| 2 · D, F, G-real, ORQ T80 | 🟦 F lanzado (T81/T82) · D y G-real esperan a Media · T80 espera decisiones de contrato |
+| 2 · D, F, G-real, ORQ T80 | 🟦 F lanzado (T81/T82) · D y G-real esperan a Media · T80 desbloqueado (contracts-v2) |
 | 3 · H rendimiento, E sync, G pulido | ⬜ |
 | 4 · T99 release | ⬜ |
 
@@ -17,7 +17,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | ID | Agente | Tarea | Estado | Rama | Notas |
 |---|---|---|---|---|---|
 | T00 | ORQ | Andamiaje SwiftPM, 7 paquetes, sandbox, SwiftLint, CI | ✅ | main | CI local verde; CI de GitHub sin verificar (sin push) |
-| T01 | ORQ | Contracts.swift + tipos base + CoreMocks | ✅ | main | Aprobado por el usuario 2026-10-23 · tag `contracts-v1` |
+| T01 | ORQ | Contracts.swift + tipos base + CoreMocks | ✅ | main | `contracts-v1` 2026-10-23 · `contracts-v2` 2026-10-24 |
 | T02 | ORQ | CLAUDE.md | ✅ | main | |
 | T10 | A | Modelos Codable + versión de esquema | ✅ | feat/a-core → main | |
 | T11 | A | SwitcherState | ✅ | feat/a-core → main | 34 tests · cobertura 98,95 % |
@@ -43,9 +43,15 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T91 | G | Pulido UI | ⬜ | | Ola 3 |
 | T99 | ORQ | Firma, notarización, DMG | ⬜ | | Ola 4 |
 
-## Peticiones de contrato (pendientes de decisión del usuario)
+## Contratos
 
-- **PC1** (A) · `Effect.transitionCancelled` para distinguir la cancelación de T-bar de una transición completada. Hoy se señala con `transitionProgress(0)` + `transitionCompleted` sin `busesChanged`. Candidata a contracts-v2; no bloquea.
+- **contracts-v2** (2026-10-24), aprobado por el usuario («aprobado todo como recomiendas»):
+  PC1 `Effect.transitionCancelled` · PC2 `RGBAColor` = sRGB codificado · PC3 `InputManaging.update` ·
+  PC4 `FrameSource.currentTime` (por defecto nil) · PC5 `Command.setFit` · PC6 `ticks` = una suscripción por acceso,
+  dueño App/T80 · PC7 `SwitcherStateMachine.removeInput` · PC8 `PlaylistSequencing.lastEventRestartsItem`
+  (por defecto false) · PC9 `meters` con un único consumidor. D11 confirmada (VU post-fader pre-gate, solo post-fader).
+  Integrado por el ORQ con los ajustes mínimos en SwitcherState, CoreMocks y App para que main compile.
+  Pendiente en ramas abiertas: C implementa `InputManager.update` y `currentTime`.
 
 ## Revisiones
 
@@ -117,7 +123,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
   `SequencerState/Event` + `PlaylistSequencing`; protocolos de servicio `MasterClockProtocol`, `AudioMixing`,
   `ProjectStoring`, `OutputPresenting`, `Compositing`, `InputManaging`; modelos `InputDescriptor`, `Project`.
 - **D10** · CI alineado con la toolchain estable más reciente (macos-26 + `setup-xcode latest`); el código debe compilar en Swift 6.3 (CI) y 6.4 (local).
-- **D11** · Audio: vúmetro de canal post-fader pre-gate y solo-escucha post-fader (decisión ORQ, a confirmar por el usuario).
+- **D11** · Audio: vúmetro de canal post-fader pre-gate y solo-escucha post-fader (confirmada por el usuario).
 - **D7** · Regla SwiftLint `inclusive_language` desactivada («Master» es terminología del plan).
 - **D8** · Solapamiento ImageInput/ColorInput (plan: B y C): B hace la carga a textura en Render
   (`ImageTextureLoader`, render de color); C hace las clases `FrameSource` en Media con un cargador inyectable.

@@ -203,7 +203,7 @@ struct SwitcherStateTests {
     @Test func tbarBackToZeroCancels() {
         var sw = makeSwitcher()
         _ = sw.apply(.tbar(0.5), at: .zero)
-        #expect(sw.apply(.tbar(0), at: .zero) == [.transitionProgress(0), .transitionCompleted])
+        #expect(sw.apply(.tbar(0), at: .zero) == [.transitionProgress(0), .transitionCancelled])
         #expect(sw.program == a && sw.preview == b && sw.transition == .idle)
         #expect(!sw.tbarNeedsRearm)
     }
@@ -225,7 +225,7 @@ struct SwitcherStateTests {
     @Test func tbarOutOfRangeIsClamped() {
         var sw = makeSwitcher()
         _ = sw.apply(.tbar(0.4), at: .zero)
-        #expect(sw.apply(.tbar(-0.5), at: .zero) == [.transitionProgress(0), .transitionCompleted])
+        #expect(sw.apply(.tbar(-0.5), at: .zero) == [.transitionProgress(0), .transitionCancelled])
         _ = sw.apply(.tbar(0.4), at: .zero)
         #expect(sw.apply(.tbar(7), at: .zero).contains(.transitionCompleted))
     }
@@ -310,7 +310,7 @@ struct SwitcherStateTests {
         var sw = makeSwitcher()
         _ = sw.apply(.fade(duration: 1), at: .zero)
         _ = sw.tick(at: time(0.5))
-        #expect(sw.removeInput(b, at: time(0.5)) == [.transitionCompleted, .busesChanged(preview: nil, program: a)])
+        #expect(sw.removeInput(b, at: time(0.5)) == [.transitionCancelled, .busesChanged(preview: nil, program: a)])
         #expect(sw.transition == .idle && !sw.tbarNeedsRearm)
         #expect(sw.tick(at: time(1)).isEmpty)
     }
@@ -318,7 +318,7 @@ struct SwitcherStateTests {
     @Test func removingProgramDuringTBarCancelsAndNeedsRearm() {
         var sw = makeSwitcher()
         _ = sw.apply(.tbar(0.5), at: .zero)
-        #expect(sw.removeInput(a, at: .zero) == [.transitionCompleted, .busesChanged(preview: b, program: nil)])
+        #expect(sw.removeInput(a, at: .zero) == [.transitionCancelled, .busesChanged(preview: b, program: nil)])
         #expect(sw.transition == .idle && sw.tbarNeedsRearm)
     }
 

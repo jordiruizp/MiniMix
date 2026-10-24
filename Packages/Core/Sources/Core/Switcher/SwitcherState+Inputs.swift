@@ -6,7 +6,7 @@ extension SwitcherState {
     /// La entrada `id` se ha eliminado del proyecto: la quita de los buses.
     ///
     /// - Si hay una transición en curso que la usa (saliente o entrante), se cancela sin
-    ///   intercambio: `[transitionCompleted, busesChanged]`. Si la T-bar la había movido,
+    ///   intercambio: `[transitionCancelled, busesChanged]`. Si la T-bar la había movido,
     ///   queda pendiente de rearme (`tbarNeedsRearm`).
     /// - Si no hay transición y está en Preview y/o Programa: `[busesChanged]` con ese bus a nil.
     /// - Si una transición en curso no la usa, o no está en ningún bus: sin efectos.
@@ -16,7 +16,7 @@ extension SwitcherState {
         if let current = active {
             if current.usedTBar { tbarNeedsRearm = true }
             active = nil
-            effects.append(.transitionCompleted)
+            effects.append(.transitionCancelled)
         }
         if preview == id { preview = nil }
         if program == id { program = nil }

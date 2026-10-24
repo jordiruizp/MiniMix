@@ -78,6 +78,11 @@ public final class MockInputManager: InputManaging {
     }
 
     public func remove(_ id: InputID) async { sources.withLock { $0[id] = nil } }
+    public let updates = Locked([InputDescriptor]())
+    public func update(_ descriptor: InputDescriptor) async throws {
+        updates.withLock { $0.append(descriptor) }
+        try await add(descriptor)
+    }
     public func frameSource(for id: InputID) -> FrameSource? { sources.withLock { $0[id] } }
     public func audioSource(for id: InputID) -> AudioSource? { nil }
     public func setVisible(_ ids: Set<InputID>) { visible.withLock { $0 = ids } }

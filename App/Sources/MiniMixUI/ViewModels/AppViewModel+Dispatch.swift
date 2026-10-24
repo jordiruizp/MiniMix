@@ -25,6 +25,8 @@ extension AppViewModel {
             } else {
                 playback[id, default: PlaybackInfo()].reset(at: now, playing: isPlaying(id))
             }
+        case let .setFit(id, fit):
+            setFit(fit, for: id)
         case let .seek(id, seconds):
             let source = services.inputs.frameSource(for: id)
             track { _ in await source?.seek(to: seconds) }

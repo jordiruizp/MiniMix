@@ -60,13 +60,9 @@ extension AppViewModel {
         track { await $0.services.inputs.remove(id) }
     }
 
-    /// Baja en el switcher. `removeInput(_:at:)` no está en el protocolo del contrato (PC):
-    /// devuelve nil si la implementación no es `SwitcherState`.
+    /// Baja en el switcher (`SwitcherStateMachine.removeInput`, contracts-v2).
     private func removeFromSwitcher(_ id: InputID) -> [Effect]? {
-        guard var concrete = switcher as? SwitcherState else { return nil }
-        let effects = concrete.removeInput(id, at: services.clock.now)
-        switcher = concrete
-        return effects
+        switcher.removeInput(id, at: services.clock.now)
     }
 
     public func rename(_ id: InputID, to name: String) {

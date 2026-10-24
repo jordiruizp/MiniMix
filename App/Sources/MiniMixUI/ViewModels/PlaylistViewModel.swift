@@ -140,12 +140,9 @@ public final class PlaylistViewModel {
     /// `PlaylistSequencer` lo informa (`lastEventRestartsItem`: bucle de un item, anterior en el
     /// primero, saltar al actual…); con otras implementaciones solo `restartItem`.
     ///
-    /// El cast es deliberado y temporal: `lastEventRestartsItem` no está en `PlaylistSequencing`
-    /// (contracts-v1). Petición PC8, pendiente de decisión del usuario; si se acepta, sustituir el
-    /// cast por la propiedad del protocolo.
+    /// Usa `PlaylistSequencing.lastEventRestartsItem` (contracts-v2, PC8).
     private static func restartsItem(_ sequencer: any PlaylistSequencing, event: SequencerEvent) -> Bool {
-        if let real = sequencer as? PlaylistSequencer { return real.lastEventRestartsItem }
-        return event == .restartItem
+        sequencer.lastEventRestartsItem || event == .restartItem
     }
 
     /// Ajusta el reloj del item al estado del secuenciador: nuevo item (o `restart`) → desde 0;
