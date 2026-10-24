@@ -149,7 +149,7 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
 
     /// Posición dentro del item actual (s desde su In), nil sin item.
     public var currentTime: Double? {
-        state.withLock { s in s.active.map { elapsed(of: $0, at: environment.clock.now) } }
+        state.withLock { s in s.active.map { elapsed(of: $0, at: getterTime(s)) } }
     }
 
     // MARK: Control de la playlist
@@ -170,7 +170,7 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
     public var itemRemainingTime: Double? {
         state.withLock { s -> Double? in
             guard let slot = s.active, let duration = slot.duration else { return nil }
-            return max(0, duration - elapsed(of: slot, at: environment.clock.now))
+            return max(0, duration - elapsed(of: slot, at: getterTime(s)))
         }
     }
 
@@ -196,6 +196,9 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
     }
 
     public var stats: Stats { state.withLock { $0.stats } }
+
+    /// Instante de referencia de las consultas: ahora, o el último tick si va por delante.
+    private func getterTime(_ s: State) -> HostTime { max(environment.clock.now, s.lastTick ?? .zero) }
 
     // MARK: DecodingControllable
 
