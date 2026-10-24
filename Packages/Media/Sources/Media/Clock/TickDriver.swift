@@ -51,27 +51,144 @@ final class TimerTickDriver: TickDriver {
     }
 }
 
+// MARK: - Vsync con vigilancia
+
+/// Fuente de pulsos de vsync (el `CADisplayLink` real o una falsa en tests).
+protocol VSyncSource: AnyObject, Sendable {
+    func start(_ onStep: @escaping @Sendable () -> Void)
+    func stop()
+    /// Duración de un refresco de la pantalla (ns).
+    var frameNanos: Int64 { get }
+}
+
+/// Driver ligado a la pantalla con vigilancia: si el vsync deja de llegar durante
+/// más de 3 refrescos (ventana oculta, pantalla dormida o desconectada, sin
+/// pantalla), cae al `TimerTickDriver`; vuelve al vsync en cuanto llega un pulso o
+/// al recibir `NSApplication.didChangeScreenParametersNotification` (que reinstala
+/// el enlace, p. ej. tras conectar otra pantalla).
+final class VSyncTickDriver: TickDriver {
+    private struct State {
+        var onFire: (@Sendable (Int64) -> Int64)?
+        var lastStepNanos: Int64 = 0
+        var usingFallback = false
+        var watchdog: DispatchSourceTimer?
+        var observer: NSObjectProtocol?
+        var fallbackStarts = 0
+    }
+
+    private let vsync: any VSyncSource
+    private let fallback: any TickDriver
+    private let initialGraceNanos: Int64
+    private let queue = DispatchQueue(label: "minimix.clock.watchdog", qos: .userInteractive)
+    private let state = LockedState(State())
+
+    init(vsync: any VSyncSource, fallback: any TickDriver = TimerTickDriver(), initialGraceNanos: Int64 = 250_000_000) {
+        self.vsync = vsync
+        self.fallback = fallback
+        self.initialGraceNanos = initialGraceNanos
+    }
+
+    var firesOffGrid: Bool { true }
+    var isUsingFallback: Bool { state.withLock { $0.usingFallback } }
+    /// Veces que se ha caído al temporizador (diagnóstico).
+    var fallbackStarts: Int { state.withLock { $0.fallbackStarts } }
+
+    private var stallNanos: Int64 { 3 * max(vsync.frameNanos, 1_000_000) }
+
+    func start(_ onFire: @escaping @Sendable (Int64) -> Int64) {
+        stop()
+        let watchdog = DispatchSource.makeTimerSource(queue: queue)
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: nil) { [weak self] _ in
+            self?.screenParametersChanged()
+        }
+        state.withLock { s in
+            s.onFire = onFire
+            s.usingFallback = false
+            s.lastStepNanos = HostClock.nowNanos() + initialGraceNanos
+            s.watchdog = watchdog
+            s.observer = observer
+        }
+        watchdog.setEventHandler { [weak self] in self?.checkStall() }
+        let interval = DispatchTimeInterval.nanoseconds(Int(max(stallNanos / 2, 5_000_000)))
+        watchdog.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(2))
+        watchdog.activate()
+        vsync.start { [weak self] in self?.step() }
+    }
+
+    func stop() {
+        let (watchdog, observer) = state.withLock { s -> (DispatchSourceTimer?, NSObjectProtocol?) in
+            defer {
+                s.onFire = nil
+                s.watchdog = nil
+                s.observer = nil
+                s.usingFallback = false
+            }
+            return (s.watchdog, s.observer)
+        }
+        watchdog?.cancel()
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        vsync.stop()
+        fallback.stop()
+    }
+
+    private func step() {
+        let now = HostClock.nowNanos()
+        let (onFire, wasFallback) = state.withLock { s -> ((@Sendable (Int64) -> Int64)?, Bool) in
+            defer {
+                s.lastStepNanos = now
+                s.usingFallback = false
+            }
+            return (s.onFire, s.usingFallback)
+        }
+        if wasFallback { fallback.stop() }
+        _ = onFire?(now)
+    }
+
+    private func checkStall() {
+        let now = HostClock.nowNanos()
+        let stall = stallNanos
+        let onFire = state.withLock { s -> (@Sendable (Int64) -> Int64)? in
+            guard let onFire = s.onFire, !s.usingFallback, now - s.lastStepNanos > stall else { return nil }
+            s.usingFallback = true
+            s.fallbackStarts += 1
+            return onFire
+        }
+        if let onFire { fallback.start(onFire) }
+    }
+
+    private func screenParametersChanged() {
+        let reinstall = state.withLock { s -> Bool in
+            guard s.onFire != nil, s.usingFallback else { return false }
+            s.lastStepNanos = HostClock.nowNanos() + initialGraceNanos
+            return true
+        }
+        guard reinstall else { return }
+        vsync.stop()
+        vsync.start { [weak self] in self?.step() }
+    }
+}
+
 /// `CADisplayLink` de macOS 14+ (`NSScreen.displayLink`) servido en un hilo propio
-/// (no en el principal, que es de la interfaz). Si no hay pantalla, cae al
-/// `TimerTickDriver`.
+/// (no en el principal, que es de la interfaz). Sin pantalla no emite pulsos y la
+/// vigilancia de `VSyncTickDriver` cae al temporizador.
 ///
 /// `@unchecked Sendable` justificado: `CADisplayLink`, `RunLoop` y `Thread` no son
 /// `Sendable`. El enlace se crea en el main actor (exigencia de AppKit), se
 /// registra en el run loop del hilo propio (uso documentado de
 /// `add(to:forMode:)`) y después solo se toca bajo `state`.
-final class DisplayLinkTickDriver: NSObject, TickDriver, @unchecked Sendable {
+final class DisplayLinkVSync: NSObject, VSyncSource, @unchecked Sendable {
     private struct State {
         var link: CADisplayLink?
-        var onFire: (@Sendable (Int64) -> Int64)?
+        var onStep: (@Sendable () -> Void)?
         var thread: Thread?
         var generation = 0
-        var usingFallback = false
+        var frameNanos: Int64 = 16_666_667
     }
 
     private let state = LockedState(State())
-    private let fallback = TimerTickDriver()
 
-    var firesOffGrid: Bool { !state.withLock { $0.usingFallback } }
+    var frameNanos: Int64 { state.withLock { $0.frameNanos } }
 
     /// true si hay al menos una pantalla activa (consulta segura fuera del main actor).
     static var hasDisplay: Bool {
@@ -79,16 +196,10 @@ final class DisplayLinkTickDriver: NSObject, TickDriver, @unchecked Sendable {
         return CGGetActiveDisplayList(0, nil, &count) == .success && count > 0
     }
 
-    func start(_ onFire: @escaping @Sendable (Int64) -> Int64) {
+    func start(_ onStep: @escaping @Sendable () -> Void) {
         stop()
-        guard Self.hasDisplay else {
-            state.withLock { $0.usingFallback = true }
-            fallback.start(onFire)
-            return
-        }
         let generation = state.withLock { s -> Int in
-            s.onFire = onFire
-            s.usingFallback = false
+            s.onStep = onStep
             s.generation += 1
             return s.generation
         }
@@ -104,14 +215,13 @@ final class DisplayLinkTickDriver: NSObject, TickDriver, @unchecked Sendable {
             defer {
                 s.link = nil
                 s.thread = nil
-                s.onFire = nil
+                s.onStep = nil
                 s.generation += 1
             }
             return (s.link, s.thread)
         }
         link?.invalidate()
         thread?.cancel()
-        fallback.stop()
     }
 
     private func runLoopThread(generation: Int) {
@@ -130,15 +240,7 @@ final class DisplayLinkTickDriver: NSObject, TickDriver, @unchecked Sendable {
 
     @MainActor
     private func installLink(on runLoop: RunLoop, generation: Int) {
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
-            let onFire = state.withLock { s -> (@Sendable (Int64) -> Int64)? in
-                guard s.generation == generation else { return nil }
-                s.usingFallback = true
-                return s.onFire
-            }
-            if let onFire { fallback.start(onFire) }
-            return
-        }
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
         let link = screen.displayLink(target: self, selector: #selector(step(_:)))
         let installed = state.withLock { s -> Bool in
             guard s.generation == generation else { return false }
@@ -153,7 +255,11 @@ final class DisplayLinkTickDriver: NSObject, TickDriver, @unchecked Sendable {
     }
 
     @objc private func step(_ link: CADisplayLink) {
-        let onFire = state.withLock { $0.onFire }
-        _ = onFire?(HostClock.nowNanos())
+        let refresh = link.targetTimestamp - link.timestamp
+        let onStep = state.withLock { s -> (@Sendable () -> Void)? in
+            if refresh > 0.001, refresh < 0.1 { s.frameNanos = Int64(refresh * 1e9) }
+            return s.onStep
+        }
+        onStep?()
     }
 }

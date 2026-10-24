@@ -166,7 +166,7 @@ extension MediaSerialTests {
         }
 
         /// Con pantalla, el driver de `CADisplayLink` produce ticks en la rejilla.
-        @Test(.enabled(if: DisplayLinkTickDriver.hasDisplay), .timeLimit(.minutes(1)))
+        @Test(.enabled(if: DisplayLinkVSync.hasDisplay), .timeLimit(.minutes(1)))
         func displayLinkTicks() async {
             let clock = MasterClock(frameRate: .fps30, tickSource: .displayLink)
             #expect(clock.tickSource == .displayLink)

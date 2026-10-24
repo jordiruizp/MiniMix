@@ -10,7 +10,8 @@ import os
 ///   sistema llegan tarde se emite solo el fotograma más reciente y se cuenta
 ///   el salto en `stats.skippedTicks`.
 /// - Fuente de despertares: `CADisplayLink` (si hay pantalla) o un temporizador
-///   de alta precisión (headless/tests).
+///   de alta precisión (headless/tests). Con display link, si el vsync se detiene
+///   más de 3 refrescos el reloj sigue con el temporizador y vuelve al vsync solo.
 /// - `setFrameRate(_:)` cambia la cadencia en caliente: la rejilla nueva se ancla
 ///   en el siguiente límite de fotograma de la antigua (sin saltos ni retrocesos).
 ///
@@ -46,15 +47,23 @@ public final class MasterClock: MasterClockProtocol {
     private let driver: any TickDriver
     public let tickSource: TickSource
 
-    public init(frameRate: FrameRate = .fps60, tickSource: TickSource = .automatic) {
-        precondition(frameRate.numerator > 0 && frameRate.denominator > 0, "FrameRate inválido")
-        state = OSAllocatedUnfairLock(initialState: State(rate: frameRate))
+    public convenience init(frameRate: FrameRate = .fps60, tickSource: TickSource = .automatic) {
         let resolved: TickSource = switch tickSource {
-        case .automatic: DisplayLinkTickDriver.hasDisplay ? .displayLink : .timer
+        case .automatic: DisplayLinkVSync.hasDisplay ? .displayLink : .timer
         default: tickSource
         }
-        self.tickSource = resolved
-        driver = resolved == .displayLink ? DisplayLinkTickDriver() : TimerTickDriver()
+        let driver: any TickDriver = resolved == .displayLink
+            ? VSyncTickDriver(vsync: DisplayLinkVSync())
+            : TimerTickDriver()
+        self.init(frameRate: frameRate, driver: driver, tickSource: resolved)
+    }
+
+    /// Inyección del driver (tests).
+    init(frameRate: FrameRate, driver: any TickDriver, tickSource: TickSource) {
+        precondition(frameRate.numerator > 0 && frameRate.denominator > 0, "FrameRate inválido")
+        state = OSAllocatedUnfairLock(initialState: State(rate: frameRate))
+        self.tickSource = tickSource
+        self.driver = driver
     }
 
     deinit {
