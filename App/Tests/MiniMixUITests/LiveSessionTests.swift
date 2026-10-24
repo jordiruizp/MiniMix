@@ -20,13 +20,21 @@ struct LiveSessionTests {
         let ids: [InputID]
     }
 
-    func makeSession() async throws -> Session {
+    @MainActor final class BusRecorder {
+        var states: [BusState] = []
+    }
+
+    func makeSession(recorder: BusRecorder? = nil) async throws -> Session {
         let inputs = [red, green, blue].enumerated().map { index, color in
             InputDescriptor(name: "C\(index + 1)", content: .color(color))
         }
         let project = Project(canvas: CanvasFormat(size: PixelSize(width: 64, height: 36), frameRate: .fps60),
                               inputs: inputs, preview: nil, program: inputs[0].id)
-        let (services, runtime) = try AppServices.live(project: project)
+        var (services, runtime) = try AppServices.live(project: project)
+        if let recorder {
+            let original = services.busStateSink
+            services.busStateSink = { original?($0); recorder.states.append($0) }
+        }
         let app = AppViewModel(services: services)
         await app.registerAllInputs()
         app.publishBusState()
@@ -38,7 +46,12 @@ struct LiveSessionTests {
         let renderer = runtime.renderer
         let buffer = try #require(renderer.render(at: time))
         // Sondeo (compatible con el SDK del CI): espera a que la GPU termine el fotograma.
+        let deadline = ContinuousClock.now + .seconds(5)
         while buffer.status != .completed, buffer.status != .error {
+            guard ContinuousClock.now < deadline else {
+                Issue.record("la GPU no terminó el fotograma en 5 s")
+                break
+            }
             try await Task.sleep(for: .milliseconds(1))
         }
         let program = try #require(renderer.programFeed.currentTexture)
@@ -126,5 +139,26 @@ struct LiveSessionTests {
         defer { runtime.stop() }
         app.send(.setFit(ids[0], .fill))
         #expect(runtime.renderer.bus.fits[ids[0]] == .fill)
+    }
+
+    /// B3: al completar una transición no se publica un estado intermedio (sin transición y
+    /// con el Programa antiguo), que el render compondría como un fotograma de la saliente.
+    @Test func noIntermediateBusStateOnCompletion() async throws {
+        let recorder = BusRecorder()
+        let session = try await makeSession(recorder: recorder)
+        let (app, runtime, ids) = (session.app, session.runtime, session.ids)
+        defer { runtime.stop() }
+        app.send(.selectPreview(ids[1]))
+        let start = runtime.clock.now
+        app.send(.fade(duration: 1))
+        app.tick(at: start + 0.5)
+        recorder.states.removeAll()
+        app.tick(at: start + 1.1)
+        let published = recorder.states
+        #expect(!published.isEmpty)
+        #expect(!published.contains { $0.transition == nil && $0.program == ids[0] },
+                "estado intermedio publicado: \(published)")
+        #expect(published.last?.program == ids[1])
+        #expect(published.last?.transition == nil)
     }
 }

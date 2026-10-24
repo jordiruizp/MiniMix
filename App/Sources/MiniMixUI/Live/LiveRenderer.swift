@@ -63,13 +63,14 @@ public final class LiveRenderer: @unchecked Sendable {
             count += 1
             return true
         }
-        guard admitted else {
-            programCompositor.statsCollector.reportDropped()
-            return nil
-        }
+        // Si se alcanza el límite, el tick se descarta. No se llama a `reportDropped()`: en modo
+        // `.external` el colector ya cuenta el hueco entre `frameSubmitted` como fotograma perdido.
+        guard admitted else { return nil }
+        let programTarget = pool.dequeue(width: canvas.width, height: canvas.height)
+        let previewTarget = pool.dequeue(width: canvas.width, height: canvas.height)
         guard let commandBuffer = context.commandQueue.makeCommandBuffer(),
-              let programTarget = pool.dequeue(width: canvas.width, height: canvas.height),
-              let previewTarget = pool.dequeue(width: canvas.width, height: canvas.height) else {
+              let programTarget, let previewTarget else {
+            [programTarget, previewTarget].compactMap { $0 }.forEach { pool.recycle($0) }
             inFlight.withLock { $0 -= 1 }
             return nil
         }
@@ -78,17 +79,14 @@ public final class LiveRenderer: @unchecked Sendable {
         programCompositor.encode(programFrame(bus, at: time), into: programTarget, commandBuffer: commandBuffer)
         previewCompositor.encode(previewFrame(bus, at: time), into: previewTarget, commandBuffer: commandBuffer)
 
-        let collector = programCompositor.statsCollector
+        // El tiempo de GPU lo registra el propio Compositor (.external); aquí solo se libera el hueco.
         let inFlight = self.inFlight
-        commandBuffer.addCompletedHandler { buffer in
-            inFlight.withLock { $0 -= 1 }
-            if buffer.gpuEndTime > buffer.gpuStartTime {
-                collector.gpuFrameCompleted(gpuTime: buffer.gpuEndTime - buffer.gpuStartTime)
-            }
-        }
+        commandBuffer.addCompletedHandler { _ in inFlight.withLock { $0 -= 1 } }
         programCompositor.frameSubmitted(at: time.seconds)
         commandBuffer.commit()
-        // Los monitores codifican en la misma cola, así que leen después de este CB.
+        // Los monitores y Output codifican en la misma `commandQueue` y los recursos usan hazard
+        // tracking por defecto: leen después de este CB y una textura reciclada no se reescribe
+        // antes. Si se usara otra cola o `.hazardTrackingModeUntracked`, esto dejaría de valer.
         programFeed.display(programTarget, returningTo: pool)
         previewFeed.display(previewTarget, returningTo: pool)
         frames.withLock { $0 += 1 }

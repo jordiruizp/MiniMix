@@ -226,7 +226,6 @@ public final class AppViewModel {
     func updateVisibility() {
         let ids = [project.preview, project.program, transitionInputs?.from, transitionInputs?.to].compactMap { $0 }
         services.inputs.setVisible(Set(ids))
-        publishBusState()
     }
 
     // MARK: Consultas

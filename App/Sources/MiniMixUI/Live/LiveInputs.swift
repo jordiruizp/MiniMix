@@ -33,9 +33,15 @@ public final class LiveInputs: InputManaging {
     public func setVisible(_ ids: Set<InputID>) { inputs.setVisible(ids) }
 
     private func attachAudio(_ descriptor: InputDescriptor) {
-        guard let source = inputs.audioSource(for: descriptor.id) else { return }
+        guard let source = inputs.audioSource(for: descriptor.id) else {
+            // Sin audio (o sustituida por contenido sin audio): no dejar un canal huérfano.
+            audio.detach(descriptor.id)
+            return
+        }
         do {
             try audio.attach(source)
+            // Si un `remove` se coló entre la consulta y el attach, deshacerlo.
+            if inputs.audioSource(for: descriptor.id) !== source { audio.detach(descriptor.id) }
         } catch {
             LiveLog.app.error("No se pudo conectar el audio de \(descriptor.name, privacy: .public): \(error)")
         }
