@@ -10,6 +10,9 @@
 
 import Core
 import Foundation
+import os
+
+let persistenceLog = Logger(subsystem: "com.minimix.persistence", category: "Persistence")
 
 /// Tipo de bookmark que crea `ProjectStore`.
 public enum BookmarkMode: Sendable, Hashable {
@@ -34,10 +37,15 @@ struct BookmarkCodec: Sendable {
 
     /// Bookmark para `url` (que debe existir). Devuelve también si es security-scoped.
     func makeBookmark(for url: URL) throws -> (data: Data, securityScoped: Bool) {
-        if mode == .securityScoped,
-           let data = try? url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
-                                            includingResourceValuesForKeys: nil, relativeTo: nil) {
-            return (data, true)
+        if mode == .securityScoped {
+            do {
+                let data = try url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
+                                                includingResourceValuesForKeys: nil, relativeTo: nil)
+                return (data, true)
+            } catch {
+                let reason = String(describing: error)
+                persistenceLog.error("Scoped bookmark failed (\(reason, privacy: .public)); using a plain one")
+            }
         }
         return (try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil), false)
     }
@@ -63,12 +71,22 @@ struct BookmarkCodec: Sendable {
     /// nil si el archivo no existe en ninguno de los dos sitios.
     func resolve(_ reference: MediaReference) -> ResolvedMedia? {
         if let bookmark = reference.bookmark, let resolved = resolveBookmark(bookmark),
-           Self.fileExists(resolved.url) {
+           Self.fileExists(resolved.url), !Self.isInTrash(resolved.url) {
             return resolved
         }
         let url = URL(fileURLWithPath: reference.path)
-        guard !reference.path.isEmpty, Self.fileExists(url) else { return nil }
+        guard !reference.path.isEmpty, Self.fileExists(url), !Self.isInTrash(url) else { return nil }
         return ResolvedMedia(url: url, isSecurityScoped: false, needsNewBookmark: true)
+    }
+
+    /// El archivo está en una Papelera (el bookmark lo sigue hasta allí): se trata como perdido.
+    static func isInTrash(_ url: URL) -> Bool {
+        let resolved = url.resolvingSymlinksInPath()
+        let components = resolved.pathComponents
+        if components.contains(".Trash") || components.contains(".Trashes") { return true }
+        guard let trash = try? FileManager.default.url(for: .trashDirectory, in: .userDomainMask,
+                                                       appropriateFor: url, create: false) else { return false }
+        return resolved.path.hasPrefix(trash.resolvingSymlinksInPath().path + "/")
     }
 
     static func fileExists(_ url: URL) -> Bool {

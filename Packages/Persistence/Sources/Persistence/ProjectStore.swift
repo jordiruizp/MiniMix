@@ -31,6 +31,9 @@ public enum PersistenceError: Error, Hashable, Sendable, CustomStringConvertible
 /// - **Reenlace**: `unresolvedReferences(in:)` y `relink(_:to:in:)`.
 /// - **Media**: `urlResolver` para `InputManager(urlResolver:)`.
 ///
+/// Para guardar, la App debe usar `write(_:to:)` y adoptar el proyecto que devuelve (con los bookmarks
+/// nuevos); `save(_:to:)` existe por el protocolo y descarta ese resultado.
+///
 /// Las copias de un `ProjectStore` comparten el registro de accesos (`access`).
 public struct ProjectStore: ProjectStoring {
     /// Extensión de los documentos de proyecto.
@@ -140,9 +143,18 @@ public struct ProjectStore: ProjectStoring {
         if !BookmarkCodec.samePath(reference.path, resolved.url.path) {
             updated.path = resolved.url.path
         }
-        if resolved.needsNewBookmark || reference.bookmark == nil,
-           let bookmark = try? codec.makeBookmark(for: resolved.url) {
-            updated.bookmark = bookmark.data
+        guard resolved.needsNewBookmark || reference.bookmark == nil else { return updated }
+        do {
+            let bookmark = try codec.makeBookmark(for: resolved.url)
+            if bookmarkMode == .securityScoped, !bookmark.securityScoped, reference.bookmark != nil {
+                // Un bookmark normal no daría acceso en sandbox: se conserva el antiguo (con ámbito).
+                persistenceLog.error("New bookmark has no security scope; keeping the previous one")
+            } else {
+                updated.bookmark = bookmark.data
+            }
+        } catch {
+            let reason = String(describing: error)
+            persistenceLog.error("Cannot create bookmark: \(reason, privacy: .public)")
         }
         return updated
     }

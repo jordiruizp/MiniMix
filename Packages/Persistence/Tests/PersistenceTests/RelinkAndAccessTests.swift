@@ -54,6 +54,43 @@ struct RelinkAndAccessTests {
         #expect(remaining.map { ($0.path as NSString).lastPathComponent } == ["music.wav"])
     }
 
+    @Test func siblingsAreSearchedInExplicitFolder() throws {
+        let lost = try lostProject()
+        // La elegida en `found/`; las hermanas, en otra carpeta que la App pidió al usuario.
+        let elsewhere = try lost.dir.folder("elsewhere")
+        for name in Fixtures.mediaNames where name != "clip.mov" {
+            try FileManager.default.moveItem(at: lost.found.appendingPathComponent(name),
+                                             to: elsewhere.appendingPathComponent(name))
+        }
+        let clip = try #require(lost.store.unresolvedReferences(in: lost.project).first { $0.path.hasSuffix("clip.mov") })
+        let target = lost.found.appendingPathComponent("clip.mov")
+
+        let withoutFolder = try lost.store.relinkReporting(clip, to: target, in: lost.project)
+        #expect(withoutFolder.relinkedPaths == [clip.path])
+        #expect(withoutFolder.stillUnresolved.count == Fixtures.mediaNames.count - 1)
+
+        let withFolder = try lost.store.relinkReporting(clip, to: target, in: lost.project, searchingIn: elsewhere)
+        #expect(withFolder.relinkedPaths.count == Fixtures.mediaNames.count)
+        #expect(withFolder.stillUnresolved.isEmpty)
+        #expect(withFolder.bookmarkFailures.isEmpty)
+    }
+
+    @Test func fileMovedToTrashCountsAsLost() throws {
+        let dir = try TempDir()
+        let folder = try dir.folder("m")
+        let file = try dir.file("a.mov", in: folder)
+        let store = ProjectStore()
+        let project = store.withFreshBookmarks(
+            Project(inputs: [InputDescriptor(name: "a", content: .video(MediaReference(path: file.path)))]))
+        #expect(store.unresolvedReferences(in: project).isEmpty)
+
+        // Papelera simulada en el directorio temporal (no se toca la del usuario); el bookmark la sigue.
+        let trash = try dir.folder(".Trashes")
+        try FileManager.default.moveItem(at: file, to: trash.appendingPathComponent("a.mov"))
+        #expect(store.unresolvedReferences(in: project).count == 1)
+        #expect(throws: PersistenceError.self) { try store.resolveURL(for: project.mediaReferences[0]) }
+    }
+
     @Test func relinkToMissingFileThrows() throws {
         let lost = try lostProject()
         let clip = try #require(lost.store.unresolvedReferences(in: lost.project).first)
