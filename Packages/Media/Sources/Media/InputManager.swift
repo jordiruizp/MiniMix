@@ -85,6 +85,11 @@ public final class InputManager: InputManaging {
         applyVisibility()
     }
 
+    /// contracts-v2. Provisional: se completa en el siguiente commit.
+    public func update(_ descriptor: InputDescriptor) async throws {
+        throw MediaError.unsupported("update")
+    }
+
     public func frameSource(for id: InputID) -> FrameSource? {
         state.withLock { s in s.entries.first { $0.id == id }?.source }
     }
