@@ -23,7 +23,10 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
     public struct Stats: Sendable, Equatable {
         /// Fotogramas nuevos convertidos en textura.
         public var deliveredFrames = 0
-        /// Huecos de PTS entre fotogramas consecutivos entregados (en fotogramas del archivo).
+        /// Saltos del **consumidor**: huecos de PTS entre fotogramas consecutivos que
+        /// `texture(for:)` llegó a convertir (en fotogramas del archivo). Cuenta los
+        /// fotogramas que el render no llegó a pedir a tiempo, no las pérdidas internas
+        /// del decodificador (que AVFoundation no expone).
         public var droppedFrames = 0
         public var nominalFrameRate: Double = 0
         public var lastPresentationTime: Double?
