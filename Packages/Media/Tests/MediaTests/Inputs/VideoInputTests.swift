@@ -129,6 +129,21 @@ extension MediaSerialTests {
             #expect(input.loadCountForTesting == 1)
         }
 
+        /// N3: cancelar el `prepare` deshace la carga (sin item, salida ni observadores
+        /// colgados) y se puede reintentar. Se cancela en varias fases de la carga.
+        @Test(arguments: [0, 2, 5, 10, 20, 40])
+        func cancelledPrepareCanBeRetried(delayMs: Int) async throws {
+            let url = try await TestMediaFactory.shared.video(Spec(width: 320, height: 180, fps: 30, seconds: 2))
+            let input = VideoInput(url: url, textureCache: cache)
+            let attempt = Task { try await input.prepare() }
+            try await Task.sleep(for: .milliseconds(delayMs))
+            attempt.cancel()
+            _ = await attempt.result
+            try await input.prepare()
+            #expect(input.observerCountForTesting == 2)
+            #expect(await waitForTexture(input) != nil)
+        }
+
         @Test func currentTimeTracksPlayback() async throws {
             let url = try await TestMediaFactory.shared.video(Spec(width: 320, height: 180, fps: 30, seconds: 2))
             let input = VideoInput(url: url, textureCache: cache, inPoint: 0.5)

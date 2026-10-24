@@ -40,6 +40,7 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         var prepared = false
         /// Carga en curso: `prepare()` concurrentes esperan la misma (un solo AVPlayerItem).
         var loadTask: Task<Void, Error>?
+        var item: AVPlayerItem?
         var loadCount = 0
         var loop: Bool
         var inPoint: Double?
@@ -103,8 +104,10 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
     public var usesVideoDecoder: Bool { true }
     var audioTapForTesting: PlayerAudioTap? { state.withLock { $0.audioTap } }
 
-    /// Reentrante: las llamadas concurrentes comparten una única carga; si falla,
-    /// una llamada posterior puede reintentarlo.
+    /// Reentrante: las llamadas concurrentes comparten una única carga; si falla o se
+    /// cancela, se deshace (item, salida, observadores) y una llamada posterior puede
+    /// reintentarlo. Cancelar la tarea que espera cancela la carga (p. ej. `remove`
+    /// durante un `add`), sin dejar cargas huérfanas.
     public func prepare() async throws {
         let task = state.withLock { s -> Task<Void, Error>? in
             if s.prepared { return nil }
@@ -113,16 +116,48 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
                 do {
                     try await self.load()
                 } catch {
-                    self.state.withLock { $0.loadTask = nil }
-                    self.continuation.yield(.error(String(describing: error)))
+                    self.resetFailedLoad()
+                    if !(error is CancellationError) { self.continuation.yield(.error(String(describing: error))) }
                     throw error
                 }
             }
             s.loadTask = task
             return task
         }
-        try await task?.value
+        guard let task else { return }
+        try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
+
+    /// Deshace una carga fallida o cancelada para poder reintentar.
+    private func resetFailedLoad() {
+        struct Leftovers {
+            let observers: [NSObjectProtocol]
+            let observation: NSKeyValueObservation?
+            let item: AVPlayerItem?
+        }
+        let left = state.withLock { s -> Leftovers in
+            defer {
+                s.observers = []
+                s.statusObservation = nil
+                s.item = nil
+                s.audioTap = nil
+                s.loadTask = nil
+            }
+            return Leftovers(observers: s.observers, observation: s.statusObservation, item: s.item)
+        }
+        let (observers, observation, item) = (left.observers, left.observation, left.item)
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observation?.invalidate()
+        player.replaceCurrentItem(with: nil)
+        // La salida de vídeo solo puede estar en un item: soltarla del fallido.
+        if let item, item.outputs.contains(where: { $0 === output }) { item.remove(output) }
+    }
+
+    var observerCountForTesting: Int { state.withLock { $0.observers.count } }
 
     /// Posición actual en el archivo (s), sin bloquear; nil antes de `prepare`.
     public var currentTime: Double? {
@@ -270,8 +305,10 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         let oriented = natural.applying(transform)
         let size = PixelSize(width: Int(abs(oriented.width).rounded()), height: Int(abs(oriented.height).rounded()))
 
+        try Task.checkCancellation()
         let item = AVPlayerItem(asset: asset)
         item.add(output)
+        state.withLock { $0.item = item }
         var tap: PlayerAudioTap?
         if let audioTrack {
             let (sampleRate, channels) = try await Self.audioFormat(of: audioTrack)
@@ -292,6 +329,7 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         observe(item)
         player.replaceCurrentItem(with: item)
         try await waitUntilReady(item)
+        try Task.checkCancellation()
         if let inPoint, inPoint > 0 {
             await player.seek(to: CMTime(seconds: inPoint, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         }
