@@ -34,9 +34,10 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T51 | G | Panel de playlist | ✅ | feat/g-ui-mocks → main | fase mocks; conexión real en Ola 2 |
 | T60 | H | Generador TestMedia | ✅ | feat/h-qa → main | |
 | T61 | H | Harness de estrés | ✅ | feat/h-qa → main | |
-| T70 | D | PlaylistInput A/B | 🟦 | feat/d-playlist | sobre feat/c-media |
+| T70 | D | PlaylistInput A/B | 🟦 | feat/d-playlist | núcleo comiteado (568eb23) |
 | T71 | D | Fundido entre items + hold | 🟦 | feat/d-playlist | |
-| T80 | ORQ | Integración switcher | 🟨 | feat/orq-t80 (PR #9) | sesión completa verificada en píxeles reales; app con sandbox viva (93 MB) · en revisión |
+| T80 | ORQ | Integración switcher | ✅ | feat/orq-t80 → main (PR #9, 91f396b) | sesión completa verificada en píxeles reales; smoke con sandbox en CI (84 MB) |
+| G-real | G | UI con módulos reales (eventos de fuente, persistencia real, edición en directo, ciclo de vida, salida) | 🟦 | feat/g-ui-real | pendientes de la revisión de T80 |
 | T81 | F | Output externo | ✅ | feat/f-output-persistence → main | |
 | T82 | F | Persistence | ✅ | feat/f-output-persistence → main | |
 | T90 | H | Estrés 1 h / 2 h | ⬜ | | Ola 3 |
@@ -90,6 +91,9 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | #6 | feat/c-media (T30–T32) | ✅ integrado (8181341) · memoria retenida peor caso ~900 → ~120 MB |
 | #7 | feat/b-render-ci | ✅ integrado (19b7cd1) |
 | #8 | feat/f-output-persistence (T81, T82) | ✅ integrado (12c8856) · pendiente probar con pantalla externa real |
+| #9 | feat/orq-t80 (T80) | ✅ integrado (91f396b) |
+| #10 | feat/e-audio-sandbox | ✅ integrado (c0e05bb) |
+| #11 | feat/h-ci-perf | ✅ integrado |
 | #3 | feat/h-qa (T60, T61) | ✅ integrado · Core/Render/Audio verificados en local (Actions sin minutos) |
 | #4 | feat/g-ui-mocks (T50, T51) | ✅ integrado (5b3c5a3) |
 
