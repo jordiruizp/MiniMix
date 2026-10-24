@@ -16,6 +16,8 @@ import Render
 public final class OutputController: OutputPresenting {
     public private(set) var displays: [DisplayInfo] = []
     public private(set) var activeDisplay: DisplayInfo.ID?
+    /// Lista de pantallas tras cada cambio. **Un solo consumidor** (como todo `AsyncStream`): si varias
+    /// partes de la App necesitan los cambios, que una los reparta. Guarda solo el último valor pendiente.
     public let displayChanges: AsyncStream<[DisplayInfo]>
 
     /// UUID de la pantalla elegida (persistible por la App para restaurarla con `show(displayUUID:)`).
@@ -47,8 +49,15 @@ public final class OutputController: OutputPresenting {
         self.init(feed: feed, renderer: context.flatMap(MonitorRenderer.shared(for:)))
     }
 
+    /// Al destruirse, termina `displayChanges` y oculta la ventana de Programa (en el hilo principal).
     deinit {
         continuation.finish()
+        let surface = surface
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { surface.dismiss() }
+        } else {
+            Task { @MainActor in surface.dismiss() }
+        }
     }
 
     // MARK: OutputPresenting

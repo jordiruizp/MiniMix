@@ -6,8 +6,9 @@ import Render
 import SwiftUI
 
 /// Superficie donde se muestra el Programa. La real es `ProgramWindowSurface`; los tests usan una falsa.
+/// `Sendable` porque sus conformes son clases `@MainActor` (así `OutputController` puede ocultarla en `deinit`).
 @MainActor
-public protocol ProgramSurface: AnyObject {
+public protocol ProgramSurface: AnyObject, Sendable {
     /// Muestra (o recoloca, si ya está visible) la salida cubriendo `display`. Idempotente.
     func present(on display: DisplayDescriptor)
     /// Oculta la salida sin destruirla (se puede volver a mostrar).
@@ -77,6 +78,12 @@ public final class ProgramWindowSurface: ProgramSurface {
             window.setFrame(display.frame, display: true)
         }
         if !window.isVisible { window.orderFrontRegardless() }
+        // AppKit puede colocar la ventana en otra pantalla si el marco no encaja (p. ej. durante una
+        // reconfiguración): se comprueba y se reintenta una vez.
+        if let screen = window.screen, let id = ScreenDisplayProvider.displayID(of: screen), id != display.info.id {
+            outputLog.error("Program window landed on display \(id) instead of \(display.info.id); retrying")
+            window.setFrame(display.frame, display: true)
+        }
     }
 
     public func dismiss() {

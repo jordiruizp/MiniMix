@@ -235,6 +235,18 @@ struct OutputControllerTests {
         #expect(!output.preventsAppNap)
     }
 
+    @Test func releasingControllerDismissesOutput() {
+        let provider = FakeDisplayProvider([Screens.builtIn, Screens.projector])
+        let surface = FakeSurface()
+        do {
+            let output = OutputController(provider: provider, surface: surface)
+            output.show(on: Screens.projector.info.id)
+            #expect(surface.isVisible)
+        }
+        #expect(!surface.isVisible)
+        #expect(surface.dismissCount == 1)
+    }
+
     @Test func controllerIsReleasedWhileObserving() {
         let provider = FakeDisplayProvider([Screens.builtIn, Screens.projector])
         weak var weakOutput: OutputController?
