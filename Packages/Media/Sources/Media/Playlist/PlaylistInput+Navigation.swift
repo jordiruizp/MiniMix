@@ -328,9 +328,13 @@ extension PlaylistInput {
             state.withLock { $0.stats.loadedItems -= 1 }
             return
         }
+        state.withLock { $0.releasing += 1 }
         queue.asyncAfter(deadline: .now() + environment.releaseDelay) { [weak self] in
             withExtendedLifetime(source) {}
-            self?.state.withLock { $0.stats.loadedItems -= 1 }
+            self?.state.withLock { s in
+                s.stats.loadedItems -= 1
+                s.releasing -= 1
+            }
         }
     }
 

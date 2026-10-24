@@ -269,12 +269,12 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
     /// Espera a que la cola de control procese lo encolado.
     func settle() async { await onQueue {} }
 
-    /// Espera a que no haya cargas en curso (tests).
+    /// Espera a que no haya cargas ni liberaciones en curso (tests).
     func waitUntilLoaded(timeout: Double = 10) async {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             await settle()
-            if state.withLock({ $0.loading == 0 }) { return }
+            if state.withLock({ $0.loading == 0 && $0.releasing == 0 }) { return }
             try? await Task.sleep(for: .milliseconds(5))
         }
     }

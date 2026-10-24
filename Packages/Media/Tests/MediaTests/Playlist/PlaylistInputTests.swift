@@ -35,6 +35,16 @@ extension MediaSerialTests {
             return result
         }
 
+        /// Eventos hasta `last` (incluido) o hasta 5 s, sin esperas sin límite.
+        private func collectEvents(_ events: AsyncStream<SourceEvent>, until last: SourceEvent) async -> [SourceEvent] {
+            let list = Locked([SourceEvent]())
+            _ = await firstEvent(events, timeout: 5) { event in
+                list.withLock { $0.append(event) }
+                return event == last
+            }
+            return list.current
+        }
+
         @Test func continuousCutsAtFrameBoundariesWithoutBlack() async throws {
             let palette = [T.red, T.green, T.blue]
             let (input, initial) = try await make(Playlist(items: T.colors(palette)))
@@ -181,14 +191,7 @@ extension MediaSerialTests {
             let remaining = try #require(input.playlistRemainingTime)
             #expect(abs(remaining - 5.5) < 0.05)
             await driver.run(60 * 6)
-            let collected = await Task {
-                var list: [SourceEvent] = []
-                for await event in events {
-                    list.append(event)
-                    if event == .ended { break }
-                }
-                return list
-            }.value
+            let collected = await collectEvents(events, until: .ended)
             let changes = collected.compactMap { if case .itemChanged(let id) = $0 { id } else { nil } }
             #expect(changes == items.map(\.id))
             #expect(collected.contains(.durationKnown(2)))

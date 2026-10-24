@@ -19,11 +19,11 @@ extension PlaylistInput {
         }
         guard prepared else { return }
         connectAudio()
-        if let end = state.withLock({ $0.fadeEnd }) {
-            if time.seconds >= end.seconds - frame / 2 { finishFade() } else { updateFadeGains(at: time) }
-        }
         if let pending = state.withLock({ $0.pending }), time.seconds >= pending.at.seconds - frame / 2 {
             commit(pending)
+        }
+        if let end = state.withLock({ $0.fadeEnd }) {
+            if time.seconds >= end.seconds - frame / 2 { finishFade() } else { updateFadeGains(at: time) }
         }
         let (seqState, active, idle) = state.withLock { s in
             (s.sequencer.state, s.active, s.pending == nil && s.fadeEnd == nil && !s.timelineFrozen)

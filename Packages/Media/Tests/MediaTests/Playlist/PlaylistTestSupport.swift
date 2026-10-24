@@ -14,7 +14,7 @@ enum PlaylistTesting {
     static func environment(frameRate: FrameRate = .fps60, canvas: PixelSize = PixelSize(width: 64, height: 36),
                             preloadLead: Double = 3) -> PlaylistEnvironment {
         PlaylistEnvironment(context: GPU.context!, clock: MockClock(frameRate: frameRate), canvasSize: canvas,
-                            preloadLead: preloadLead, releaseDelay: 0.05)
+                            preloadLead: preloadLead, releaseDelay: 0.005)
     }
 
     static func colors(_ colors: [RGBAColor], seconds: Double = 1) -> [PlaylistItem] {

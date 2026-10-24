@@ -65,6 +65,8 @@ extension PlaylistInput {
         var lastTick: HostTime?
         var lateMarked = false
         var loading = 0
+        /// Liberaciones diferidas pendientes.
+        var releasing = 0
         var failures = 0
         var stats = Stats()
         var knownDurations: [ItemID: Double] = [:]
