@@ -29,8 +29,7 @@ public struct MonitorFactory {
     public static let placeholder = MonitorFactory { AnyView(MonitorPlaceholder(content: $0)) }
 
     /// Monitores Metal de Render. Cada bus pinta lo que se publique en su `MonitorFeed`
-    /// (lo alimenta el compositor en T80). No es el valor por defecto mientras B corrige el
-    /// desmontaje de `MonitorFeed`.
+    /// (lo alimenta `LiveRenderer`, T80). Es el que usa `AppServices.live()`.
     public static func render(context: MetalContext, preview: MonitorFeed, program: MonitorFeed) -> MonitorFactory {
         MonitorFactory { content in
             let isPreview = content.bus == .preview
@@ -66,6 +65,8 @@ public struct AppServices {
     public var demoTick: (@MainActor (AppViewModel) -> Void)?
     /// Demo: tarea lanzada en `start()` (p. ej. hace avanzar `MockClock` a 60 Hz). nil en producción.
     public var demoStart: (@MainActor () -> Task<Void, Never>)?
+    /// T80: recibe los buses/transición/encajes cada vez que cambian (lo consume el render).
+    public var busStateSink: (@MainActor (BusState) -> Void)?
 
     public init(
         initialProject: Project,

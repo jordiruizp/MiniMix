@@ -171,6 +171,7 @@ public final class AppViewModel {
             handle(effect)
         }
         transition = switcher.transition
+        publishBusState()
         if completed, isDraggingTBar { tbarLockedUntilRelease = true }
         if completed, tbarPosition > 0, !isDraggingTBar { rearmTBar() }
     }

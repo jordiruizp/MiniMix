@@ -57,6 +57,7 @@ extension AppViewModel {
         mixer.recordSolo(false, for: id)
         if selectedInputID == id { selectedInputID = nil }
         updateVisibility()
+        publishBusState()
         track { await $0.services.inputs.remove(id) }
     }
 
@@ -74,6 +75,7 @@ extension AppViewModel {
     /// Ajuste fit/fill/stretch (no hay `Command`: lo lee el compositor del descriptor en T80).
     public func setFit(_ fit: FitMode, for id: InputID) {
         updateInput(id) { $0.fit = fit }
+        publishBusState()
     }
 
     /// Cambia el color de una entrada de color y la vuelve a registrar en el gestor de entradas.
@@ -122,6 +124,7 @@ extension AppViewModel {
         }
         services.audio.setMasterVolume(project.masterVolume)
         services.inputs.setVisible(Set([project.preview, project.program].compactMap { $0 }))
+        publishBusState()
         // El Programa inicial (o el del proyecto abierto) también debe sonar.
         services.audio.transition(from: nil, to: project.program, progress: 1)
     }
