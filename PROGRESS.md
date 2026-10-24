@@ -8,7 +8,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 |---|---|
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | ✅ todos integrados |
-| 2 · D, F, G-real, ORQ T80 | ✅ F integrado (T81/T82) · D en curso · G-real tras T80 · T80 desbloqueado (contracts-v2) |
+| 2 · D, F, G-real, ORQ T80 | 🟦 F y T80 integrados · D en curso · G-real en curso |
 | 3 · H rendimiento, E sync, G pulido | ⬜ |
 | 4 · T99 release | ⬜ |
 
