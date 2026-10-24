@@ -63,14 +63,20 @@ protocol VSyncSource: AnyObject, Sendable {
 
 /// Driver ligado a la pantalla con vigilancia: si el vsync deja de llegar durante
 /// más de 3 refrescos (ventana oculta, pantalla dormida o desconectada, sin
-/// pantalla), cae al `TimerTickDriver`; vuelve al vsync en cuanto llega un pulso o
-/// al recibir `NSApplication.didChangeScreenParametersNotification` (que reinstala
-/// el enlace, p. ej. tras conectar otra pantalla).
+/// pantalla), cae al `TimerTickDriver`.
+///
+/// Histéresis: para volver al vsync hacen falta `recoveryPulses` pulsos seguidos,
+/// cada uno a menos de 3 refrescos del anterior; un pulso suelto tras un corte no
+/// basta. Así un vsync irregular (máquina cargada) no hace oscilar entre fuentes.
+/// `NSApplication.didChangeScreenParametersNotification` reinstala el enlace (p. ej.
+/// tras conectar otra pantalla). Mientras manda el temporizador, los pulsos no
+/// disparan ticks (el reloj descartaría duplicados de todos modos).
 final class VSyncTickDriver: TickDriver {
     private struct State {
         var onFire: (@Sendable (Int64) -> Int64)?
         var lastStepNanos: Int64 = 0
         var usingFallback = false
+        var recoveryCount = 0
         var watchdog: DispatchSourceTimer?
         var observer: NSObjectProtocol?
         var fallbackStarts = 0
@@ -79,13 +85,26 @@ final class VSyncTickDriver: TickDriver {
     private let vsync: any VSyncSource
     private let fallback: any TickDriver
     private let initialGraceNanos: Int64
+    private let recoveryPulses: Int
+    private let watchdogInterval: DispatchTimeInterval?
+    private let now: @Sendable () -> Int64
     private let queue = DispatchQueue(label: "minimix.clock.watchdog", qos: .userInteractive)
     private let state = LockedState(State())
 
-    init(vsync: any VSyncSource, fallback: any TickDriver = TimerTickDriver(), initialGraceNanos: Int64 = 250_000_000) {
+    /// - Parameters:
+    ///   - watchdogInterval: cada cuánto se vigila; nil = sin temporizador (los tests
+    ///     llaman a `checkStall()`). Por defecto, medio umbral de corte.
+    ///   - now: reloj en ns del host (inyectable en tests).
+    init(vsync: any VSyncSource, fallback: any TickDriver = TimerTickDriver(),
+         initialGraceNanos: Int64 = 250_000_000, recoveryPulses: Int = 3,
+         watchdogInterval: DispatchTimeInterval? = .milliseconds(25),
+         now: @escaping @Sendable () -> Int64 = HostClock.nowNanos) {
         self.vsync = vsync
         self.fallback = fallback
         self.initialGraceNanos = initialGraceNanos
+        self.recoveryPulses = max(1, recoveryPulses)
+        self.watchdogInterval = watchdogInterval
+        self.now = now
     }
 
     var firesOffGrid: Bool { true }
@@ -97,22 +116,27 @@ final class VSyncTickDriver: TickDriver {
 
     func start(_ onFire: @escaping @Sendable (Int64) -> Int64) {
         stop()
-        let watchdog = DispatchSource.makeTimerSource(queue: queue)
         let observer = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: nil) { [weak self] _ in
             self?.screenParametersChanged()
         }
+        var watchdog: DispatchSourceTimer?
+        if let interval = watchdogInterval {
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.setEventHandler { [weak self] in self?.checkStall() }
+            timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(2))
+            watchdog = timer
+        }
+        let start = now()
         state.withLock { s in
             s.onFire = onFire
             s.usingFallback = false
-            s.lastStepNanos = HostClock.nowNanos() + initialGraceNanos
+            s.recoveryCount = 0
+            s.lastStepNanos = start + initialGraceNanos
             s.watchdog = watchdog
             s.observer = observer
         }
-        watchdog.setEventHandler { [weak self] in self?.checkStall() }
-        let interval = DispatchTimeInterval.nanoseconds(Int(max(stallNanos / 2, 5_000_000)))
-        watchdog.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(2))
-        watchdog.activate()
+        watchdog?.activate()
         vsync.start { [weak self] in self?.step() }
     }
 
@@ -132,25 +156,32 @@ final class VSyncTickDriver: TickDriver {
         fallback.stop()
     }
 
-    private func step() {
-        let now = HostClock.nowNanos()
-        let (onFire, wasFallback) = state.withLock { s -> ((@Sendable (Int64) -> Int64)?, Bool) in
-            defer {
-                s.lastStepNanos = now
-                s.usingFallback = false
-            }
-            return (s.onFire, s.usingFallback)
+    /// Pulso de vsync.
+    func step() {
+        let time = now()
+        let stall = stallNanos
+        let required = recoveryPulses
+        let (onFire, recovered) = state.withLock { s -> ((@Sendable (Int64) -> Int64)?, Bool) in
+            defer { s.lastStepNanos = time }
+            guard s.usingFallback else { return (s.onFire, false) }
+            s.recoveryCount = time - s.lastStepNanos <= stall ? s.recoveryCount + 1 : 1
+            guard s.recoveryCount >= required else { return (nil, false) }
+            s.usingFallback = false
+            s.recoveryCount = 0
+            return (s.onFire, true)
         }
-        if wasFallback { fallback.stop() }
-        _ = onFire?(now)
+        if recovered { fallback.stop() }
+        _ = onFire?(time)
     }
 
-    private func checkStall() {
-        let now = HostClock.nowNanos()
+    /// Vigilancia: cae al temporizador si el último pulso es de hace más de 3 refrescos.
+    func checkStall() {
+        let time = now()
         let stall = stallNanos
         let onFire = state.withLock { s -> (@Sendable (Int64) -> Int64)? in
-            guard let onFire = s.onFire, !s.usingFallback, now - s.lastStepNanos > stall else { return nil }
+            guard let onFire = s.onFire, !s.usingFallback, time - s.lastStepNanos > stall else { return nil }
             s.usingFallback = true
+            s.recoveryCount = 0
             s.fallbackStarts += 1
             return onFire
         }
@@ -158,9 +189,11 @@ final class VSyncTickDriver: TickDriver {
     }
 
     private func screenParametersChanged() {
+        let time = now()
         let reinstall = state.withLock { s -> Bool in
             guard s.onFire != nil, s.usingFallback else { return false }
-            s.lastStepNanos = HostClock.nowNanos() + initialGraceNanos
+            s.recoveryCount = 0
+            s.lastStepNanos = time
             return true
         }
         guard reinstall else { return }
