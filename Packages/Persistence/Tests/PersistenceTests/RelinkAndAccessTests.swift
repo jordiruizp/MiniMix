@@ -89,7 +89,7 @@ struct RelinkAndAccessTests {
         #expect(store.access.activeCount == 0)
     }
 
-    @Test func accessIsOpenedOncePerFileAndReleasedOnNextProject() throws {
+    @Test func loadKeepsPreviousAccessUntilActivate() throws {
         let dir = try TempDir()
         let folder = try dir.folder("m")
         let first = try dir.file("one.mov", in: folder)
@@ -113,9 +113,17 @@ struct RelinkAndAccessTests {
         // Fuera del sandbox el sistema puede no conceder acceso (0); nunca más de uno por archivo.
         #expect(afterA <= 1)
 
-        _ = try store.load(from: docB)
+        // Abrir B no cierra el acceso de A (Media puede seguir leyéndolo; la App puede cancelar).
+        let projectB = try store.load(from: docB)
+        #expect(store.access.activeCount == 2 * afterA)
+        if afterA == 1 { #expect(store.access.activePaths.contains { $0.hasSuffix("one.mov") }) }
+
+        // Al activar B, solo quedan sus accesos.
+        store.activate(projectB)
         #expect(store.access.activeCount == afterA)
         #expect(!store.access.activePaths.contains { $0.hasSuffix("one.mov") })
+        store.activate(projectB)
+        #expect(store.access.activeCount == afterA)
 
         store.stopAccessingAll()
         #expect(store.access.activeCount == 0)

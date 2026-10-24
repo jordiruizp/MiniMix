@@ -23,8 +23,11 @@ public enum PersistenceError: Error, Hashable, Sendable, CustomStringConvertible
 /// - **Guardar**: crea un bookmark para cada `MediaReference` que no lo tenga o lo tenga caducado
 ///   (si el archivo existe), codifica con `ProjectEncoder` (JSON estable) y escribe de forma atómica.
 /// - **Abrir**: decodifica con `ProjectDecoder` + `MigrationRegistry`, resuelve los bookmarks, abre el
-///   acceso security-scoped de cada archivo (cerrando el del proyecto anterior), regenera los bookmarks
-///   caducados y actualiza `path` si el archivo se movió.
+///   acceso security-scoped de cada archivo, regenera los bookmarks caducados y actualiza `path` si el
+///   archivo se movió. `load` **no** cierra accesos: el proyecto actual sigue leyéndose (bucles, seeks
+///   recrean lectores) y la App puede descartar lo abierto (cancelar, importar).
+/// - **Activar**: cuando la App ya ha cambiado sus entradas al proyecto nuevo, llama a `activate(_:)`
+///   para cerrar los accesos que ese proyecto no usa.
 /// - **Reenlace**: `unresolvedReferences(in:)` y `relink(_:to:in:)`.
 /// - **Media**: `urlResolver` para `InputManager(urlResolver:)`.
 ///
@@ -74,17 +77,23 @@ public struct ProjectStore: ProjectStoring {
     public func load(from url: URL) throws -> Project {
         let data = try Data(contentsOf: url)
         let decoded = try ProjectDecoder(migrate: migrations.decoderHook).decode(data)
-        var keep = Set<String>()
-        let project = decoded.mapMediaReferences { reference -> MediaReference in
+        return decoded.mapMediaReferences { reference -> MediaReference in
             guard let resolved = codec.resolve(reference) else { return reference }
-            if resolved.isSecurityScoped, access.begin(resolved.url) {
-                keep.insert(resolved.url.path)
-            }
+            if resolved.isSecurityScoped { access.begin(resolved.url) }
             return refreshed(reference, resolved: resolved)
         }
-        // Proyecto nuevo: se cierran los accesos del anterior que ya no se usan.
+    }
+
+    /// `project` pasa a ser el proyecto en uso: abre el acceso a sus archivos y cierra el de todos los
+    /// demás. La App lo llama **después** de haber sustituido las entradas de Media (nunca antes: los
+    /// lectores del proyecto anterior perderían el acceso).
+    public func activate(_ project: Project) {
+        var keep = Set<String>()
+        for reference in project.mediaReferences {
+            guard let resolved = codec.resolve(reference), resolved.isSecurityScoped else { continue }
+            if access.begin(resolved.url) { keep.insert(resolved.url.path) }
+        }
         access.retainOnly(keep)
-        return project
     }
 
     // MARK: Resolución
