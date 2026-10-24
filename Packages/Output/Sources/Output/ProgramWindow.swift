@@ -21,7 +21,9 @@ final class ProgramWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 }
 
-/// Vista contenedora que oculta el cursor mientras está sobre la salida, aunque la ventana no sea key.
+/// Vista contenedora que oculta el cursor mientras está sobre la salida, aunque la ventana no sea key:
+/// la tracking area `.activeAlways` entrega `cursorUpdate` también a ventanas no key (los cursor rects
+/// solo actúan en la key window, por eso no bastan). Requiere `ignoresMouseEvents == false`.
 final class CursorHidingView: NSView {
     private static let blankCursor = NSCursor(image: NSImage(size: NSSize(width: 1, height: 1)), hotSpot: .zero)
 
@@ -48,7 +50,9 @@ final class CursorHidingView: NSView {
 /// - `collectionBehavior`: en todos los Spaces, estacionaria (Mission Control no la mueve ni la agrupa),
 ///   fuera del ciclo de ventanas (⌘`) y sin pantalla completa nativa.
 /// - Se ordena con `orderFrontRegardless()`: nunca se hace key ni activa la app.
-/// - Ignora el ratón: si se muestra en la pantalla integrada, los clics no se quedan atrapados.
+/// - En pantalla externa recibe el ratón (`ignoresMouseEvents == false`) para ocultar el cursor; como no
+///   puede ser key ni main, un clic no roba el foco a la ventana principal. En la pantalla integrada
+///   ignora el ratón (el cursor se ve y los clics pasan a la interfaz de debajo).
 @MainActor
 public final class ProgramWindowSurface: ProgramSurface {
     public let feed: MonitorFeed
@@ -68,8 +72,7 @@ public final class ProgramWindowSurface: ProgramSurface {
     public var isVisible: Bool { window?.isVisible ?? false }
 
     public func present(on display: DisplayDescriptor) {
-        let window = window ?? makeWindow()
-        self.window = window
+        let window = prepareWindow(for: display)
         if window.frame != display.frame {
             window.setFrame(display.frame, display: true)
         }
@@ -80,6 +83,14 @@ public final class ProgramWindowSurface: ProgramSurface {
         window?.orderOut(nil)
     }
 
+    /// Crea (una vez) y configura la ventana para `display` sin mostrarla.
+    func prepareWindow(for display: DisplayDescriptor) -> ProgramWindow {
+        let window = window ?? makeWindow()
+        self.window = window
+        window.ignoresMouseEvents = display.info.isBuiltIn
+        return window
+    }
+
     private func makeWindow() -> ProgramWindow {
         let window = ProgramWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
         window.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
@@ -87,7 +98,6 @@ public final class ProgramWindowSurface: ProgramSurface {
         window.isReleasedWhenClosed = false
         window.hidesOnDeactivate = false
         window.isExcludedFromWindowsMenu = true
-        window.ignoresMouseEvents = true
         window.animationBehavior = .none
         window.hasShadow = false
         window.isOpaque = true
