@@ -34,9 +34,9 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T51 | G | Panel de playlist | ✅ | feat/g-ui-mocks → main | fase mocks; conexión real en Ola 2 |
 | T60 | H | Generador TestMedia | ✅ | feat/h-qa → main | |
 | T61 | H | Harness de estrés | ✅ | feat/h-qa → main | |
-| T70 | D | PlaylistInput A/B | ⬜ | | Ola 2 |
-| T71 | D | Fundido entre items + hold | ⬜ | | Ola 2 |
-| T80 | ORQ | Integración switcher | ⬜ | | Ola 2 |
+| T70 | D | PlaylistInput A/B | 🟦 | feat/d-playlist | sobre feat/c-media |
+| T71 | D | Fundido entre items + hold | 🟦 | feat/d-playlist | |
+| T80 | ORQ | Integración switcher | 🟦 | feat/orq-t80 (PR #9, borrador) | sesión completa verificada en píxeles reales; bloqueado por crash de Audio en sandbox |
 | T81 | F | Output externo | ✅ | feat/f-output-persistence → main | |
 | T82 | F | Persistence | ✅ | feat/f-output-persistence → main | |
 | T90 | H | Estrés 1 h / 2 h | ⬜ | | Ola 3 |
@@ -99,6 +99,12 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 - **D14** · `ProjectDecoder` sigue rechazando `schemaVersion < 1` (v1 es el primer esquema); las migraciones se prueban con el registro.
 - **D13** · Tests de rendimiento: miden siempre y exigen objetivos solo fuera de CI (runners macOS = VM con GPU paravirtualizada).
 - **D12** · CI reducido: un solo job macOS (`scripts/ci.sh` + bundle) en push a main y PRs no borrador, más `core-linux`.
+
+## Bloqueo: Audio en sandbox
+
+- 2026-10-24 (T80): `AudioEngine()` termina la app empaquetada con sandbox (excepción AVFAudio `error -3000` al
+  crear el AUv3 propio `RampGainUnit`). Sin sandbox funciona; `swift test` no corre en sandbox. Asignado a E
+  (`feat/e-audio-sandbox`). Nueva prueba de humo `scripts/smoke-app.sh` en el CI para que no vuelva a pasar.
 
 ## Deuda menor (no bloqueante, para Ola 3)
 
