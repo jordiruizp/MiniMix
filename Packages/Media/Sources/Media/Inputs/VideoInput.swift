@@ -219,13 +219,13 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         var tap: PlayerAudioTap?
         if let audioTrack {
             let (sampleRate, channels) = try await Self.audioFormat(of: audioTrack)
-            // `audioMix` es @MainActor en el SDK y `AVAudioMix` no es Sendable: el tap y
-            // el mix se construyen y asignan dentro del main actor, sin cruzar fronteras.
-            tap = try await MainActor.run {
-                let (bridge, mix) = try PlayerAudioTap.make(track: audioTrack, sampleRate: sampleRate, channels: channels)
-                item.audioMix = mix
-                return bridge
-            }
+            // El tap (nodo + MTAudioProcessingTap) se crea fuera del main actor: creado
+            // dentro de `MainActor.run` el tap no recibe audio (verificado en test). Solo
+            // la asignación de `audioMix`, que es @MainActor en el SDK, va al main actor.
+            let (bridge, mix) = try PlayerAudioTap.make(track: audioTrack, sampleRate: sampleRate, channels: channels)
+            let handoff = ImmutableAudioMix(mix: mix)
+            await MainActor.run { item.audioMix = handoff.mix }
+            tap = bridge
         }
 
         let (inPoint, outPoint) = state.withLock { ($0.inPoint, $0.outPoint) }
@@ -336,4 +336,11 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         let gap = Int(((pts - last) * stats.nominalFrameRate).rounded()) - 1
         if gap > 0 { stats.droppedFrames += gap }
     }
+}
+
+/// `AVAudioMix` es inmutable (la versión mutable no se toca tras crearla), pero el
+/// SDK no la anota como `Sendable`. `@unchecked Sendable` justificado: solo se
+/// usa para entregarla al main actor y asignarla a `AVPlayerItem.audioMix`.
+private struct ImmutableAudioMix: @unchecked Sendable {
+    let mix: AVAudioMix
 }
