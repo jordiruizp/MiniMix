@@ -14,6 +14,10 @@ import Metal
 /// - Eventos: `.durationKnown` (tras `prepare`), `.ended`, `.error`.
 /// - Si el archivo trae audio, `node` es un `AVAudioSourceNode` alimentado por un
 ///   `MTAudioProcessingTap` (ver `PlayerAudioTap`); si no, `node == nil`.
+/// - Vida de las texturas: la `MTLTexture` devuelta sigue siendo válida mientras
+///   se use en un command buffer que termine antes de ~200 ms y de 3 fotogramas
+///   nuevos. **Contrato para el render (T80): como máximo 3 command buffers en
+///   vuelo** (p. ej. un semáforo de 3) y no guardar texturas de un fotograma a otro.
 /// - Formatos: MP4/MOV/M4V con H.264, HEVC (incl. alfa) y ProRes (lo que decodifique AVFoundation).
 public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
     public struct Stats: Sendable, Equatable {
@@ -37,9 +41,9 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         var duration: Double?
         /// Último fotograma (retenido mientras se muestre).
         var current: CVMetalTexture?
-        /// Fotogramas anteriores retenidos unos ticks más para que la GPU termine
-        /// de leerlos antes de que su IOSurface vuelva al pool del decodificador.
-        var retired: [CVMetalTexture] = []
+        /// Fotogramas anteriores retenidos ≥ 200 ms y ≥ 3 fotogramas para que la GPU
+        /// termine de leerlos antes de que su IOSurface vuelva al pool del decodificador.
+        var retired = RetirementQueue<CVMetalTexture>()
         var stats = Stats()
         var audioTap: PlayerAudioTap?
         var observers: [NSObjectProtocol] = []
@@ -54,7 +58,6 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
     private let player: AVPlayer
     private let output: AVPlayerItemVideoOutput
     private let state: LockedState<State>
-    private static let retainedFrames = 3
 
     /// - Parameter textureCache: caché compartida (la de `MetalContext` cuando exista).
     public init(id: InputID = InputID(), url: URL, textureCache: VideoTextureCache,
@@ -113,8 +116,7 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
                 let pts = displayTime.isValid ? displayTime.seconds : itemTime.seconds
                 state.withLock { s in
                     if let previous = s.current {
-                        s.retired.append(previous)
-                        if s.retired.count > Self.retainedFrames { s.retired.removeFirst() }
+                        s.retired.retire(previous, now: HostClock.nowNanos())
                     }
                     s.current = texture
                     Self.count(frameAt: pts, in: &s.stats)
