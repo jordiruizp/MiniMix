@@ -13,12 +13,19 @@ import Render
 ///   Hasta la primera llamada a `setVisible` todas cuentan como visibles.
 /// - Las entradas de solo audio no se pausan al ocultarlas (su audio no depende
 ///   de que se vean).
-/// - Concurrencia: las decisiones de decodificación se aplican dentro del cerrojo,
-///   en orden (primero se deshabilita y luego se habilita), así que nunca hay más de
-///   4 decodificadores habilitados ni un `setVisible` antiguo pisa a uno nuevo. Por
-///   eso `DecodingControllable.setDecodingEnabled` no debe llamar al `InputManager`.
-/// - `remove` durante un `add` en curso lo cancela (no «resucita»); dos `add` del
-///   mismo id no preparan dos fuentes (el segundo lanza `duplicate`).
+/// - Concurrencia en dos niveles: un cerrojo corto de estado calcula la decisión
+///   (qué fuentes decodifican) con un número de generación, y una cola serie aparte
+///   la aplica (`AVPlayer.play/pause`), descartando las generaciones obsoletas y
+///   siempre en orden desactivar → activar. Así nunca hay más de 4 decodificadores
+///   habilitados, un `setVisible` antiguo no pisa a uno nuevo y `frameSource(for:)`
+///   no espera a AVFoundation. `activeDecoderIDs` refleja la decisión al instante; la
+///   aplicación a las fuentes es asíncrona (seguimos sin llamar al `InputManager`
+///   desde `setDecodingEnabled`).
+/// - **T80: cachear las referencias `FrameSource`** (pedirlas al cambiar los buses,
+///   no por fotograma) y volver a pedirlas tras `update`.
+/// - `remove` durante un `add` en curso lo cancela (no «resucita»; el `add` lanza
+///   `MediaError.cancelled`); dos `add` del mismo id no preparan dos fuentes (el
+///   segundo lanza `duplicate`).
 /// - `remove` no desconecta el nodo de audio: eso es de `AudioEngine.detach` (T80).
 public final class InputManager: InputManaging {
     public typealias PlaylistFactory = @Sendable (InputDescriptor) async throws -> FrameSource
@@ -42,6 +49,15 @@ public final class InputManager: InputManaging {
         var pending: [InputID: Pending] = [:]
         var visible: Set<InputID>?
         var activeDecoders: Set<InputID> = []
+        /// Generación de la última decisión de visibilidad.
+        var visibilityGeneration = 0
+    }
+
+    /// Decisión de decodificación calculada bajo el cerrojo y aplicada en `applyQueue`.
+    struct Decision: Sendable {
+        let generation: Int
+        let disable: [DecodingControllable]
+        let enable: [DecodingControllable]
     }
 
     public let context: MetalContext
@@ -52,6 +68,8 @@ public final class InputManager: InputManaging {
     let urlResolver: URLResolver
     let playlistFactory: PlaylistFactory?
     let state = LockedState(State())
+    /// Aplica las decisiones de decodificación fuera del cerrojo de estado, en orden.
+    private let applyQueue = DispatchQueue(label: "minimix.inputmanager.visibility", qos: .userInitiated)
 
     /// - Parameters:
     ///   - imageLoader: cargador de imágenes (por defecto `ImageTextureLoader` de Render).
@@ -81,42 +99,59 @@ public final class InputManager: InputManaging {
             guard s.pending[id] == nil, !s.entries.contains(where: { $0.id == id }) else {
                 throw MediaError.duplicate(id.description)
             }
-            let task = Task { try await self.makePreparedSource(for: descriptor) }
+            // La tarea prepara **e inserta**: quien la espere (add, update) sabe que al
+            // terminar la entrada ya está (o se descartó).
+            let task = Task { try await self.prepareAndInsert(descriptor, token: token) }
             s.pending[id] = Pending(token: token, task: task)
             return task
         }
-        let source: FrameSource
         do {
-            source = try await task.value
+            _ = try await task.value
         } catch {
             state.withLock { s in if s.pending[id]?.token == token { s.pending[id] = nil } }
-            throw error
-        }
-        let inserted = state.withLock { s -> Bool in
-            guard s.pending[id]?.token == token else { return false }
-            s.pending[id] = nil
-            s.entries.append(Entry(id: id, source: source, descriptor: descriptor))
-            applyVisibilityLocked(&s)
-            return true
-        }
-        guard inserted else {
-            Self.discard(source)
-            throw MediaError.cancelled(id.description)
+            throw error is CancellationError ? MediaError.cancelled(id.description) : error
         }
     }
 
-    public func remove(_ id: InputID) async {
-        let (pending, removed) = state.withLock { s -> (Pending?, FrameSource?) in
-            let pending = s.pending.removeValue(forKey: id)
-            var removed: FrameSource?
-            if let index = s.entries.firstIndex(where: { $0.id == id }) {
-                removed = s.entries.remove(at: index).source
-                applyVisibilityLocked(&s)
-            }
-            return (pending, removed)
+    private func prepareAndInsert(_ descriptor: InputDescriptor, token: UUID) async throws -> FrameSource {
+        let id = descriptor.id
+        let source: FrameSource
+        do {
+            source = try await makePreparedSource(for: descriptor)
+        } catch is CancellationError {
+            throw MediaError.cancelled(id.description)
         }
-        pending?.task.cancel()
-        if let removed { Self.discard(removed) }
+        let decision = state.withLock { s -> Decision? in
+            guard s.pending[id]?.token == token else { return nil }
+            s.pending[id] = nil
+            s.entries.append(Entry(id: id, source: source, descriptor: descriptor))
+            return decideLocked(&s)
+        }
+        guard let decision else {
+            Self.discard(source)
+            throw MediaError.cancelled(id.description)
+        }
+        apply(decision)
+        return source
+    }
+
+    public func remove(_ id: InputID) async {
+        struct Removal {
+            var pending: Pending?
+            var source: FrameSource?
+            var decision: Decision?
+        }
+        let removal = state.withLock { s -> Removal in
+            var removal = Removal(pending: s.pending.removeValue(forKey: id))
+            if let index = s.entries.firstIndex(where: { $0.id == id }) {
+                removal.source = s.entries.remove(at: index).source
+                removal.decision = decideLocked(&s)
+            }
+            return removal
+        }
+        removal.pending?.task.cancel()
+        if let source = removal.source { Self.discard(source) }
+        if let decision = removal.decision { apply(decision) }
     }
 
     /// Aplica en directo un descriptor editado (contracts-v2):
@@ -126,7 +161,9 @@ public final class InputManager: InputManaging {
     /// - contenido nuevo (otra ruta, otro tipo, otra cartela, otra playlist): se crea y
     ///   prepara una fuente nueva y se sustituye en el mismo puesto (conserva la
     ///   prioridad de decodificador y la visibilidad); si la anterior estaba en play,
-    ///   la nueva arranca.
+    ///   la nueva arranca. **Al sustituir vídeo o audio cambia `node`: T80 debe volver a
+    ///   pedir `audioSource(for:)` y hacer `AudioEngine.attach` del nuevo** (y volver a
+    ///   pedir `frameSource(for:)`).
     public func update(_ descriptor: InputDescriptor) async throws {
         let id = descriptor.id
         await waitForPendingAdd(id)
@@ -155,10 +192,16 @@ public final class InputManager: InputManaging {
     }
 
     public func setVisible(_ ids: Set<InputID>) {
-        state.withLock { s in
+        let decision = state.withLock { s -> Decision in
             s.visible = ids
-            applyVisibilityLocked(&s)
+            return decideLocked(&s)
         }
+        apply(decision)
+    }
+
+    /// Espera a que se hayan aplicado las decisiones de visibilidad pendientes.
+    public func visibilityApplied() async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in applyQueue.async { done.resume() } }
     }
 
     // MARK: Consulta
@@ -207,30 +250,27 @@ extension InputManager {
         }
     }
 
+    /// La tarea pendiente prepara e inserta: al terminar, la entrada está o no está.
     private func waitForPendingAdd(_ id: InputID) async {
         guard let pending = state.withLock({ $0.pending[id] }) else { return }
         _ = try? await pending.task.value
-        // El `add` inserta justo después de que termine la tarea.
-        for _ in 0..<200 where state.withLock({ $0.pending[id]?.token == pending.token }) {
-            try? await Task.sleep(for: .milliseconds(5))
-        }
     }
 
     private func replace(_ entry: Entry, with descriptor: InputDescriptor) async throws {
         let replacement = try await makePreparedSource(for: descriptor)
-        let swapped = state.withLock { s -> Bool in
+        let decision = state.withLock { s -> Decision? in
             // Si entretanto se eliminó o se sustituyó por otra edición, se descarta esta.
             guard let index = s.entries.firstIndex(where: { $0.id == entry.id && $0.source === entry.source }) else {
-                return false
+                return nil
             }
             s.entries[index] = Entry(id: entry.id, source: replacement, descriptor: descriptor)
-            applyVisibilityLocked(&s)
-            return true
+            return decideLocked(&s)
         }
-        guard swapped else {
+        guard let decision else {
             Self.discard(replacement)
             throw MediaError.cancelled(entry.id.description)
         }
+        apply(decision)
         if entry.source.playbackState == .playing { replacement.play() }
         Self.discard(entry.source)
     }
@@ -270,10 +310,9 @@ extension InputManager {
         (source as? DecodingControllable)?.setDecodingEnabled(false)
     }
 
-    /// Recalcula y aplica (dentro del cerrojo) qué fuentes decodifican: visibles, y de
-    /// vídeo como mucho `maxActiveVideoDecoders`, por orden de alta. Primero
-    /// deshabilita y después habilita, para no superar nunca el límite.
-    private func applyVisibilityLocked(_ s: inout State) {
+    /// Calcula (bajo el cerrojo, sin llamar a las fuentes) qué fuentes decodifican:
+    /// visibles, y de vídeo como mucho `maxActiveVideoDecoders`, por orden de alta.
+    private func decideLocked(_ s: inout State) -> Decision {
         var decoders = 0
         var active = Set<InputID>()
         var enable: [DecodingControllable] = []
@@ -291,7 +330,17 @@ extension InputManager {
             if enabled { enable.append(control) } else { disable.append(control) }
         }
         s.activeDecoders = active
-        disable.forEach { $0.setDecodingEnabled(false) }
-        enable.forEach { $0.setDecodingEnabled(true) }
+        s.visibilityGeneration += 1
+        return Decision(generation: s.visibilityGeneration, disable: disable, enable: enable)
+    }
+
+    /// Aplica una decisión en la cola serie; si ya hay otra más nueva, la descarta
+    /// (la nueva está en cola detrás). Primero desactiva y después activa.
+    private func apply(_ decision: Decision) {
+        applyQueue.async { [weak self] in
+            guard let self, self.state.withLock({ $0.visibilityGeneration == decision.generation }) else { return }
+            decision.disable.forEach { $0.setDecodingEnabled(false) }
+            decision.enable.forEach { $0.setDecodingEnabled(true) }
+        }
     }
 }

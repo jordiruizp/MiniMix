@@ -15,10 +15,12 @@ final class FakeDecoderSource: FrameSource, DecodingControllable {
     private let enabled = LockedState(false)
     private let state = LockedState(PlaybackState.idle)
     private let prepareDelay: Duration
+    private let toggleDelay: TimeInterval
 
-    init(id: InputID, prepareDelay: Duration = .zero) {
+    init(id: InputID, prepareDelay: Duration = .zero, toggleDelay: TimeInterval = 0) {
         self.id = id
         self.prepareDelay = prepareDelay
+        self.toggleDelay = toggleDelay
         events = AsyncStream { _ in }
     }
 
@@ -28,6 +30,7 @@ final class FakeDecoderSource: FrameSource, DecodingControllable {
     var playbackState: PlaybackState { state.current }
 
     func setDecodingEnabled(_ newValue: Bool) {
+        if toggleDelay > 0 { Thread.sleep(forTimeInterval: toggleDelay) } // AVPlayer lento
         let changed = enabled.withLock { value -> Bool in
             defer { value = newValue }
             return value != newValue
@@ -79,12 +82,41 @@ extension MediaSerialTests {
             }
             let final: Set<InputID> = [ids[9], ids[2], ids[5], ids[0], ids[7], ids[3]]
             manager.setVisible(final)
+            await manager.visibilityApplied()
             let expected: Set<InputID> = [ids[0], ids[2], ids[3], ids[5]] // primeros 4 por orden de alta
             #expect(manager.activeDecoderIDs == expected)
             let enabled = Set(sources.current.filter { $0.value.isEnabled }.map(\.key))
             #expect(enabled == expected)
             #expect(FakeDecoderSource.counter.current.maxEnabled <= 4)
             for id in ids { await manager.remove(id) }
+        }
+
+        /// N2: aplicar la visibilidad (lenta en AVFoundation) no bloquea `frameSource(for:)`.
+        @Test func frameSourceDoesNotWaitForVisibilityApplication() async throws {
+            let manager = InputManager(context: context, playlistFactory: { d in
+                FakeDecoderSource(id: d.id, toggleDelay: 0.1)
+            })
+            let ids = (0..<4).map { _ in InputID() }
+            for (i, id) in ids.enumerated() {
+                try await manager.add(InputDescriptor(id: id, name: "p\(i)", content: .playlist(Playlist())))
+            }
+            await manager.visibilityApplied()
+            let clock = ContinuousClock()
+            let setStart = clock.now
+            manager.setVisible([ids[0]]) // 3 fuentes × 100 ms en la cola
+            let setDuration = clock.now - setStart
+            var worst = Duration.zero
+            for _ in 0..<50 {
+                let t0 = clock.now
+                _ = manager.frameSource(for: ids[1])
+                worst = max(worst, clock.now - t0)
+                try await Task.sleep(for: .milliseconds(4))
+            }
+            print("[T32] setVisible \(setDuration), frameSource(for:) peor \(worst) mientras se aplica")
+            #expect(setDuration < .milliseconds(20))
+            #expect(worst < .milliseconds(20))
+            await manager.visibilityApplied()
+            #expect(manager.activeDecoderIDs == [ids[0]])
         }
 
         /// Punto 3: `remove` durante un `add` lo cancela; la entrada no aparece después.
@@ -99,7 +131,7 @@ extension MediaSerialTests {
             let adding = Task { try await manager.add(d) }
             try await Task.sleep(for: .milliseconds(50))
             await manager.remove(d.id)
-            await #expect(throws: (any Error).self) { try await adding.value }
+            await #expect(throws: MediaError.cancelled(d.id.description)) { try await adding.value }
             try await Task.sleep(for: .milliseconds(400))
             #expect(manager.frameSource(for: d.id) == nil)
             #expect(manager.inputIDs.isEmpty)
