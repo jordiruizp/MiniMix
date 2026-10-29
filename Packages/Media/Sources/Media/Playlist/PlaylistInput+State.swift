@@ -71,7 +71,6 @@ extension PlaylistInput {
         var loading = 0
         /// Liberaciones diferidas pendientes.
         var releasing = 0
-        var failures = 0
         var stats = Stats()
         var knownDurations: [ItemID: Double] = [:]
         // Render (lo lee `texture(for:)`).

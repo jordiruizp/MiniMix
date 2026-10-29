@@ -151,7 +151,8 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
 
     /// Posición dentro del item actual (s desde su In), nil sin item.
     public var currentTime: Double? {
-        state.withLock { s in s.active.map { elapsed(of: $0, at: getterTime(s)) } }
+        let (slot, time) = activeSnapshot()
+        return slot.map { elapsed(of: $0, at: time) }
     }
 
     // MARK: Control de la playlist
@@ -170,10 +171,9 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
 
     /// Tiempo restante del item actual (s); nil si su duración aún no se conoce.
     public var itemRemainingTime: Double? {
-        state.withLock { s -> Double? in
-            guard let slot = s.active, let duration = slot.duration else { return nil }
-            return max(0, duration - elapsed(of: slot, at: getterTime(s)))
-        }
+        let (slot, time) = activeSnapshot()
+        guard let slot, let duration = slot.duration else { return nil }
+        return max(0, duration - elapsed(of: slot, at: time))
     }
 
     /// Tiempo restante hasta el final de la lista (item actual + los habilitados que lo
@@ -199,8 +199,12 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
 
     public var stats: Stats { state.withLock { $0.stats } }
 
-    /// Instante de referencia de las consultas: ahora, o el último tick si va por delante.
-    private func getterTime(_ s: State) -> HostTime { max(environment.clock.now, s.lastTick ?? .zero) }
+    /// Copia del item activo y el instante de referencia (ahora, o el último tick si va por
+    /// delante). `elapsed(of:at:)` se calcula **fuera** del cerrojo: consulta el reproductor.
+    private func activeSnapshot() -> (Slot?, HostTime) {
+        let (slot, tick) = state.withLock { ($0.active, $0.lastTick) }
+        return (slot, max(environment.clock.now, tick ?? .zero))
+    }
 
     // MARK: DecodingControllable
 

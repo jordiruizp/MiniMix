@@ -187,22 +187,25 @@ extension PlaylistInput {
 
     /// Precarga el item `upcomingIndex` en la ranura libre (≤ 2 items cargados).
     func preloadIfNeeded(at time: HostTime) {
-        let target = state.withLock { s -> Int? in
+        // Decisión bajo el cerrojo; la posición del item (reproductor) se consulta fuera.
+        let decision = state.withLock { s -> (target: Int, waitFor: Slot?)? in
             guard s.prepared, s.standby == nil, s.outgoing == nil, s.stats.loadedItems < 2,
                   let target = s.sequencer.upcomingIndex else { return nil }
             switch s.sequencer.state {
             case .playing(let index):
                 guard let active = s.active, active.index == index, active.ready, active.started,
-                      let duration = active.duration else { return nil }
-                let remaining = duration - elapsed(of: active, at: time)
-                return remaining <= environment.preloadLead ? target : nil
+                      active.duration != nil else { return nil }
+                return (target, active)
             case .held:
-                return target
+                return (target, nil)
             case .idle, .ended:
-                return target == s.active?.index ? nil : target
+                return target == s.active?.index ? nil : (target, nil)
             }
         }
-        if let target { _ = loadStandby(target) }
+        guard let decision else { return }
+        if let active = decision.waitFor, let duration = active.duration,
+           duration - elapsed(of: active, at: time) > environment.preloadLead { return }
+        _ = loadStandby(decision.target)
     }
 
     @discardableResult
@@ -225,6 +228,8 @@ extension PlaylistInput {
         let (item, playlist, decoding) = state.withLock { s in
             (s.sequencer.playlist.items[index], s.sequencer.playlist, s.decodingEnabled)
         }
+        // Nunca se cargan items deshabilitados (p. ej. uno que ya falló).
+        guard item.enabled else { return nil }
         let source: FrameSource
         do {
             source = try (environment.itemFactory ?? environment.makeItemSource)(item, playlist)
@@ -255,7 +260,6 @@ extension PlaylistInput {
             slot.ready = true
             slot.duration = Self.duration(of: slot, frame: frame)
             if let duration = slot.duration { s.knownDurations[slot.item.id] = duration }
-            s.failures = 0
             if isActive {
                 s.active = slot
                 if !s.prepared { s.prepared = true }
@@ -282,7 +286,6 @@ extension PlaylistInput {
     func loadFailed(source: FrameSource, index: Int, error: Error) {
         let slot = state.withLock { s -> Slot? in
             s.loading -= 1
-            s.failures += 1
             if s.active?.source === source { defer { s.active = nil }; return s.active }
             if s.standby?.source === source { defer { s.standby = nil }; return s.standby }
             return nil
@@ -296,12 +299,29 @@ extension PlaylistInput {
 
     /// Un item que no carga se deshabilita en la copia de la playlist del secuenciador (se salta).
     private func disableFailedItem(index: Int, id: ItemID) {
-        state.withLock { s in
-            guard s.sequencer.playlist.items.indices.contains(index), s.sequencer.playlist.items[index].id == id else { return }
+        let stopped = state.withLock { s -> FrameSource?? in
+            guard s.sequencer.playlist.items.indices.contains(index), s.sequencer.playlist.items[index].id == id else { return nil }
             s.sequencer.playlist.items[index].enabled = false
-            if s.sequencer.currentIndex == index { s.sequencer.handle(.next) }
+            guard s.sequencer.currentIndex == index else { return nil }
+            // Era el destino de la navegación: al siguiente; si no lo hay, vuelta al item que
+            // se está viendo; si tampoco, la playlist se detiene (idle).
+            s.sequencer.handle(.next)
+            guard s.sequencer.currentIndex == index else { return nil }
+            if let active = s.active, active.index != index,
+               s.sequencer.playlist.items.indices.contains(active.index),
+               s.sequencer.playlist.items[active.index].enabled {
+                s.sequencer.handle(.jump(active.item.id))
+                if s.sequencer.currentIndex == active.index { return nil }
+            }
+            s.sequencer = PlaylistSequencer(playlist: s.sequencer.playlist)
+            return .some(s.active?.source)
         }
         logger.error("Playlist \(self.id): item \(index + 1) no se pudo cargar; se salta")
+        if let stopped {
+            stopped?.pause()
+            continuation.yield(.itemChanged(nil))
+            continuation.yield(.ended)
+        }
     }
 
     static func duration(of slot: Slot, frame: Double) -> Double? {
