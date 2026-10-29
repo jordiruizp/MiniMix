@@ -37,7 +37,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T70 | D | PlaylistInput A/B | 🟨 | feat/d-playlist (PR #13) | playlist_mixed: 0 negros, 0 saltos, máx. 2 cargados · en revisión |
 | T71 | D | Fundido entre items + hold | 🟨 | feat/d-playlist (PR #13) | fundido ΔE 0,23 · en revisión |
 | T80 | ORQ | Integración switcher | ✅ | feat/orq-t80 → main (PR #9, 91f396b) | sesión completa verificada en píxeles reales; smoke con sandbox en CI (84 MB) |
-| G-real | G | UI con módulos reales (eventos de fuente, persistencia real, edición en directo, ciclo de vida, salida) | 🟨 | feat/g-ui-real (PR #12) | 74 tests · smoke real OK · en revisión |
+| G-real | G | UI con módulos reales (eventos de fuente, persistencia real, edición en directo, ciclo de vida, salida) | 🟨 | feat/g-ui-real (PR #12) | R: APROBAR CON MENORES · medios (App Nap, pantalla integrada recordada, pool tras reconfigurar) → G corrigiendo |
 | T81 | F | Output externo | ✅ | feat/f-output-persistence → main | |
 | T82 | F | Persistence | ✅ | feat/f-output-persistence → main | |
 | T90 | H | Estrés 1 h / 2 h | ⬜ | | Ola 3 |
