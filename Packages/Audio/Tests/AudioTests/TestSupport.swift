@@ -19,9 +19,13 @@ enum TestSignal {
     /// 0 hasta `start` y luego `level` constante.
     case step(start: Int, level: Float)
     case silence
+    /// Señal arbitraria por número de muestra.
+    case custom(@Sendable (Int) -> Float)
 
     func value(at frame: Int) -> Float {
         switch self {
+        case let .custom(generator):
+            return generator(frame)
         case let .sine(frequency, amplitude):
             let period = testSampleRate / frequency
             let phase = Double(frame).truncatingRemainder(dividingBy: period) / period

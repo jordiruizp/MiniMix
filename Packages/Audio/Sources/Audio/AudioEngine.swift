@@ -57,6 +57,8 @@ public final class AudioEngine: AudioMixing, Sendable {
         var renderedFrames = 0
         /// Tests: en offline, usar también la ruta de tiempo real (temporizador) para las bajas.
         var wallClockRetirement = false
+        /// Detector de inicios instalado como tap en la etapa de salida (diagnóstico A/V).
+        var onsetDetector: OnsetDetector?
     }
 
     /// Margen tras la rampa antes de desmontar un canal (cubre el búfer de E/S en tiempo real).
@@ -378,6 +380,19 @@ public final class AudioEngine: AudioMixing, Sendable {
             let seconds = min(max(milliseconds.isFinite ? milliseconds / 1_000 : 0, 0), maxSeconds)
             state.latencyCompensation = seconds
             state.output.control.delayFrames = Int((seconds * state.format.sampleRate).rounded())
+        }
+    }
+
+    /// Sustituye el tap de diagnóstico de la etapa de salida. `make` recibe el nodo y su formato,
+    /// instala el tap y devuelve el detector; nil solo quita el actual.
+    func installOutputTap(_ make: ((AVAudioNode, AVAudioFormat) -> OnsetDetector)?) {
+        state.withLock { state in
+            if let previous = state.onsetDetector {
+                state.output.node.removeTap(onBus: 0)
+                previous.finish()
+                state.onsetDetector = nil
+            }
+            if let make { state.onsetDetector = make(state.output.node, state.format) }
         }
     }
 
