@@ -59,6 +59,8 @@ public final class AudioEngine: AudioMixing, Sendable {
         var wallClockRetirement = false
         /// Detector de inicios instalado como tap en la etapa de salida (diagnóstico A/V).
         var onsetDetector: OnsetDetector?
+        /// Latencia de presentación del vídeo (s): del tick a la pantalla.
+        var videoPresentationLatency: Double = 1.0 / 60
     }
 
     /// Margen tras la rampa antes de desmontar un canal (cubre el búfer de E/S en tiempo real).
@@ -69,7 +71,8 @@ public final class AudioEngine: AudioMixing, Sendable {
     static let retireMaxAttempts = 40
 
     public let configuration: AudioEngineConfiguration
-    private let state: LockedState<State>
+    /// Interno (no privado) para las extensiones de otros archivos del módulo.
+    let state: LockedState<State>
     private let meterPublisher: MeterPublisher
     /// Cola serie de rearranques (no se bloquea a quien recibe la notificación).
     private let lifecycleQueue = DispatchQueue(label: "minimix.audio.lifecycle", qos: .userInitiated)
@@ -293,11 +296,14 @@ public final class AudioEngine: AudioMixing, Sendable {
                 ownsSourceNode: sourceNode.engine == nil,
                 input: AVAudioMixerNode(),
                 // El fader nace a 0 y sube con rampa si el motor ya está sonando.
-                fader: try Self.makeStage(gain: 0, ramp: ramp, metering: true),
+                fader: try Self.makeStage(gain: 0, ramp: ramp, metering: true,
+                                          maxDelay: max(0, configuration.maxInputDelay)),
                 programGate: try Self.makeStage(gain: 0, ramp: ramp),
                 soloGate: try Self.makeStage(gain: 0, ramp: ramp)
             )
             if state.settings[id] == nil { state.settings[id] = ChannelSettings() }
+            // El retardo se fija antes de conectar: al asignar recursos se toma sin fundido.
+            channel.fader.control.delayFrames = Self.inputDelayFrames(for: id, in: state)
             Self.connect(channel, in: &state)
             state.channels[id] = channel
             Self.applyGains(&state)
@@ -396,24 +402,6 @@ public final class AudioEngine: AudioMixing, Sendable {
         }
     }
 
-    // MARK: Latencia de salida
-
-    /// Latencia del dispositivo de salida que usa el motor (HAL). nil en modo offline o si no hay
-    /// dispositivo.
-    public var outputLatency: OutputLatency? {
-        state.withLock { state -> OutputLatency? in
-            guard !state.engine.isInManualRenderingMode else { return nil }
-            let deviceID = state.engine.outputNode.auAudioUnit.deviceID
-            return OutputLatency.device(deviceID) ?? OutputLatency.defaultOutputDevice()
-        }
-    }
-
-    /// `AVAudioOutputNode.presentationLatency` (s): render → altavoz según `AVAudioEngine`
-    /// (0 en offline o con el motor parado en algunos dispositivos).
-    public var outputPresentationLatency: Double {
-        state.withLock { $0.engine.isInManualRenderingMode ? 0 : $0.engine.outputNode.presentationLatency }
-    }
-
     // MARK: Diagnóstico (tests)
 
     /// Ganancias objetivo de un canal: (fader·mute, gate de Programa, gate de solo).
@@ -439,7 +427,7 @@ public final class AudioEngine: AudioMixing, Sendable {
 
     // MARK: Privado
 
-    private func updateSettings(_ id: InputID, _ change: (inout ChannelSettings) -> Void) {
+    func updateSettings(_ id: InputID, _ change: (inout ChannelSettings) -> Void) {
         state.withLock { state in
             change(&state.settings[id, default: ChannelSettings()])
             Self.applyGains(&state)
@@ -506,13 +494,14 @@ public final class AudioEngine: AudioMixing, Sendable {
     }
 
     /// Recalcula y publica todas las ganancias objetivo (solo atómicos; barato).
-    private static func applyGains(_ state: inout State) {
+    static func applyGains(_ state: inout State) {
         let anySolo = state.channels.keys.contains { state.settings[$0]?.solo == true }
         for (id, channel) in state.channels {
             let settings = state.settings[id] ?? ChannelSettings()
             channel.fader.control.target = settings.muted ? 0 : settings.volume
             channel.programGate.control.target = settings.followsProgram ? state.program.gain(for: id) : 1
             channel.soloGate.control.target = settings.solo ? 1 : 0
+            channel.fader.control.delayFrames = inputDelayFrames(for: id, in: state)
         }
         state.masterFader.control.target = state.masterVolume
         state.programListen.control.target = anySolo ? 0 : 1
