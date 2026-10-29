@@ -34,10 +34,10 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T51 | G | Panel de playlist | ✅ | feat/g-ui-mocks → main | fase mocks; conexión real en Ola 2 |
 | T60 | H | Generador TestMedia | ✅ | feat/h-qa → main | |
 | T61 | H | Harness de estrés | ✅ | feat/h-qa → main | |
-| T70 | D | PlaylistInput A/B | 🟦 | feat/d-playlist | núcleo comiteado (568eb23) |
-| T71 | D | Fundido entre items + hold | 🟦 | feat/d-playlist | |
+| T70 | D | PlaylistInput A/B | 🟨 | feat/d-playlist (PR #13) | playlist_mixed: 0 negros, 0 saltos, máx. 2 cargados · en revisión |
+| T71 | D | Fundido entre items + hold | 🟨 | feat/d-playlist (PR #13) | fundido ΔE 0,23 · en revisión |
 | T80 | ORQ | Integración switcher | ✅ | feat/orq-t80 → main (PR #9, 91f396b) | sesión completa verificada en píxeles reales; smoke con sandbox en CI (84 MB) |
-| G-real | G | UI con módulos reales (eventos de fuente, persistencia real, edición en directo, ciclo de vida, salida) | 🟦 | feat/g-ui-real | pendientes de la revisión de T80 |
+| G-real | G | UI con módulos reales (eventos de fuente, persistencia real, edición en directo, ciclo de vida, salida) | 🟨 | feat/g-ui-real (PR #12) | 74 tests · smoke real OK · en revisión |
 | T81 | F | Output externo | ✅ | feat/f-output-persistence → main | |
 | T82 | F | Persistence | ✅ | feat/f-output-persistence → main | |
 | T90 | H | Estrés 1 h / 2 h | ⬜ | | Ola 3 |
@@ -111,6 +111,12 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 - 2026-10-24 (T80): `AudioEngine()` termina la app empaquetada con sandbox (excepción AVFAudio `error -3000` al
   crear el AUv3 propio `RampGainUnit`). Sin sandbox funciona; `swift test` no corre en sandbox. Asignado a E
   (`feat/e-audio-sandbox`). Nueva prueba de humo `scripts/smoke-app.sh` en el CI para que no vuelva a pasar.
+
+## Pendiente tras integrar D
+
+- C: `VideoInput.play(atHostTime:)` (preroll + setRate atHostTime) para arranque exacto en playlist; `InputManager.applyInPlace` reenvía `fit` a `PlaylistInput.itemFit`.
+- App: conectar `PlaylistInput.factory(environment:)` en `AppServices.live()` y reenviar comandos de playlist a la fuente (decisión: manda el secuenciador de PlaylistInput).
+- Duplicado aceptado: lector mínimo de código de fotograma en tests de Media (`FrameCodeProbe`), porque Media no puede depender de TestSupport.
 
 ## Deuda menor (no bloqueante, para Ola 3)
 
