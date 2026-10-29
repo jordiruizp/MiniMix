@@ -23,7 +23,17 @@ extension AppViewModel {
         addInput(InputFactory.colorInput(number: project.inputs.count + 1))
     }
 
+    /// Motivo por el que no se pueden añadir playlists (modo real sin `PlaylistInput`), o nil.
+    public var playlistsUnavailableReason: String? {
+        services.supportsPlaylists ? nil
+            : "Las playlists aún no están disponibles con los módulos reales (falta PlaylistInput)."
+    }
+
     public func addPlaylistInput() {
+        if let reason = playlistsUnavailableReason {
+            errorMessage = reason
+            return
+        }
         let descriptor = InputFactory.playlistInput(number: project.inputs.count + 1)
         addInput(descriptor)
         selectedInputID = descriptor.id
@@ -53,11 +63,12 @@ extension AppViewModel {
             switcher = services.makeSwitcher(project)
         }
         playback[id] = nil
+        unsubscribeEvents(id)
         playlists.unregister(id)
         mixer.recordSolo(false, for: id)
         if selectedInputID == id { selectedInputID = nil }
         updateVisibility()
-        publishBusState()
+        publishBusState(sourcesChanged: true)
         track { await $0.services.inputs.remove(id) }
     }
 
@@ -74,8 +85,27 @@ extension AppViewModel {
 
     /// Ajuste fit/fill/stretch (no hay `Command`: lo lee el compositor del descriptor en T80).
     public func setFit(_ fit: FitMode, for id: InputID) {
+        guard descriptor(id)?.fit != fit else { return }
         updateInput(id) { $0.fit = fit }
         publishBusState()
+        applyLiveEdit(id)
+    }
+
+    /// Bucle de la entrada (vídeo/audio): se guarda y se aplica en directo.
+    func setLoop(_ loop: Bool, for id: InputID) {
+        guard descriptor(id)?.loop != loop else { return }
+        updateInput(id) { $0.loop = loop }
+        applyLiveEdit(id)
+    }
+
+    /// Recortes In/Out de la entrada (s; nil = sin recorte). Se ignoran si Out ≤ In.
+    public func setTrim(inPoint: Double?, outPoint: Double?, for id: InputID) {
+        if let inPoint, let outPoint, outPoint <= inPoint { return }
+        updateInput(id) {
+            $0.inPoint = inPoint.map { max(0, $0) }
+            $0.outPoint = outPoint.map { max(0, $0) }
+        }
+        applyLiveEdit(id)
     }
 
     /// Cambia el color de una entrada de color y la vuelve a registrar en el gestor de entradas.
@@ -94,29 +124,30 @@ extension AppViewModel {
         applyLiveEdit(id)
     }
 
-    /// Punto único de propagación a Media de una entrada editada (color, playlist, fit, recortes…).
-    ///
-    /// `InputManaging` (contracts-v1) no tiene `update(_:)`; la decisión está pendiente (PC3).
-    /// Mientras tanto: el color se propaga dando de baja y de alta la entrada; el resto de ediciones
-    /// solo quedan en el proyecto (el compositor/T80 lee `fit` del descriptor; la playlist sigue
-    /// el secuenciador de la UI). Cuando exista `update`, sustituir este cuerpo por esa llamada.
+    /// Punto único de propagación a Media de una entrada editada: `InputManaging.update` (v2)
+    /// aplica loop, In/Out, fit y color en sitio, o sustituye la fuente si cambió el contenido. Tras
+    /// actualizar se vuelve a suscribir a sus eventos y el render vuelve a resolver la fuente.
+    /// Las ediciones de una misma entrada se encadenan: cada `update` espera al anterior, así
+    /// Media nunca recibe un descriptor viejo después de uno nuevo.
     func applyLiveEdit(_ id: InputID) {
-        guard let input = descriptor(id) else { return }
-        switch input.kind {
-        case .color:
-            track { app in
-                await app.services.inputs.remove(id)
-                if let current = app.descriptor(id) { await app.add(current) }
+        let previous = liveEditChains[id]
+        liveEditChains[id] = track { app in
+            await previous?.value
+            guard let current = app.descriptor(id) else { return }
+            do {
+                try await app.services.inputs.update(current)
+                app.subscribeEvents(id)
+                app.publishBusState(sourcesChanged: true)
+            } catch {
+                app.errorMessage = "No se pudo aplicar el cambio en «\(current.name)»: \(error.localizedDescription)"
             }
-        case .video, .audio, .image, .playlist:
-            break
         }
     }
 
     // MARK: Gestor de entradas (InputManaging)
 
     func registerAllInputs() async {
-        for input in project.inputs { await add(input) }
+        for input in project.inputs { await add(input, publish: false) }
         for input in project.inputs where input.kind.hasAudio {
             services.audio.setVolume(input.volume, for: input.id)
             services.audio.setMute(input.muted, for: input.id)
@@ -124,7 +155,7 @@ extension AppViewModel {
         }
         services.audio.setMasterVolume(project.masterVolume)
         services.inputs.setVisible(Set([project.preview, project.program].compactMap { $0 }))
-        publishBusState()
+        publishBusState(sourcesChanged: true)
         // El Programa inicial (o el del proyecto abierto) también debe sonar.
         services.audio.transition(from: nil, to: project.program, progress: 1)
     }
@@ -133,9 +164,11 @@ extension AppViewModel {
         track { await $0.add(descriptor) }
     }
 
-    func add(_ descriptor: InputDescriptor) async {
+    func add(_ descriptor: InputDescriptor, publish: Bool = true) async {
         do {
             try await services.inputs.add(descriptor)
+            subscribeEvents(descriptor.id)
+            if publish { publishBusState(sourcesChanged: true) }
         } catch {
             errorMessage = "No se pudo cargar «\(descriptor.name)»: \(error.localizedDescription)"
         }
@@ -143,13 +176,26 @@ extension AppViewModel {
 
     // MARK: Proyecto (ProjectStoring)
 
+    /// Guarda con `ProjectStore.write` (si existe) y adopta el proyecto devuelto (con bookmarks)
+    /// para no regenerarlos en cada guardado.
     public func saveProject(to url: URL) {
         do {
-            try services.store.save(project, to: url)
+            if let write = services.writeProject {
+                let stored = try write(project, url)
+                adoptStoredReferences(from: stored)
+            } else {
+                try services.store.save(project, to: url)
+            }
             projectURL = url
         } catch {
             errorMessage = "No se pudo guardar: \(error.localizedDescription)"
         }
+    }
+
+    /// Adopta solo las referencias de medios del proyecto guardado (bookmarks): el resto del estado
+    /// (buses, volúmenes…) es el actual, aunque coincida con lo guardado.
+    private func adoptStoredReferences(from stored: Project) {
+        for input in stored.inputs { updateInput(input.id) { $0.content = input.content } }
     }
 
     public func openProject(from url: URL) async {
@@ -157,17 +203,48 @@ extension AppViewModel {
             let loaded = try services.store.load(from: url)
             await replaceProject(with: loaded)
             projectURL = url
-            let missing = services.store.unresolvedReferences(in: loaded)
-            if !missing.isEmpty { errorMessage = "Faltan \(missing.count) archivo(s) por reenlazar." }
+            missingReferences = services.store.unresolvedReferences(in: project)
         } catch {
             errorMessage = "No se pudo abrir: \(error.localizedDescription)"
         }
     }
 
+    /// Reenlaza los archivos perdidos buscándolos por nombre en `folder` (elegida con un panel de
+    /// carpeta para que el sandbox dé acceso a todos). Devuelve cuántas rutas se reenlazaron.
+    @discardableResult
+    public func relinkMissing(in folder: URL) async -> Int {
+        guard let relink = services.relinkProject else { return 0 }
+        var working = project
+        var pending = missingReferences
+        var relinked: [String] = []
+        var tried = Set<String>()
+        while let reference = pending.first(where: { !tried.contains($0.path) }) {
+            tried.insert(reference.path)
+            let candidate = folder.appendingPathComponent(URL(fileURLWithPath: reference.path).lastPathComponent)
+            guard FileManager.default.fileExists(atPath: candidate.path),
+                  let outcome = try? relink(reference, candidate, working, folder) else { continue }
+            working = outcome.project
+            relinked += outcome.relinkedPaths
+            pending = outcome.stillUnresolved
+        }
+        if !relinked.isEmpty {
+            let url = projectURL
+            await replaceProject(with: working)
+            projectURL = url
+        }
+        missingReferences = services.store.unresolvedReferences(in: project)
+        return relinked.count
+    }
+
     func replaceProject(with newProject: Project) async {
         pendingTasks.forEach { $0.cancel() }
         pendingTasks.removeAll()
-        for input in project.inputs { await services.inputs.remove(input.id) }
+        liveEditChains = [:]
+        for input in project.inputs {
+            unsubscribeEvents(input.id)
+            await services.inputs.remove(input.id)
+        }
+        if newProject.canvas != project.canvas { services.reconfigureCanvas?(newProject.canvas) }
         project = newProject
         switcher = services.makeSwitcher(newProject)
         resetTransitionState()
@@ -176,20 +253,7 @@ extension AppViewModel {
         mixer.reset()
         selectedInputID = newProject.preview
         await registerAllInputs()
+        // Después de sustituir las entradas (los lectores del proyecto anterior ya no existen).
+        services.activateProject?(project)
     }
-
-    // MARK: Salida de Programa (OutputPresenting)
-
-    /// Muestra u oculta la salida de Programa (en la primera pantalla externa si la hay).
-    public func toggleProgramOutput() {
-        let output = services.output
-        if output.activeDisplay != nil {
-            output.hide()
-        } else if let display = output.displays.first(where: { !$0.isBuiltIn }) ?? output.displays.first {
-            output.show(on: display.id)
-        }
-        programOutputDisplay = output.activeDisplay
-    }
-
-    public var outputDisplays: [DisplayInfo] { services.output.displays }
 }

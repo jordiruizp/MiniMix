@@ -33,7 +33,7 @@ struct LiveSessionTests {
         var (services, runtime) = try AppServices.live(project: project)
         if let recorder {
             let original = services.busStateSink
-            services.busStateSink = { original?($0); recorder.states.append($0) }
+            services.busStateSink = { original?($0, $1); recorder.states.append($0) }
         }
         let app = AppViewModel(services: services)
         await app.registerAllInputs()

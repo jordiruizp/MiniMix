@@ -174,6 +174,15 @@ public final class PlaylistViewModel {
         clockItems[id] = item
     }
 
+    /// La fuente de la playlist cambió de item (`SourceEvent.itemChanged`). Cuando llegue
+    /// `PlaylistInput` (Ola 2) su secuenciador manda: la UI solo refleja el item que suena.
+    func sourceItemChanged(_ item: ItemID?, for id: InputID) {
+        guard let item, let playlist = playlist(for: id) else { return }
+        let current = currentIndex(for: id).flatMap { playlist.items[safe: $0]?.id }
+        guard current != item else { return }
+        handle(.jump(item), for: id)
+    }
+
     func pauseClock(for id: InputID) {
         itemClocks[id]?.pause(at: app?.now ?? 0)
     }

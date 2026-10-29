@@ -36,7 +36,7 @@ extension AppViewModel {
             info.accumulated = max(0, seconds - (descriptor(id)?.inPoint ?? 0))
             playback[id] = info
         case let .setLoop(id, loop):
-            updateInput(id) { $0.loop = loop }
+            setLoop(loop, for: id)
         default:
             return false
         }

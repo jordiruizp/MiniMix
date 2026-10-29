@@ -7,11 +7,18 @@ import Core
 public final class LiveInputs: InputManaging {
     private let inputs: any InputManaging
     private let audio: AudioEngine
+    private let errorContinuation: AsyncStream<String>.Continuation
+    /// Errores que la UI debe mostrar (audio que no se pudo conectar…). Un solo consumidor.
+    public let errors: AsyncStream<String>
 
     public init(inputs: any InputManaging, audio: AudioEngine) {
         self.inputs = inputs
         self.audio = audio
+        (errors, errorContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(8))
     }
+
+    /// Publica un error para la UI (también lo usa `LiveRuntime`).
+    public func report(_ message: String) { errorContinuation.yield(message) }
 
     public func add(_ descriptor: InputDescriptor) async throws {
         try await inputs.add(descriptor)
@@ -44,6 +51,7 @@ public final class LiveInputs: InputManaging {
             if inputs.audioSource(for: descriptor.id) !== source { audio.detach(descriptor.id) }
         } catch {
             LiveLog.app.error("No se pudo conectar el audio de \(descriptor.name, privacy: .public): \(error)")
+            report("No se pudo conectar el audio de «\(descriptor.name)»: \(error.localizedDescription)")
         }
         audio.setVolume(descriptor.volume, for: descriptor.id)
         audio.setMute(descriptor.muted, for: descriptor.id)

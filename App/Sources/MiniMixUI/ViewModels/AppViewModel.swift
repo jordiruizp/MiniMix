@@ -48,6 +48,8 @@ public final class AppViewModel {
     public private(set) var now: Double
     public var errorMessage: String?
     public internal(set) var projectURL: URL?
+    /// Archivos del proyecto abierto que no se encontraron (diálogo de reenlace).
+    public internal(set) var missingReferences: [MediaReference] = []
     public internal(set) var programOutputDisplay: DisplayInfo.ID?
     /// Posición física de la palanca de la T-bar (0…1). Vuelve a 0 al completarse la transición
     /// (y se envía `.tbar(0)` para rearmar `SwitcherState`).
@@ -67,8 +69,16 @@ public final class AppViewModel {
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Altas/bajas pendientes en el gestor de entradas (se cancelan en `stop` y al abrir proyecto).
     @ObservationIgnored var pendingTasks: [Task<Void, Never>] = []
+    /// Última edición en directo por entrada (para encadenar `update`s).
+    @ObservationIgnored var liveEditChains: [InputID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var persistentTasks: [Task<Void, Never>] = []
+    @ObservationIgnored private var inputsRegistered = false
+    /// Suscripción a `FrameSource.events` por entrada (identidad de la fuente + tarea).
+    @ObservationIgnored var sourceSubscriptions: [InputID: (source: ObjectIdentifier, task: Task<Void, Never>)] = [:]
     @ObservationIgnored var transitionInputs: (from: InputID?, to: InputID?)?
     @ObservationIgnored private var lastStatusRefresh = -Double.infinity
+    /// Último `BusState` entregado al render (para no republicar uno idéntico).
+    @ObservationIgnored var lastPublishedBus: BusState?
 
     public init(services: AppServices) {
         self.services = services
@@ -90,21 +100,17 @@ public final class AppViewModel {
 
     // MARK: Ciclo de vida
 
-    /// Arranca reloj, suscripciones y alta de entradas. Idempotente.
+    /// Arranca motor real (si lo hay), reloj, suscripciones y, la primera vez, el alta de entradas.
+    /// Idempotente; tras `stop()` se puede volver a llamar.
     public func start() {
         guard tasks.isEmpty else { return }
+        startPersistentSubscriptions()
+        for message in services.startRuntime?() ?? [] { errorMessage = message }
         services.clock.start()
+        // contracts-v2: cada acceso a `ticks` es una suscripción nueva (se recrea en cada arranque).
         let ticks = services.clock.ticks
-        let meters = services.audio.meters
-        let displays = services.output.displayChanges
         tasks.append(Task { [weak self] in
             for await time in ticks { self?.tick(at: time) }
-        })
-        tasks.append(Task { [weak self] in
-            for await levels in meters { self?.mixer.receive(levels) }
-        })
-        tasks.append(Task { [weak self] in
-            for await _ in displays { self?.programOutputDisplay = self?.services.output.activeDisplay }
         })
         tasks.append(Task { [weak self] in
             while !Task.isCancelled {
@@ -113,14 +119,43 @@ public final class AppViewModel {
             }
         })
         if let demo = services.demoStart { tasks.append(demo()) }
-        track { await $0.registerAllInputs() }
+        if !inputsRegistered {
+            inputsRegistered = true
+            track { await $0.registerAllInputs() }
+            restoreProgramOutput()
+        }
     }
 
+    /// Para el reloj, el motor real y las tareas de esta ejecución. Las entradas siguen dadas de
+    /// alta y las suscripciones de un solo consumidor (vúmetros, pantallas, errores) siguen vivas:
+    /// cancelarlas terminaría sus streams para siempre.
     public func stop() {
         (tasks + pendingTasks).forEach { $0.cancel() }
         tasks.removeAll()
         pendingTasks.removeAll()
         services.clock.stop()
+        services.stopRuntime?()
+    }
+
+    public var isRunning: Bool { !tasks.isEmpty }
+
+    /// `meters`, `displayChanges` y `serviceErrors` son de un solo consumidor: se leen una vez
+    /// durante toda la vida del ViewModel.
+    private func startPersistentSubscriptions() {
+        guard persistentTasks.isEmpty else { return }
+        let meters = services.audio.meters
+        let displays = services.output.displayChanges
+        persistentTasks.append(Task { [weak self] in
+            for await levels in meters { self?.mixer.receive(levels) }
+        })
+        persistentTasks.append(Task { [weak self] in
+            for await _ in displays { self?.outputDisplaysChanged() }
+        })
+        if let errors = services.serviceErrors {
+            persistentTasks.append(Task { [weak self] in
+                for await message in errors { self?.errorMessage = message }
+            })
+        }
     }
 
     /// Refresco de la interfaz (~4 Hz): tiempos, simulación de mocks y barra de estado.
@@ -183,12 +218,15 @@ public final class AppViewModel {
     }
 
     /// Lanza una tarea de alta/baja de entradas y la guarda para poder cancelarla.
-    func track(_ body: @escaping @MainActor @Sendable (AppViewModel) async -> Void) {
+    @discardableResult
+    func track(_ body: @escaping @MainActor @Sendable (AppViewModel) async -> Void) -> Task<Void, Never> {
         pendingTasks.removeAll { $0.isCancelled }
-        pendingTasks.append(Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self else { return }
             await body(self)
-        })
+        }
+        pendingTasks.append(task)
+        return task
     }
 
     private func handle(_ effect: Effect) {
@@ -272,6 +310,11 @@ public final class AppViewModel {
     public func remaining(for id: InputID) -> Double? {
         guard let input = descriptor(id) else { return nil }
         if input.kind == .playlist { return playlists.playlistRemaining(for: id) }
+        // Con fuente real: fin útil (Out o duración del archivo) menos la posición actual.
+        if let position = sourcePosition(id),
+           let end = input.outPoint ?? input.content.mediaReference.flatMap({ mediaDurations[$0.path] }) {
+            return max(0, end - position)
+        }
         guard let total = duration(of: input) else { return nil }
         return max(0, total - (playback[id]?.elapsed(at: now) ?? 0))
     }

@@ -12,15 +12,20 @@ struct MiniMixApp: App {
         let env = ProcessInfo.processInfo.environment
         // MINIMIX_MOCKS=1 → demo con mocks (deliberado).
         if env["MINIMIX_MOCKS"] != nil {
-            _app = State(initialValue: AppViewModel(services: .mocks()))
+            let app = AppViewModel(services: .mocks())
+            _app = State(initialValue: app)
             runtime = nil
+            AppDelegate.onTerminate = { app.stop() }
             return
         }
         do {
             let (services, runtime) = try AppServices.live()
-            _app = State(initialValue: AppViewModel(services: services))
+            let app = AppViewModel(services: services)
+            _app = State(initialValue: app)
             self.runtime = runtime
-            runtime.start()
+            // El motor (audio + render) lo arranca `app.start()` desde la vista (no en init) y lo
+            // para `app.stop()`; al salir, `applicationWillTerminate`.
+            AppDelegate.onTerminate = { app.stop() }
             FileHandle.standardOutput.write(Data("live: ok\n".utf8)) // sin búfer; lo busca scripts/smoke-app.sh
         } catch {
             // Un fallo real nunca pasa en silencio a la demo: se avisa y, si se exige el modo real, se sale.
@@ -43,6 +48,13 @@ struct MiniMixApp: App {
 
 /// Necesario al ejecutar el binario fuera de un .app: activa la app y trae la ventana al frente.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Parada ordenada (reloj, render y audio) al salir.
+    @MainActor static var onTerminate: (() -> Void)?
+
+    func applicationWillTerminate(_ notification: Notification) {
+        Self.onTerminate?()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()

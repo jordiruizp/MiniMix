@@ -62,7 +62,8 @@ struct Harness {
 
     /// `spySequencer: false` usa el `PlaylistSequencer` real de `AppServices.mocks()`.
     init(project: Project = SampleData.project, spySequencer: Bool = true,
-         makeSwitcher: (@MainActor (Project) -> any SwitcherStateMachine)? = nil) {
+         makeSwitcher: (@MainActor (Project) -> any SwitcherStateMachine)? = nil,
+         configure: (@MainActor (inout AppServices) -> Void)? = nil) {
         let audio = MockAudioMixer()
         let inputs = MockInputManager()
         let log = SpySequencer.Log()
@@ -76,6 +77,8 @@ struct Harness {
         if let makeSwitcher { services.makeSwitcher = makeSwitcher }
         if spySequencer { services.makeSequencer = { SpySequencer(playlist: $0, log: log) } }
         services.uptime = { time.seconds }
+        services.defaults = UserDefaults(suiteName: "MiniMixTests.\(UUID().uuidString)") ?? .standard
+        configure?(&services)
         self.app = AppViewModel(services: services)
         self.audio = audio
         self.inputs = inputs
