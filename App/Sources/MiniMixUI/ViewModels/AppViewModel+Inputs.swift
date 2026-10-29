@@ -1,5 +1,6 @@
 import Core
 import Foundation
+import Media
 
 /// Alta/baja/edición de entradas, proyecto (guardar/abrir) y salida de Programa.
 extension AppViewModel {
@@ -69,7 +70,13 @@ extension AppViewModel {
         if selectedInputID == id { selectedInputID = nil }
         updateVisibility()
         publishBusState(sourcesChanged: true)
-        track { await $0.services.inputs.remove(id) }
+        // La baja espera a las ediciones en vuelo de esa entrada (si no, un `update` tardío
+        // fallaría o resucitaría la fuente).
+        let edits = liveEditChains.removeValue(forKey: id)
+        track { app in
+            await edits?.value
+            await app.services.inputs.remove(id)
+        }
     }
 
     /// Baja en el switcher (`SwitcherStateMachine.removeInput`, contracts-v2).
@@ -133,15 +140,25 @@ extension AppViewModel {
         let previous = liveEditChains[id]
         liveEditChains[id] = track { app in
             await previous?.value
-            guard let current = app.descriptor(id) else { return }
+            guard !Task.isCancelled, let current = app.descriptor(id) else { return }
             do {
                 try await app.services.inputs.update(current)
+                // La entrada pudo quitarse mientras Media aplicaba el cambio.
+                guard app.descriptor(id) != nil else { return }
                 app.subscribeEvents(id)
                 app.publishBusState(sourcesChanged: true)
-            } catch {
+            } catch where !Self.isCancellation(error) {
                 app.errorMessage = "No se pudo aplicar el cambio en «\(current.name)»: \(error.localizedDescription)"
+            } catch {
+                // Cancelada (baja de la entrada, proyecto nuevo): no es un error para el usuario.
             }
         }
+    }
+
+    nonisolated static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if case .cancelled? = error as? MediaError { return true }
+        return false
     }
 
     // MARK: Gestor de entradas (InputManaging)
@@ -209,8 +226,9 @@ extension AppViewModel {
         }
     }
 
-    /// Reenlaza los archivos perdidos buscándolos por nombre en `folder` (elegida con un panel de
-    /// carpeta para que el sandbox dé acceso a todos). Devuelve cuántas rutas se reenlazaron.
+    /// Reenlaza los archivos perdidos buscándolos por nombre en `folder` y sus subcarpetas (elegida
+    /// con un panel de carpeta para que el sandbox dé acceso a todo su contenido). Sin cortar el
+    /// directo: solo se actualizan las entradas reenlazadas. Devuelve cuántas rutas se reenlazaron.
     @discardableResult
     public func relinkMissing(in folder: URL) async -> Int {
         guard let relink = services.relinkProject else { return 0 }
@@ -220,24 +238,60 @@ extension AppViewModel {
         var tried = Set<String>()
         while let reference = pending.first(where: { !tried.contains($0.path) }) {
             tried.insert(reference.path)
-            let candidate = folder.appendingPathComponent(URL(fileURLWithPath: reference.path).lastPathComponent)
-            guard FileManager.default.fileExists(atPath: candidate.path),
+            let name = URL(fileURLWithPath: reference.path).lastPathComponent
+            guard let candidate = Self.findFile(named: name, in: folder),
                   let outcome = try? relink(reference, candidate, working, folder) else { continue }
             working = outcome.project
             relinked += outcome.relinkedPaths
             pending = outcome.stillUnresolved
         }
         if !relinked.isEmpty {
-            let url = projectURL
-            await replaceProject(with: working)
-            projectURL = url
+            adoptRelinked(working)
+            services.activateProject?(project)
         }
         missingReferences = services.store.unresolvedReferences(in: project)
         return relinked.count
     }
 
+    /// Primer archivo llamado `name` en `folder` o, si no está, en sus subcarpetas.
+    nonisolated static func findFile(named name: String, in folder: URL) -> URL? {
+        let fm = FileManager.default
+        let direct = folder.appendingPathComponent(name)
+        if fm.fileExists(atPath: direct.path) { return direct }
+        guard let walker = fm.enumerator(at: folder, includingPropertiesForKeys: nil,
+                                         options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return nil }
+        for case let url as URL in walker where url.lastPathComponent == name { return url }
+        return nil
+    }
+
+    /// Adopta las referencias reenlazadas entrada a entrada (sin `replaceProject`): conserva las
+    /// duraciones conocidas en la ruta nueva y aplica el cambio en directo (o da de alta la entrada
+    /// si no llegó a cargarse por faltar el archivo).
+    private func adoptRelinked(_ relinked: Project) {
+        for input in relinked.inputs {
+            guard let old = descriptor(input.id), old.content != input.content else { continue }
+            for (before, after) in zip(Self.references(in: old.content), Self.references(in: input.content))
+            where before.path != after.path {
+                if let seconds = mediaDurations[before.path] { mediaDurations[after.path] = seconds }
+            }
+            updateInput(input.id) { $0.content = input.content }
+            if let playlist = input.content.playlist { playlists.sync(input.id, playlist: playlist) }
+            if services.inputs.frameSource(for: input.id) == nil {
+                if let current = descriptor(input.id) { register(current) }
+            } else {
+                applyLiveEdit(input.id)
+            }
+        }
+    }
+
+    /// Referencias de medios de un contenido, en orden estable (playlist: por item).
+    static func references(in content: InputContent) -> [MediaReference] {
+        if let playlist = content.playlist { return playlist.items.compactMap(\.source.mediaReference) }
+        return content.mediaReference.map { [$0] } ?? []
+    }
+
     func replaceProject(with newProject: Project) async {
-        pendingTasks.forEach { $0.cancel() }
+        pendingTasks.values.forEach { $0.cancel() }
         pendingTasks.removeAll()
         liveEditChains = [:]
         for input in project.inputs {

@@ -41,8 +41,18 @@ final class TestInputManager: InputManaging, @unchecked Sendable {
     private let sources = Locked([InputID: TestFrameSource]())
     /// `update` crea una fuente nueva (como Media al cambiar el contenido).
     let replaceOnUpdate: Bool
+    /// Retardo de `update` (ediciones en vuelo) y error que lanza, si alguno.
+    let updateDelay: Duration?
+    let updateError: (any Error & Sendable)?
 
-    init(replaceOnUpdate: Bool = false) { self.replaceOnUpdate = replaceOnUpdate }
+    init(replaceOnUpdate: Bool = false, updateDelay: Duration? = nil, updateError: (any Error & Sendable)? = nil) {
+        self.replaceOnUpdate = replaceOnUpdate
+        self.updateDelay = updateDelay
+        self.updateError = updateError
+    }
+
+    /// Orden de llamadas (`update:<id>` / `remove:<id>`).
+    let calls = Locked([String]())
 
     func add(_ descriptor: InputDescriptor) async throws {
         log.withLock { $0.adds.append(descriptor.id) }
@@ -51,11 +61,15 @@ final class TestInputManager: InputManaging, @unchecked Sendable {
     }
 
     func remove(_ id: InputID) async {
+        calls.withLock { $0.append("remove") }
         log.withLock { $0.removes.append(id) }
         sources.withLock { $0[id] = nil }
     }
 
     func update(_ descriptor: InputDescriptor) async throws {
+        if let updateDelay { try? await Task.sleep(for: updateDelay) }
+        if let updateError { throw updateError }
+        calls.withLock { $0.append("update") }
         log.withLock { $0.updates.append(descriptor) }
         if replaceOnUpdate {
             let source = TestFrameSource(id: descriptor.id)
@@ -95,7 +109,7 @@ final class FakeOutput: OutputPresenting, ProgramOutputControlling {
     func show(displayUUID uuid: String) {
         restoredUUIDs.append(uuid)
         selectedDisplayUUID = uuid
-        activeDisplay = uuid == "UUID-7" ? 7 : nil
+        activeDisplay = displays.first { "UUID-\($0.id)" == uuid }?.id
     }
 
     var isAwaitingDisplay: Bool { selectedDisplayUUID != nil && activeDisplay == nil }

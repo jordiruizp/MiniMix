@@ -77,7 +77,8 @@ struct Harness {
         if let makeSwitcher { services.makeSwitcher = makeSwitcher }
         if spySequencer { services.makeSequencer = { SpySequencer(playlist: $0, log: log) } }
         services.uptime = { time.seconds }
-        services.defaults = UserDefaults(suiteName: "MiniMixTests.\(UUID().uuidString)") ?? .standard
+        let suite = DefaultsSuite()
+        services.defaults = suite.defaults
         configure?(&services)
         self.app = AppViewModel(services: services)
         self.audio = audio
@@ -86,7 +87,11 @@ struct Harness {
         self.output = output
         self.time = time
         self.clock = clock
+        self.suite = suite
     }
+
+    /// Preferencias de prueba propias; se borran del disco al liberar el último `Harness`.
+    let suite: DefaultsSuite
 
     var project: Project { app.project }
     func input(_ number: Int) -> InputDescriptor { app.project.inputs[number - 1] }
@@ -101,4 +106,14 @@ struct Harness {
         time.seconds = seconds
         app.refresh(now: seconds)
     }
+}
+
+/// Dominio de `UserDefaults` exclusivo de un test; se elimina (`removePersistentDomain`) al liberarse.
+final class DefaultsSuite: @unchecked Sendable {
+    let name = "MiniMixTests.\(UUID().uuidString)"
+    let defaults: UserDefaults
+
+    init() { defaults = UserDefaults(suiteName: name) ?? .standard }
+
+    deinit { defaults.removePersistentDomain(forName: name) }
 }

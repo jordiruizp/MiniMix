@@ -68,7 +68,8 @@ public final class AppViewModel {
     @ObservationIgnored var switcher: any SwitcherStateMachine
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Altas/bajas pendientes en el gestor de entradas (se cancelan en `stop` y al abrir proyecto).
-    @ObservationIgnored var pendingTasks: [Task<Void, Never>] = []
+    /// Cada tarea se quita sola al terminar (no crece sin límite en sesiones largas).
+    @ObservationIgnored var pendingTasks: [UUID: Task<Void, Never>] = [:]
     /// Última edición en directo por entrada (para encadenar `update`s).
     @ObservationIgnored var liveEditChains: [InputID: Task<Void, Never>] = [:]
     @ObservationIgnored private var persistentTasks: [Task<Void, Never>] = []
@@ -130,7 +131,7 @@ public final class AppViewModel {
     /// alta y las suscripciones de un solo consumidor (vúmetros, pantallas, errores) siguen vivas:
     /// cancelarlas terminaría sus streams para siempre.
     public func stop() {
-        (tasks + pendingTasks).forEach { $0.cancel() }
+        (tasks + Array(pendingTasks.values)).forEach { $0.cancel() }
         tasks.removeAll()
         pendingTasks.removeAll()
         services.clock.stop()
@@ -220,12 +221,13 @@ public final class AppViewModel {
     /// Lanza una tarea de alta/baja de entradas y la guarda para poder cancelarla.
     @discardableResult
     func track(_ body: @escaping @MainActor @Sendable (AppViewModel) async -> Void) -> Task<Void, Never> {
-        pendingTasks.removeAll { $0.isCancelled }
+        let key = UUID()
         let task = Task { [weak self] in
             guard let self else { return }
             await body(self)
+            pendingTasks[key] = nil
         }
-        pendingTasks.append(task)
+        pendingTasks[key] = task
         return task
     }
 

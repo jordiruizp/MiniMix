@@ -55,12 +55,28 @@ struct LiveRuntimeTests {
         #expect(feed.currentTexture?.width == 64)
     }
 
+    /// Tras reconfigurar, el pool no retiene texturas del lienzo viejo (4K→1080p fijaría cientos de MB).
+    @Test func reconfigurePurgesOldSizeTextures() async throws {
+        let context = try #require(MetalContext.shared)
+        let renderer = try LiveRenderer(context: context, canvas: PixelSize(width: 512, height: 288),
+                                        frameRate: .fps60) { _ in nil }
+        let oldTexture = 512 * 288 * 4
+        for frame in 0..<6 { try await waitFrame(renderer.render(at: HostTime(seconds: Double(frame) / 60))) }
+        #expect(renderer.pooledBytes >= oldTexture, "el pool retiene texturas del lienzo grande")
+        try renderer.reconfigure(canvas: PixelSize(width: 16, height: 9), frameRate: .fps60)
+        for frame in 6..<(8 + LiveRenderer.maxFramesInFlight) {
+            try await waitFrame(renderer.render(at: HostTime(seconds: Double(frame) / 60)))
+        }
+        #expect(renderer.pooledBytes < oldTexture, "quedan texturas viejas: \(renderer.pooledBytes) B")
+    }
+
     /// M2/M3: stop + start no congela el render (cada arranque se suscribe a ticks nuevos).
     @Test func runtimeStopStartKeepsRendering() async throws {
         let project = Project(canvas: CanvasFormat(size: PixelSize(width: 32, height: 18), frameRate: .fps60))
         let (live, runtime) = try AppServices.live(project: project)
         var services = live
-        services.defaults = UserDefaults(suiteName: "MiniMixTests.\(UUID().uuidString)") ?? .standard
+        let suite = DefaultsSuite()
+        services.defaults = suite.defaults
         let app = AppViewModel(services: services)
         app.start()
         #expect(runtime.isRunning)
