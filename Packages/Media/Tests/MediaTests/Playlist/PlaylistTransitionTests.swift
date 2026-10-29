@@ -24,7 +24,13 @@ extension MediaSerialTests {
             await input.settle()
             // Rojo empieza en el tick de play; el fundido (60 ticks) empieza 1 s después.
             var pixels: [SIMD4<Double>] = []
-            await driver.run(150) { _, texture in pixels.append(Kit.pixel(texture) ?? SIMD4(-1, -1, -1, -1)) }
+            var distinct = 0
+            await driver.run(150) { _, texture in
+                pixels.append(Kit.pixel(texture) ?? SIMD4(-1, -1, -1, -1))
+                distinct = max(distinct, input.renderer.distinctOutputs)
+            }
+            // M1: las salidas del fundido se reciclan (no una textura nueva por fotograma).
+            #expect(distinct <= 5, "texturas de salida distintas \(distinct)")
             let expectedMid = SIMD3(0.5, 0, 0.5)
             let mid = pixels[89]
             let deltaE = Kit.deltaE(SIMD3(mid.x, mid.y, mid.z), expectedMid)

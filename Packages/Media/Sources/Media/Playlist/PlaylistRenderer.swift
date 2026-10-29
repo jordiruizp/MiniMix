@@ -10,9 +10,11 @@ import Synchronization
 ///   (se puede llamar desde el hilo de render). Respeta el contrato de `VideoInput`: si ya
 ///   hay `maxInFlight` (3) command buffers de fundido sin completar, no codifica otro y
 ///   devuelve el último resultado.
-/// - Las salidas sustituidas vuelven al pool solo cuando hay 3 más nuevas y tienen
-///   ≥ 200 ms (las puede estar leyendo el render de Programa); por encima de 6 se sueltan
-///   sin reciclar (el command buffer que las lea las retiene).
+/// - Las salidas sustituidas vuelven al pool cuando hay 3 más nuevas: el render que las leyó
+///   (≤ 3 command buffers en vuelo) ya las codificó en la misma cola, y el seguimiento de
+///   riesgos de Metal (texturas `.tracked` del pool) ordena la escritura del fundido que las
+///   reutilice después de esa lectura. Así un fundido usa ~5 texturas del lienzo en total.
+/// - Al terminar el fundido se vacía el pool (`purge`): no se retiene memoria entre fundidos.
 /// - Los command buffers van a `context.commandQueue`: el render que lea la textura debe
 ///   usar la misma cola (orden garantizado) — es la de todo MiniMix.
 final class PlaylistRenderer: Sendable {
@@ -21,7 +23,9 @@ final class PlaylistRenderer: Sendable {
     private struct Output {
         var lastTime: HostTime?
         var last: MTLTexture?
-        var retired: [(texture: MTLTexture, at: Int64)] = []
+        var retired: [MTLTexture] = []
+        /// Texturas distintas usadas como salida desde el último `endComposite` (diagnóstico).
+        var distinct: Set<ObjectIdentifier> = []
     }
 
     let context: MetalContext
@@ -50,34 +54,46 @@ final class PlaylistRenderer: Sendable {
     /// Fundidos codificados (diagnóstico/tests).
     var compositeCount: Int { composites.load(ordering: .relaxed) }
 
+    /// Texturas de salida distintas del fundido en curso (tests: el pool se reutiliza).
+    var distinctOutputs: Int { output.withLock { $0.distinct.count } }
+
     /// Mezcla `from` → `to` con `mix` (ya curvado) en una textura del lienzo. No bloquea.
     func composite(from: MTLTexture?, to: MTLTexture?, mix: Float, fit: FitMode, time: HostTime) -> MTLTexture? {
         if let cached = output.withLock({ $0.lastTime == time ? $0.last : nil }) { return cached }
-        let previous = output.withLock { $0.last }
-        guard inFlight.load(ordering: .acquiring) < Self.maxInFlight,
-              let target = pool.dequeue(width: canvasSize.width, height: canvasSize.height),
-              let commandBuffer = context.commandQueue.makeCommandBuffer() else { return previous ?? to ?? from }
+        let fallback = output.withLock { $0.last } ?? to ?? from
+        guard reserveInFlight() else { return fallback }
+        guard let target = pool.dequeue(width: canvasSize.width, height: canvasSize.height),
+              let commandBuffer = context.commandQueue.makeCommandBuffer() else {
+            inFlight.subtract(1, ordering: .releasing)
+            return fallback
+        }
         commandBuffer.label = "MiniMix.PlaylistFade"
         compositor.encode(CompositorFrame(a: from, b: to, mix: mix, kind: .fade, fitA: fit, fitB: fit),
                           into: target, commandBuffer: commandBuffer)
-        inFlight.add(1, ordering: .releasing)
         commandBuffer.addCompletedHandler { [weak self] _ in self?.inFlight.subtract(1, ordering: .releasing) }
         commandBuffer.commit()
         composites.add(1, ordering: .relaxed)
-        let now = HostClock.nowNanos()
-        let recyclable = output.withLock { o -> [MTLTexture] in
-            if let last = o.last { o.retired.append((last, now)) }
+        let recyclable = output.withLock { o -> MTLTexture? in
+            if let last = o.last { o.retired.append(last) }
             o.last = target
             o.lastTime = time
-            var out: [MTLTexture] = []
-            while o.retired.count > 6 { o.retired.removeFirst() }
-            while o.retired.count > 3, let first = o.retired.first, now - first.at >= 200_000_000 {
-                out.append(o.retired.removeFirst().texture)
-            }
-            return out
+            o.distinct.insert(ObjectIdentifier(target))
+            return o.retired.count > 3 ? o.retired.removeFirst() : nil
         }
-        recyclable.forEach { pool.recycle($0) }
+        if let recyclable { pool.recycle(recyclable) }
         return target
+    }
+
+    /// Reserva un hueco de los `maxInFlight` (compare-exchange: sin carreras entre hilos).
+    private func reserveInFlight() -> Bool {
+        var current = inFlight.load(ordering: .relaxed)
+        while current < Self.maxInFlight {
+            let (exchanged, original) = inFlight.compareExchange(expected: current, desired: current + 1,
+                                                                 ordering: .acquiringAndReleasing)
+            if exchanged { return true }
+            current = original
+        }
+        return false
     }
 
     /// Copia en GPU (blit, sin pasar por CPU) de `texture` a una textura propia: «última
@@ -98,13 +114,15 @@ final class PlaylistRenderer: Sendable {
         return copy
     }
 
-    /// Fin de un fundido: suelta la salida actual (el render puede tenerla en vuelo; el
-    /// command buffer la retiene, pero no se recicla).
+    /// Fin de un fundido: suelta las salidas (el render puede tener la última en vuelo: su
+    /// command buffer la retiene; no se recicla) y vacía el pool.
     func endComposite() {
         output.withLock { o in
             o.last = nil
             o.lastTime = nil
             o.retired.removeAll()
+            o.distinct.removeAll()
         }
+        pool.purge()
     }
 }
