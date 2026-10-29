@@ -15,29 +15,43 @@ import Foundation
 /// un callback de audio.
 final class PlaylistAudioMixer: Sendable {
     private let mixerRef = SendableAudioNode(node: AVAudioMixerNode())
-    /// Nodos de item conectados por este mezclador (para desconectarlos solo a ellos).
-    private let connected = LockedState<[ObjectIdentifier: SendableAudioNode<AVAudioNode>]>([:])
+    /// Nodos de item que adjuntó este mezclador (los separa él: al liberar el item, al
+    /// moverse el mezclador a otro motor y en `teardown`).
+    private let owned = LockedState<[ObjectIdentifier: SendableAudioNode<AVAudioNode>]>([:])
 
     var node: AVAudioMixerNode { mixerRef.node }
 
     /// Conecta `itemNode` al mezclador si este ya está en un motor. Devuelve true si queda conectado.
+    ///
+    /// Si E volvió a adjuntar el mezclador a otro motor, el nodo del item se separa del motor
+    /// antiguo y se conecta al nuevo. Nunca se conecta un nodo que esté en otro motor ajeno.
+    /// (E no debe separar `node` mientras se llama: si lo hace entre la comprobación y
+    /// `connect`, AVAudioEngine lanzaría una excepción; se reduce la ventana comprobando
+    /// justo antes.)
     @discardableResult
     func connect(_ itemNode: AVAudioNode, gain: Float) -> Bool {
-        let key = ObjectIdentifier(itemNode)
-        if connected.withLock({ $0[key] != nil }) {
+        guard let engine = node.engine else { return false }
+        if isConnected(itemNode) {
             setGain(gain, for: itemNode)
             return true
         }
-        guard let engine = node.engine else { return false }
-        if let owner = itemNode.engine, owner !== engine { return false }
-        if itemNode.engine == nil { engine.attach(itemNode) }
+        let key = ObjectIdentifier(itemNode)
+        if let other = itemNode.engine, other !== engine {
+            guard owned.withLock({ $0[key] != nil }) else { return false }
+            other.disconnectNodeOutput(itemNode)
+            other.detach(itemNode)
+        }
+        if itemNode.engine == nil {
+            engine.attach(itemNode)
+            owned.withLock { $0[key] = SendableAudioNode(node: itemNode) }
+        }
         let mixerFormat = node.outputFormat(forBus: 0)
         let format: AVAudioFormat? = itemNode is AVAudioSourceNode
             ? itemNode.outputFormat(forBus: 0)
             : (mixerFormat.sampleRate > 0 ? mixerFormat : nil)
         setGain(gain, for: itemNode)
+        guard node.engine === engine, itemNode.engine === engine else { return false }
         engine.connect(itemNode, to: node, fromBus: 0, toBus: node.nextAvailableInputBus, format: format)
-        connected.withLock { $0[key] = SendableAudioNode(node: itemNode) }
         return true
     }
 
@@ -45,15 +59,32 @@ final class PlaylistAudioMixer: Sendable {
         (itemNode as? AVAudioMixing)?.volume = gain
     }
 
+    /// Conectado de verdad a este mezclador en su motor actual (no un mapa local).
     func isConnected(_ itemNode: AVAudioNode) -> Bool {
-        connected.withLock { $0[ObjectIdentifier(itemNode)] != nil }
+        guard let engine = node.engine, itemNode.engine === engine else { return false }
+        return engine.outputConnectionPoints(for: itemNode, outputBus: 0).contains { $0.node === node }
     }
 
-    /// Desconecta y separa el nodo del item (lo adjuntó este mezclador o su fuente).
+    /// Desconecta el nodo del item; si lo adjuntó este mezclador, también lo separa del motor.
     func disconnect(_ itemNode: AVAudioNode) {
-        guard connected.withLock({ $0.removeValue(forKey: ObjectIdentifier(itemNode)) }) != nil,
-              let engine = itemNode.engine else { return }
+        let wasOwned = owned.withLock { $0.removeValue(forKey: ObjectIdentifier(itemNode)) } != nil
+        guard let engine = itemNode.engine else { return }
         engine.disconnectNodeOutput(itemNode)
-        engine.detach(itemNode)
+        if wasOwned { engine.detach(itemNode) }
     }
+
+    /// Separa todos los nodos de item que adjuntó (al destruir la playlist).
+    func teardown() {
+        let nodes = owned.withLock { o -> [AVAudioNode] in
+            defer { o.removeAll() }
+            return o.values.map(\.node)
+        }
+        for itemNode in nodes {
+            guard let engine = itemNode.engine else { continue }
+            engine.disconnectNodeOutput(itemNode)
+            engine.detach(itemNode)
+        }
+    }
+
+    var ownedCount: Int { owned.withLock { $0.count } }
 }
