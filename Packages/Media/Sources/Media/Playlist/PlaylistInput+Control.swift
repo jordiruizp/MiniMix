@@ -49,12 +49,20 @@ extension PlaylistInput {
     /// Programa el siguiente cambio cuando el fin del item cae en el próximo tick.
     private func checkEnd(at time: HostTime) {
         let frame = environment.clock.frameRate.frameDuration
-        let snapshot = state.withLock { s -> (Slot, Double, SequencerState, Slot?)? in
+        struct Snapshot {
+            let active: Slot
+            let duration: Double
+            let after: SequencerState
+            let standby: Slot?
+        }
+        let snapshot = state.withLock { s -> Snapshot? in
             guard let active = s.active, active.ready, active.started, let duration = active.duration else { return nil }
             var probe = s.sequencer
-            return (active, duration, probe.handle(.itemEnded), s.standby)
+            return Snapshot(active: active, duration: duration, after: probe.handle(.itemEnded), standby: s.standby)
         }
-        guard let (active, duration, after, standby) = snapshot else { return }
+        guard let snapshot else { return }
+        let (active, after, standby) = (snapshot.active, snapshot.after, snapshot.standby)
+        let duration = snapshot.duration
         // Vídeo: posición del reproductor ahora (reloj del host); el resto, por ticks.
         let base = active.isVideo ? HostClock.hostTime(nanos: HostClock.nowNanos()) : time
         let endHost = base.seconds + max(0, duration - elapsed(of: active, at: time))
@@ -71,16 +79,21 @@ extension PlaylistInput {
             let at = start.seconds <= time.seconds + frame / 2 ? time + frame : start
             arm(standby, at: at, fade: fade)
         case .held, .ended:
-            let at = Self.gridTick(endHost, after: time, frame: frame)
-            guard at.seconds <= time.seconds + frame * 1.5 else { return }
-            let pending = Pending(at: at, kind: after == .ended ? .end : .hold)
-            if at.seconds <= time.seconds + frame / 2 {
-                commit(pending)
-            } else {
-                state.withLock { $0.pending = pending }
-            }
+            scheduleStop(endHost: endHost, ended: after == .ended, at: time, frame: frame)
         case .idle:
             break
+        }
+    }
+
+    /// Fin sin siguiente que arrancar (held o ended): en el tick del final.
+    private func scheduleStop(endHost: Double, ended: Bool, at time: HostTime, frame: Double) {
+        let at = Self.gridTick(endHost, after: time, frame: frame)
+        guard at.seconds <= time.seconds + frame * 1.5 else { return }
+        let pending = Pending(at: at, kind: ended ? .end : .hold)
+        if at.seconds <= time.seconds + frame / 2 {
+            commit(pending)
+        } else {
+            state.withLock { $0.pending = pending }
         }
     }
 
@@ -214,7 +227,12 @@ extension PlaylistInput {
     }
 
     private func commitSwitch(_ pending: Pending) {
-        let result = state.withLock { s -> (old: Slot?, new: Slot, play: Bool)? in
+        struct Switched {
+            let old: Slot?
+            let new: Slot
+            let play: Bool
+        }
+        let result = state.withLock { s -> Switched? in
             s.pending = nil
             guard let incoming = s.standby else { return nil }
             s.sequencer.handle(.itemEnded)
@@ -241,7 +259,7 @@ extension PlaylistInput {
             case .hold, .end:
                 break
             }
-            return (old, slot, play)
+            return Switched(old: old, new: slot, play: play)
         }
         guard let result else { return }
         if result.play { result.new.source.play() }
@@ -267,11 +285,12 @@ extension PlaylistInput {
     }
 
     private func updateFadeGains(at time: HostTime) {
-        let snapshot = state.withLock { s -> (FrameSource?, FrameSource?, Double)? in
+        let snapshot = state.withLock { s -> (sources: [FrameSource?], progress: Double)? in
             guard let fade = s.fade else { return nil }
-            return (s.outgoing?.source, s.active?.source, (time - fade.start) / fade.duration)
+            return ([s.outgoing?.source, s.active?.source], (time - fade.start) / fade.duration)
         }
-        guard let (outgoing, incoming, progress) = snapshot else { return }
+        guard let snapshot else { return }
+        let (outgoing, incoming, progress) = (snapshot.sources[0], snapshot.sources[1], snapshot.progress)
         let gains = TransitionCurve.audioGains(progress)
         if let node = (outgoing as? AudioSource)?.node { mixer.setGain(Float(gains.outgoing), for: node) }
         if let node = (incoming as? AudioSource)?.node { mixer.setGain(Float(gains.incoming), for: node) }

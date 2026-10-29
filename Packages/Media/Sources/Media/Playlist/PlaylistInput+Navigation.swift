@@ -161,7 +161,7 @@ extension PlaylistInput {
 
     /// Cancela un cambio programado (y completa un fundido en curso).
     func cancelTransition() {
-        let (wasArmed, standby, fading) = state.withLock { s -> (Bool, Slot?, Bool) in
+        let (flags, standby) = state.withLock { s -> (flags: [Bool], standby: Slot?) in
             let armed = s.pending != nil && (s.armed != nil || (s.fade != nil && s.fadeEnd == nil))
             if armed {
                 s.armed = nil
@@ -170,8 +170,9 @@ extension PlaylistInput {
             s.pending = nil
             s.scheduledPlay = nil
             s.scheduledSource = nil
-            return (armed, s.standby, s.fadeEnd != nil)
+            return ([armed, s.fadeEnd != nil], s.standby)
         }
+        let (wasArmed, fading) = (flags[0], flags[1])
         if wasArmed { renderer.endComposite() }
         // El entrante pudo arrancar ya (arranque anticipado): volver a su In.
         if let standby, standby.source.playbackState == .playing {

@@ -134,15 +134,20 @@ struct GaplessReport {
             if order.last != clip { order.append(clip) }
             runs.append(Run(clip: clip, frame: reading.frame, length: 1))
         }
-        // Rachas del último fotograma saliente y del primero entrante frente a la cadencia.
-        for (i, run) in runs.enumerated() {
-            let changesHere = (i + 1 < runs.count && runs[i + 1].clip != run.clip)
-                || (i > 0 && runs[i - 1].clip != run.clip)
+        boundaryRepeats = Self.repeatsAtChanges(runs, fps: fps)
+    }
+
+    /// Rachas del último fotograma saliente y del primero entrante por encima de la cadencia
+    /// (la primera racha de la playlist no cuenta: es el arranque, no un cambio).
+    private static func repeatsAtChanges(_ runs: [Run], fps: [Int: Int]) -> Int {
+        var repeats = 0
+        for (i, run) in runs.enumerated() where i > 0 {
+            let changesHere = (i + 1 < runs.count && runs[i + 1].clip != run.clip) || runs[i - 1].clip != run.clip
             guard changesHere, let rate = fps[run.clip] else { continue }
             let cadence = Int((60.0 / Double(rate)).rounded(.up))
-            let isFirstRunOfPlaylist = i == 0
-            if !isFirstRunOfPlaylist, run.length > cadence { boundaryRepeats += run.length - cadence }
+            if run.length > cadence { repeats += run.length - cadence }
         }
+        return repeats
     }
 
     func runLength(clip: Int) -> Int { runs.filter { $0.clip == clip }.reduce(0) { $0 + $1.length } }

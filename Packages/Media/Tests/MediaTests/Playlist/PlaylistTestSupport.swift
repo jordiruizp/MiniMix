@@ -81,7 +81,7 @@ struct ManualDriver {
     mutating func run(_ count: Int, waitLoads: Bool = true,
                       onFrame: (Int, MTLTexture?) -> Void = { _, _ in }) async {
         for index in 0..<count {
-            time = time + frame
+            time = HostTime(seconds: time.seconds + frame)
             playlist.tick(time)
             if waitLoads { await playlist.waitUntilLoaded() } else { await playlist.settle() }
             onFrame(index, playlist.texture(for: time))

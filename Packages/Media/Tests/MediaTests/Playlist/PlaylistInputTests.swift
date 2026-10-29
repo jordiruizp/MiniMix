@@ -9,10 +9,10 @@ import Testing
 extension MediaSerialTests {
     @Suite(.serialized, .enabled(if: GPU.available), .timeLimit(.minutes(2)))
     struct PlaylistInputTests {
-        typealias T = PlaylistTesting
+        typealias Kit = PlaylistTesting
 
         private func make(_ playlist: Playlist, preloadLead: Double = 3) async throws -> (PlaylistInput, ManualDriver) {
-            let input = try PlaylistInput(playlist: playlist, environment: T.environment(preloadLead: preloadLead),
+            let input = try PlaylistInput(playlist: playlist, environment: Kit.environment(preloadLead: preloadLead),
                                           drivenByClock: false)
             try await input.prepare()
             var driver = ManualDriver(input)
@@ -24,8 +24,8 @@ extension MediaSerialTests {
         private func runs(_ driver: inout ManualDriver, ticks: Int, palette: [RGBAColor]) async -> [(Int?, Int)] {
             var result: [(Int?, Int)] = []
             await driver.run(ticks) { _, texture in
-                let px = T.pixel(texture)
-                let index = palette.firstIndex { T.isColor(px, $0) }
+                let px = Kit.pixel(texture)
+                let index = palette.firstIndex { Kit.isColor(px, $0) }
                 if let last = result.last, last.0 == index {
                     result[result.count - 1].1 += 1
                 } else {
@@ -46,8 +46,8 @@ extension MediaSerialTests {
         }
 
         @Test func continuousCutsAtFrameBoundariesWithoutBlack() async throws {
-            let palette = [T.red, T.green, T.blue]
-            let (input, initial) = try await make(Playlist(items: T.colors(palette)))
+            let palette = [Kit.red, Kit.green, Kit.blue]
+            let (input, initial) = try await make(Playlist(items: Kit.colors(palette)))
             var driver = initial
             #expect(input.playbackState == .paused)
             input.play()
@@ -64,8 +64,8 @@ extension MediaSerialTests {
         }
 
         @Test func stopAfterEachHoldsWithNextCued() async throws {
-            let palette = [T.red, T.green, T.blue]
-            let items = T.colors(palette)
+            let palette = [Kit.red, Kit.green, Kit.blue]
+            let items = Kit.colors(palette)
             let (input, initial) = try await make(Playlist(items: items, mode: .stopAfterEach))
             var driver = initial
             input.play()
@@ -87,8 +87,8 @@ extension MediaSerialTests {
 
         @Test(arguments: HoldBehavior.allCases)
         func holdBehaviorDecidesWhatHeldShows(_ hold: HoldBehavior) async throws {
-            let palette = [T.red, T.green, .black]
-            var items = T.colors([T.red, T.green])
+            let palette = [Kit.red, Kit.green, .black]
+            var items = Kit.colors([Kit.red, Kit.green])
             items[0].stopAfter = true
             let (input, initial) = try await make(Playlist(items: items, holdBehavior: hold))
             var driver = initial
@@ -106,8 +106,8 @@ extension MediaSerialTests {
         }
 
         @Test func neverMoreThanTwoItemsLoaded() async throws {
-            let palette = [T.red, T.green, T.blue, T.red, T.green, T.blue]
-            let (input, initial) = try await make(Playlist(items: T.colors(palette, seconds: 0.5), loop: true))
+            let palette = [Kit.red, Kit.green, Kit.blue, Kit.red, Kit.green, Kit.blue]
+            let (input, initial) = try await make(Playlist(items: Kit.colors(palette, seconds: 0.5), loop: true))
             var driver = initial
             input.play()
             await input.settle()
@@ -121,8 +121,8 @@ extension MediaSerialTests {
         }
 
         @Test func navigationNextPreviousJumpRestart() async throws {
-            let palette = [T.red, T.green, T.blue]
-            let items = T.colors(palette, seconds: 5)
+            let palette = [Kit.red, Kit.green, Kit.blue]
+            let items = Kit.colors(palette, seconds: 5)
             let (input, initial) = try await make(Playlist(items: items))
             var driver = initial
             input.play()
@@ -147,8 +147,8 @@ extension MediaSerialTests {
         }
 
         @Test func pauseFreezesStillTimer() async throws {
-            let palette = [T.red, T.green]
-            let (input, initial) = try await make(Playlist(items: T.colors(palette)))
+            let palette = [Kit.red, Kit.green]
+            let (input, initial) = try await make(Playlist(items: Kit.colors(palette)))
             var driver = initial
             input.play()
             await input.settle()
@@ -165,8 +165,8 @@ extension MediaSerialTests {
         }
 
         @Test func hiddenPlaylistFreezesTimeline() async throws {
-            let palette = [T.red, T.green]
-            let (input, initial) = try await make(Playlist(items: T.colors(palette)))
+            let palette = [Kit.red, Kit.green]
+            let (input, initial) = try await make(Playlist(items: Kit.colors(palette)))
             var driver = initial
             input.play()
             await input.settle()
@@ -180,8 +180,8 @@ extension MediaSerialTests {
         }
 
         @Test func remainingTimesAndEvents() async throws {
-            let items = T.colors([T.red, T.green, T.blue], seconds: 2)
-            let input = try PlaylistInput(playlist: Playlist(items: items), environment: T.environment(), drivenByClock: false)
+            let items = Kit.colors([Kit.red, Kit.green, Kit.blue], seconds: 2)
+            let input = try PlaylistInput(playlist: Playlist(items: items), environment: Kit.environment(), drivenByClock: false)
             let events = input.events
             try await input.prepare()
             var driver = ManualDriver(input)
@@ -199,27 +199,27 @@ extension MediaSerialTests {
         }
 
         @Test func singleItemLoopRepeatsWithTwoInstances() async throws {
-            let (input, initial) = try await make(Playlist(items: T.colors([T.red], seconds: 0.5), loop: true))
+            let (input, initial) = try await make(Playlist(items: Kit.colors([Kit.red], seconds: 0.5), loop: true))
             var driver = initial
             input.play()
             await input.settle()
             var black = 0
-            await driver.run(150) { _, texture in if !T.isColor(T.pixel(texture), T.red) { black += 1 } }
+            await driver.run(150) { _, texture in if !Kit.isColor(Kit.pixel(texture), Kit.red) { black += 1 } }
             #expect(black == 0)
             #expect(input.stats.switches >= 2)
             #expect(input.stats.maxLoadedItems <= 2)
         }
 
         @Test func factoryBuildsPlaylistForInputManager() async throws {
-            let environment = T.environment()
+            let environment = Kit.environment()
             let manager = InputManager(context: GPU.context!, canvasSize: environment.canvasSize,
                                        playlistFactory: PlaylistInput.factory(environment: environment))
-            let descriptor = InputDescriptor(name: "PL", content: .playlist(Playlist(items: T.colors([T.red]))))
+            let descriptor = InputDescriptor(name: "PL", content: .playlist(Playlist(items: Kit.colors([Kit.red]))))
             try await manager.add(descriptor)
             let source = try #require(manager.frameSource(for: descriptor.id) as? PlaylistInput)
             #expect(source.id == descriptor.id)
             #expect(manager.audioSource(for: descriptor.id) != nil)
-            #expect(T.isColor(T.pixel(source.texture(for: HostTime(seconds: 1))), T.red))
+            #expect(Kit.isColor(Kit.pixel(source.texture(for: HostTime(seconds: 1))), Kit.red))
             await manager.remove(descriptor.id)
         }
     }
