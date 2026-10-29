@@ -9,7 +9,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | ✅ todos integrados |
 | 2 · D, F, G-real, ORQ T80 | 🟦 F y T80 integrados · D en curso · G-real en curso |
-| 3 · H rendimiento, E sync, G pulido | 🟦 E sync entregado (PR #14, en revisión) · H y G esperan a D y G-real |
+| 3 · H rendimiento, E sync, G pulido | 🟦 E sync: PR #14 R=APROBAR CON MENORES (pendiente integrar) · C con transitorio de arranque · H y G esperan |
 | 4 · T99 release | ⬜ |
 
 ## Tareas
@@ -37,7 +37,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T70 | D | PlaylistInput A/B | ⛔ devuelto | feat/d-playlist (PR #13) | R: DEVOLVER (bucle de reintentos con item fallido; AVFoundation bajo el lock del render; pool de fundido sin reciclar…) → D corrigiendo |
 | T71 | D | Fundido entre items + hold | 🟨 | feat/d-playlist (PR #13) | fundido ΔE 0,23 · en revisión |
 | T80 | ORQ | Integración switcher | ✅ | feat/orq-t80 → main (PR #9, 91f396b) | sesión completa verificada en píxeles reales; smoke con sandbox en CI (84 MB) |
-| G-real | G | UI con módulos reales (eventos de fuente, persistencia real, edición en directo, ciclo de vida, salida) | 🟨 | feat/g-ui-real (PR #12) | R: APROBAR CON MENORES · medios (App Nap, pantalla integrada recordada, pool tras reconfigurar) → G corrigiendo |
+| G-real | G | UI con módulos reales | 🟨 | feat/g-ui-real (PR #12) | correcciones hechas (281ae01) · CI en cola → integrar si verde |
 | T81 | F | Output externo | ✅ | feat/f-output-persistence → main | |
 | T82 | F | Persistence | ✅ | feat/f-output-persistence → main | |
 | T90 | H | Estrés 1 h / 2 h | ⬜ | | Ola 3 |
@@ -120,6 +120,10 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 - Duplicado aceptado: lector mínimo de código de fotograma en tests de Media (`FrameCodeProbe`), porque Media no puede depender de TestSupport.
 
 ## Pendiente tras integrar E (sync A/V)
+
+- Revisión PR #14: APROBAR CON MENORES. Menores para E: retardo antes de ganancia/medidor en etapas con anillo; permitir
+  ajuste manual negativo; doc de videoPresentationLatency (la latencia del proyector va en la compensación global);
+  HAL fuera del lock; tolerar throw de AudioEngine() en tests; test de cambio de retardo en caliente sin clic.
 
 - App: `LiveInputs.attachAudio` → `audio.setSyncProfile(source is VideoInput ? .playerTap : .direct, for:)`
   (y `.playerTap` para items de vídeo de playlist); `audio.videoPresentationLatency = frameDuration` (recalcular al
