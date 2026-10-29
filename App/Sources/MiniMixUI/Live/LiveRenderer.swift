@@ -44,6 +44,9 @@ public final class LiveRenderer: @unchecked Sendable {
     private let snapshot = OSAllocatedUnfairLock(initialState: Snapshot(bus: .empty, sources: [:]))
     private let inFlight = OSAllocatedUnfairLock(initialState: 0)
     private let frames = OSAllocatedUnfairLock(initialState: 0)
+    /// Fotogramas que faltan para la segunda purga del pool tras reconfigurar (las texturas del
+    /// tamaño viejo que estaban en vuelo o en los feeds vuelven al pool después de la primera).
+    private let purgeCountdown = OSAllocatedUnfairLock<Int?>(initialState: nil)
 
     /// - Parameter sources: resuelve una entrada a su fuente (normalmente `InputManaging.frameSource(for:)`).
     public init(context: MetalContext, canvas: PixelSize, frameRate: FrameRate,
@@ -69,7 +72,14 @@ public final class LiveRenderer: @unchecked Sendable {
         guard canvas != self.canvas || frameRate != self.frameRate else { return }
         let new = try Self.makePipeline(context, canvas, frameRate)
         pipeline.withLock { $0 = new }
+        pool.purge()
+        // Las del tamaño viejo aún en vuelo o mostradas en los feeds se reciclan más tarde:
+        // segunda purga cuando ya han pasado `maxFramesInFlight` fotogramas (+1 por los feeds).
+        purgeCountdown.withLock { $0 = Self.maxFramesInFlight + 1 }
     }
+
+    /// Bytes retenidos por el pool de texturas (diagnóstico y tests).
+    var pooledBytes: Int { pool.cachedBytes }
 
     /// Lo llama la interfaz cada vez que cambian buses, transición o encajes. Con `refreshSources`
     /// (o si hay entradas nuevas en los buses) vuelve a resolver las fuentes.
@@ -139,6 +149,12 @@ public final class LiveRenderer: @unchecked Sendable {
         programFeed.display(programTarget, returningTo: pool)
         previewFeed.display(previewTarget, returningTo: pool)
         frames.withLock { $0 += 1 }
+        let purgeNow = purgeCountdown.withLock { countdown -> Bool in
+            guard let left = countdown else { return false }
+            countdown = left > 1 ? left - 1 : nil
+            return left <= 1
+        }
+        if purgeNow { pool.purge() }
         return commandBuffer
     }
 
