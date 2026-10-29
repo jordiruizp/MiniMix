@@ -30,11 +30,12 @@ struct ProgramFollow: Equatable {
     var program: InputID? { progress >= 1 ? to : (from ?? to) }
 
     /// Ganancia de bus de un canal con `audioFollowsProgram == true`.
+    /// En los extremos (progreso 0 o 1) la ganancia es exactamente 0/1 (cos(π/2) en coma flotante
+    /// daría 6e-17 y el canal saliente no quedaría en silencio digital).
     func gain(for id: InputID) -> Float {
-        let gains = TransitionCurve.audioGains(progress)
         if id == to && id == from { return 1 }
-        if id == to { return Float(gains.incoming) }
-        if id == from { return Float(gains.outgoing) }
+        if id == to { return progress <= 0 ? 0 : progress >= 1 ? 1 : Float(TransitionCurve.audioGains(progress).incoming) }
+        if id == from { return progress >= 1 ? 0 : progress <= 0 ? 1 : Float(TransitionCurve.audioGains(progress).outgoing) }
         return 0
     }
 }
