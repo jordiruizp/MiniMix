@@ -9,7 +9,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | ✅ todos integrados |
 | 2 · D, F, G-real, ORQ T80 | 🟦 F y T80 integrados · D en curso · G-real en curso |
-| 3 · H rendimiento, E sync, G pulido | 🟦 E sync lanzado (adelantado; ya tiene T80) · H y G esperan a D y G-real |
+| 3 · H rendimiento, E sync, G pulido | 🟦 E sync entregado (PR #14, en revisión) · H y G esperan a D y G-real |
 | 4 · T99 release | ⬜ |
 
 ## Tareas
@@ -117,6 +117,16 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 - C: `VideoInput.play(atHostTime:)` (preroll + setRate atHostTime) para arranque exacto en playlist; `InputManager.applyInPlace` reenvía `fit` a `PlaylistInput.itemFit`.
 - App: conectar `PlaylistInput.factory(environment:)` en `AppServices.live()` y reenviar comandos de playlist a la fuente (decisión: manda el secuenciador de PlaylistInput).
 - Duplicado aceptado: lector mínimo de código de fotograma en tests de Media (`FrameCodeProbe`), porque Media no puede depender de TestSupport.
+
+## Pendiente tras integrar E (sync A/V)
+
+- App: `LiveInputs.attachAudio` → `audio.setSyncProfile(source is VideoInput ? .playerTap : .direct, for:)`
+  (y `.playerTap` para items de vídeo de playlist); `audio.videoPresentationLatency = frameDuration` (recalcular al
+  cambiar fps; sumar latencia del proyector en salida externa).
+- C (obligatorio): transitorio de arranque (1.er segundo tras play(): audio 142–240 ms tarde) → `preroll(atRate:)` +
+  marcar el tap con `timeRangeOut` y alinear por tiempo de item en el AVAudioSourceNode (elimina también ±7 ms entre reproducciones).
+- H: test de integración de claqueta en Tests/ (Media + Audio), exigiendo |desfase| < 20 ms solo fuera de CI.
+- Medido (altavoces internos): desfase estable −10,1…+1,9 ms (media −3,1) con compensación; sin ella ≈ −92 ms.
 
 ## Deuda menor (no bloqueante, para Ola 3)
 
