@@ -34,7 +34,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T51 | G | Panel de playlist | ✅ | feat/g-ui-mocks → main | fase mocks; conexión real en Ola 2 |
 | T60 | H | Generador TestMedia | ✅ | feat/h-qa → main | |
 | T61 | H | Harness de estrés | ✅ | feat/h-qa → main | |
-| T70 | D | PlaylistInput A/B | 🟨 | feat/d-playlist (PR #13) | playlist_mixed: 0 negros, 0 saltos, máx. 2 cargados · en revisión |
+| T70 | D | PlaylistInput A/B | ⛔ devuelto | feat/d-playlist (PR #13) | R: DEVOLVER (bucle de reintentos con item fallido; AVFoundation bajo el lock del render; pool de fundido sin reciclar…) → D corrigiendo |
 | T71 | D | Fundido entre items + hold | 🟨 | feat/d-playlist (PR #13) | fundido ΔE 0,23 · en revisión |
 | T80 | ORQ | Integración switcher | ✅ | feat/orq-t80 → main (PR #9, 91f396b) | sesión completa verificada en píxeles reales; smoke con sandbox en CI (84 MB) |
 | G-real | G | UI con módulos reales (eventos de fuente, persistencia real, edición en directo, ciclo de vida, salida) | 🟨 | feat/g-ui-real (PR #12) | R: APROBAR CON MENORES · medios (App Nap, pantalla integrada recordada, pool tras reconfigurar) → G corrigiendo |
@@ -114,6 +114,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 
 ## Pendiente tras integrar D
 
+- C: `InputManager.applyInPlace` debe llamar a `PlaylistInput.update(playlist:)` en vez de sustituir la playlist (hoy vuelve al primer item en cada edición).
 - C: `VideoInput.play(atHostTime:)` (preroll + setRate atHostTime) para arranque exacto en playlist; `InputManager.applyInPlace` reenvía `fit` a `PlaylistInput.itemFit`.
 - App: conectar `PlaylistInput.factory(environment:)` en `AppServices.live()` y reenviar comandos de playlist a la fuente (decisión: manda el secuenciador de PlaylistInput).
 - Duplicado aceptado: lector mínimo de código de fotograma en tests de Media (`FrameCodeProbe`), porque Media no puede depender de TestSupport.
