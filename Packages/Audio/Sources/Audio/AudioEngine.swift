@@ -381,6 +381,24 @@ public final class AudioEngine: AudioMixing, Sendable {
         }
     }
 
+    // MARK: Latencia de salida
+
+    /// Latencia del dispositivo de salida que usa el motor (HAL). nil en modo offline o si no hay
+    /// dispositivo.
+    public var outputLatency: OutputLatency? {
+        state.withLock { state -> OutputLatency? in
+            guard !state.engine.isInManualRenderingMode else { return nil }
+            let deviceID = state.engine.outputNode.auAudioUnit.deviceID
+            return OutputLatency.device(deviceID) ?? OutputLatency.defaultOutputDevice()
+        }
+    }
+
+    /// `AVAudioOutputNode.presentationLatency` (s): render → altavoz según `AVAudioEngine`
+    /// (0 en offline o con el motor parado en algunos dispositivos).
+    public var outputPresentationLatency: Double {
+        state.withLock { $0.engine.isInManualRenderingMode ? 0 : $0.engine.outputNode.presentationLatency }
+    }
+
     // MARK: Diagnóstico (tests)
 
     /// Ganancias objetivo de un canal: (fader·mute, gate de Programa, gate de solo).
