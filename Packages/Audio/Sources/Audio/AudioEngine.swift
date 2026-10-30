@@ -1,6 +1,7 @@
 import AVFAudio
 import Core
 import os
+import Synchronization
 
 /// Mezclador de audio de MiniMix sobre `AVAudioEngine` (T40/T41).
 ///
@@ -57,6 +58,10 @@ public final class AudioEngine: AudioMixing, Sendable {
         var renderedFrames = 0
         /// Tests: en offline, usar también la ruta de tiempo real (temporizador) para las bajas.
         var wallClockRetirement = false
+        /// Detector de inicios instalado como tap en la etapa de salida (diagnóstico A/V).
+        var onsetDetector: OnsetDetector?
+        /// Latencia de presentación del vídeo (s): del tick a la pantalla.
+        var videoPresentationLatency: Double = 1.0 / 60
     }
 
     /// Margen tras la rampa antes de desmontar un canal (cubre el búfer de E/S en tiempo real).
@@ -67,7 +72,13 @@ public final class AudioEngine: AudioMixing, Sendable {
     static let retireMaxAttempts = 40
 
     public let configuration: AudioEngineConfiguration
-    private let state: LockedState<State>
+    /// Dispositivo de salida del motor (0 en offline). Atómico: `outputLatency` y la sonda de
+    /// inicios lo leen sin el cerrojo del estado (la sonda corre en el hilo del tap, y quitar el
+    /// tap bajo el cerrojo esperaría a ese hilo). Se actualiza al crear el motor y en cada cambio
+    /// de configuración.
+    let outputDeviceID = Atomic<UInt32>(0)
+    /// Interno (no privado) para las extensiones de otros archivos del módulo.
+    let state: LockedState<State>
     private let meterPublisher: MeterPublisher
     /// Cola serie de rearranques (no se bloquea a quien recibe la notificación).
     private let lifecycleQueue = DispatchQueue(label: "minimix.audio.lifecycle", qos: .userInitiated)
@@ -120,6 +131,7 @@ public final class AudioEngine: AudioMixing, Sendable {
         (events, eventContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(16))
 
         if configuration.renderMode == .realtime {
+            outputDeviceID.store(engine.outputNode.auAudioUnit.deviceID, ordering: .relaxed)
             state.withLock { state in
                 state.configurationObserver = NotificationCenter.default.addObserver(
                     forName: .AVAudioEngineConfigurationChange, object: state.engine, queue: nil
@@ -182,6 +194,9 @@ public final class AudioEngine: AudioMixing, Sendable {
 
     private func restartAfterConfigurationChange() {
         let outcome = state.withLock { state -> RestartOutcome in
+            if !state.engine.isInManualRenderingMode {
+                outputDeviceID.store(state.engine.outputNode.auAudioUnit.deviceID, ordering: .relaxed)
+            }
             guard state.wantsRunning, !state.engine.isRunning else { return .notNeeded }
             if !state.engine.isInManualRenderingMode { Self.reconnectOutput(state.engine) }
             state.engine.prepare()
@@ -291,11 +306,14 @@ public final class AudioEngine: AudioMixing, Sendable {
                 ownsSourceNode: sourceNode.engine == nil,
                 input: AVAudioMixerNode(),
                 // El fader nace a 0 y sube con rampa si el motor ya está sonando.
-                fader: try Self.makeStage(gain: 0, ramp: ramp, metering: true),
+                fader: try Self.makeStage(gain: 0, ramp: ramp, metering: true,
+                                          maxDelay: max(0, configuration.maxInputDelay)),
                 programGate: try Self.makeStage(gain: 0, ramp: ramp),
                 soloGate: try Self.makeStage(gain: 0, ramp: ramp)
             )
             if state.settings[id] == nil { state.settings[id] = ChannelSettings() }
+            // El retardo se fija antes de conectar: al asignar recursos se toma sin fundido.
+            channel.fader.control.delayFrames = Self.inputDelayFrames(for: id, in: state)
             Self.connect(channel, in: &state)
             state.channels[id] = channel
             Self.applyGains(&state)
@@ -381,6 +399,19 @@ public final class AudioEngine: AudioMixing, Sendable {
         }
     }
 
+    /// Sustituye el tap de diagnóstico de la etapa de salida. `make` recibe el nodo y su formato,
+    /// instala el tap y devuelve el detector; nil solo quita el actual.
+    func installOutputTap(_ make: ((AVAudioNode, AVAudioFormat) -> OnsetDetector)?) {
+        state.withLock { state in
+            if let previous = state.onsetDetector {
+                state.output.node.removeTap(onBus: 0)
+                previous.finish()
+                state.onsetDetector = nil
+            }
+            if let make { state.onsetDetector = make(state.output.node, state.format) }
+        }
+    }
+
     // MARK: Diagnóstico (tests)
 
     /// Ganancias objetivo de un canal: (fader·mute, gate de Programa, gate de solo).
@@ -406,7 +437,7 @@ public final class AudioEngine: AudioMixing, Sendable {
 
     // MARK: Privado
 
-    private func updateSettings(_ id: InputID, _ change: (inout ChannelSettings) -> Void) {
+    func updateSettings(_ id: InputID, _ change: (inout ChannelSettings) -> Void) {
         state.withLock { state in
             change(&state.settings[id, default: ChannelSettings()])
             Self.applyGains(&state)
@@ -473,13 +504,14 @@ public final class AudioEngine: AudioMixing, Sendable {
     }
 
     /// Recalcula y publica todas las ganancias objetivo (solo atómicos; barato).
-    private static func applyGains(_ state: inout State) {
+    static func applyGains(_ state: inout State) {
         let anySolo = state.channels.keys.contains { state.settings[$0]?.solo == true }
         for (id, channel) in state.channels {
             let settings = state.settings[id] ?? ChannelSettings()
             channel.fader.control.target = settings.muted ? 0 : settings.volume
             channel.programGate.control.target = settings.followsProgram ? state.program.gain(for: id) : 1
             channel.soloGate.control.target = settings.solo ? 1 : 0
+            channel.fader.control.delayFrames = inputDelayFrames(for: id, in: state)
         }
         state.masterFader.control.target = state.masterVolume
         state.programListen.control.target = anySolo ? 0 : 1

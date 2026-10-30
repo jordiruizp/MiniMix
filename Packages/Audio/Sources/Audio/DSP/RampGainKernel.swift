@@ -111,7 +111,7 @@ struct RampGainDSP {
         }
     }
 
-    /// Aplica rampa de ganancia, medidor y retardo en el sitio.
+    /// Aplica retardo, rampa de ganancia y medidor (en ese orden), en el sitio.
     mutating func process(_ buffers: UnsafeMutableAudioBufferListPointer, frameCount: Int, silent: Bool,
                           control: RampGainControl) {
         let target = control.target
@@ -132,6 +132,13 @@ struct RampGainDSP {
         for channel in 0..<buffers.count {
             guard let data = buffers[channel].mData?.assumingMemoryBound(to: Float.self) else { continue }
             if silent { data.update(repeating: 0, count: frameCount) }
+            // El retardo va antes de la ganancia y del medidor: así un fader/mute (o la rampa de
+            // baja de un canal) actúa sobre lo que sale ya, no `delay` más tarde, y el vúmetro
+            // mide lo que se oye.
+            if let ring, channel < ringChannels {
+                end = Self.delay(data, frameCount: frameCount, line: ring + channel * ringFrames,
+                                 ringFrames: ringFrames, from: start, desired: desiredDelay, fadeStep: fadeStep)
+            }
             var currentGain = startGain
             var rampLeft = startRemaining
             var peak: Float = 0
@@ -147,11 +154,6 @@ struct RampGainDSP {
             if metering { control.recordPeak(peak, channel: channel) }
             endGain = currentGain
             endRemaining = rampLeft
-
-            if let ring, channel < ringChannels {
-                end = Self.delay(data, frameCount: frameCount, line: ring + channel * ringFrames,
-                                 ringFrames: ringFrames, from: start, desired: desiredDelay, fadeStep: fadeStep)
-            }
         }
         gain = endGain
         remaining = endRemaining

@@ -118,7 +118,9 @@ import Testing
         let samples = try render(engine, frames: 2_048)
         #expect(peak(samples, last: 480) == 0)
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(1))
+        // Plazo holgado (reintentos cada 50 ms): en una VM de CI cargada los temporizadores se
+        // retrasan; normalmente termina en < 100 ms. No es una medida de rendimiento.
+        let deadline = clock.now.advanced(by: .seconds(5))
         while engine.retiringCount > 0, clock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }

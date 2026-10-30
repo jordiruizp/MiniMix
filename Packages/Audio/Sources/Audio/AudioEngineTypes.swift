@@ -36,13 +36,16 @@ public struct AudioEngineConfiguration: Sendable {
     public var meterRate: Double
     /// Máximo de la compensación de latencia (memoria reservada para la línea de retardo).
     public var maxLatencyCompensation: Double
+    /// Máximo del retardo por entrada (memoria reservada por canal: 2 canales × frecuencia × esto).
+    public var maxInputDelay: Double
 
     public init(renderMode: RenderMode = .realtime, rampDuration: Double = 0.02,
-                meterRate: Double = 30, maxLatencyCompensation: Double = 1) {
+                meterRate: Double = 30, maxLatencyCompensation: Double = 1, maxInputDelay: Double = 0.25) {
         self.renderMode = renderMode
         self.rampDuration = rampDuration
         self.meterRate = meterRate
         self.maxLatencyCompensation = maxLatencyCompensation
+        self.maxInputDelay = maxInputDelay
     }
 }
 
@@ -52,6 +55,21 @@ struct ChannelSettings {
     var muted = false
     var solo = false
     var followsProgram = true
+    /// Retardo manual de la entrada (s), antes del gate de Programa; puede ser negativo (se suma
+    /// al del perfil y el total se limita a ≥ 0).
+    var inputDelay: Double = 0
+    var syncProfile: InputSyncProfile = .direct
+}
+
+/// Cómo llega el audio de una entrada respecto a su vídeo (sincronismo A/V, plan 10.2).
+public enum InputSyncProfile: Sendable, Equatable {
+    /// Audio sin vídeo asociado o ya alineado (AudioInput, AVAudioPlayerNode): sin retardo extra.
+    case direct
+    /// Audio de un `AVPlayer` sacado con `MTAudioProcessingTap` (VideoInput). Se retrasa
+    /// `AudioEngine.playerTapLead + videoPresentationLatency`; con el tap alineado por tiempo de
+    /// item de Media `playerTapLead` es 0, así que equivale a `videoPresentationLatency` (el
+    /// fotograma se ve un vsync después del tick en que su audio ya está alineado).
+    case playerTap
 }
 
 /// Una etapa de ganancia con rampa dentro del grafo.

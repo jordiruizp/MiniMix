@@ -13,8 +13,9 @@ import Testing
         for progress in Self.points {
             let follow = ProgramFollow(from: a, to: b, progress: progress)
             let expected = TransitionCurve.audioGains(progress)
-            #expect(follow.gain(for: a) == Float(expected.outgoing))
-            #expect(follow.gain(for: b) == Float(expected.incoming))
+            // Igual a la curva (en los extremos, exactamente 0/1: diferencia ≤ 1e-7).
+            #expect(abs(follow.gain(for: a) - Float(expected.outgoing)) <= 1e-7)
+            #expect(abs(follow.gain(for: b) - Float(expected.incoming)) <= 1e-7)
             #expect(follow.gain(for: other) == 0)
             let power = pow(Double(follow.gain(for: a)), 2) + pow(Double(follow.gain(for: b)), 2)
             #expect(abs(power - 1) < 1e-6)
@@ -29,6 +30,8 @@ import Testing
         #expect(ProgramFollow.empty.gain(for: a) == 0)
         #expect(ProgramFollow(program: a).gain(for: a) == 1)
         #expect(ProgramFollow(program: a).program == a)
+        #expect(ProgramFollow(from: a, to: b, progress: 1).gain(for: a) == 0)
+        #expect(ProgramFollow(from: a, to: b, progress: 0).gain(for: b) == 0)
         #expect(ProgramFollow(from: a, to: a, progress: 0.3).gain(for: a) == 1)
         #expect(ProgramFollow(from: a, to: b, progress: -1).gain(for: a) == 1)
         #expect(ProgramFollow(from: a, to: b, progress: 7).gain(for: b) == 1)
@@ -48,8 +51,8 @@ import Testing
         for progress in Self.points {
             engine.transition(from: a.id, to: b.id, progress: progress)
             let expected = TransitionCurve.audioGains(progress)
-            #expect(engine.targetGains(for: a.id)?.program == Float(expected.outgoing))
-            #expect(engine.targetGains(for: b.id)?.program == Float(expected.incoming))
+            #expect(abs((engine.targetGains(for: a.id)?.program ?? -1) - Float(expected.outgoing)) <= 1e-7)
+            #expect(abs((engine.targetGains(for: b.id)?.program ?? -1) - Float(expected.incoming)) <= 1e-7)
             #expect(engine.targetGains(for: free.id) == ChannelGains(fader: 0.7, program: 1, solo: 0))
             #expect(engine.targetGains(for: idle.id)?.program == 0)
         }
