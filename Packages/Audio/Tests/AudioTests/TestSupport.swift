@@ -1,3 +1,4 @@
+import Foundation
 import AVFAudio
 import Core
 import CoreMocks
@@ -100,3 +101,6 @@ func envelope(_ samples: [Float], window: Int) -> [Float] {
 func maxEnvelopeJump(_ env: [Float]) -> Float {
     zip(env.dropFirst(), env).map { abs($0 - $1) }.max() ?? 0
 }
+
+/// true en CI (GitHub Actions define `CI`): las medidas de tiempo real se escriben pero no se exigen.
+let isCI = ProcessInfo.processInfo.environment["CI"] != nil

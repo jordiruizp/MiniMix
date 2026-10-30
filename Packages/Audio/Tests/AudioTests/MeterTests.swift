@@ -56,8 +56,14 @@ import Testing
         let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) * 1e-18
         let fires = engine.meterTimerFires
         let rate = Double(fires) / seconds
-        print("[T40] meters: \(fires) emisiones en \(seconds) s → \(rate) Hz")
-        #expect(rate > 24 && rate < 36)
+        print("[T40] meters: \(fires) emisiones en \(seconds) s → \(rate) Hz\(isCI ? " (CI: solo se exige > 0)" : "")")
+        // Regla de rendimiento (CLAUDE.md): se mide siempre; el ritmo solo se exige fuera de CI
+        // (las VMs de GitHub no garantizan temporizadores a 30 Hz). En CI basta con que publique.
+        if isCI {
+            #expect(rate > 0)
+        } else {
+            #expect(rate > 24 && rate < 36)
+        }
     }
 
     @Test func decibelConversion() {
