@@ -1,3 +1,4 @@
+import AVFAudio
 import Core
 import Foundation
 
@@ -360,17 +361,37 @@ extension PlaylistInput {
 
     /// Libera una ranura: pausa, sin decodificar, fuera del mezclador. Si se estaba viendo,
     /// la referencia se suelta tras `releaseDelay` (la GPU puede estar leyendo su fotograma).
+    ///
+    /// Con retardo (el item se estaba viendo/oyendo), el audio baja en una rampa corta de 20 ms
+    /// antes de pausar (sin clic en los cortes manuales).
     func release(_ slot: Slot, delayed: Bool) {
         let source = slot.source
-        source.pause()
-        (source as? DecodingControllable)?.setDecodingEnabled(false)
-        if let node = (source as? AudioSource)?.node { mixer.disconnect(node) }
+        let node = (source as? AudioSource)?.node
+        let stop: @Sendable (PlaylistInput) -> Void = { input in
+            source.pause()
+            (source as? DecodingControllable)?.setDecodingEnabled(false)
+            if let node { input.mixer.disconnect(node) }
+        }
         guard delayed else {
+            stop(self)
             state.withLock { $0.stats.loadedItems -= 1 }
             return
         }
         state.withLock { $0.releasing += 1 }
-        queue.asyncAfter(deadline: .now() + environment.releaseDelay) { [weak self] in
+        let ramp = 0.02
+        if let node {
+            let ref = SendableAudioNode(node: node)
+            let start = (node as? AVAudioMixing)?.volume ?? 1
+            for step in 1...4 {
+                queue.asyncAfter(deadline: .now() + ramp * Double(step) / 4) { [weak self] in
+                    self?.mixer.setGain(start * Float(1 - Double(step) / 4), for: ref.node)
+                }
+            }
+        }
+        queue.asyncAfter(deadline: .now() + ramp + 0.005) { [weak self] in
+            if let self { stop(self) } else { source.pause() }
+        }
+        queue.asyncAfter(deadline: .now() + max(environment.releaseDelay, ramp + 0.01)) { [weak self] in
             withExtendedLifetime(source) {}
             self?.state.withLock { s in
                 s.stats.loadedItems -= 1
