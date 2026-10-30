@@ -1,3 +1,4 @@
+import AppKit
 import Core
 import CoreMocks
 import Foundation
@@ -77,6 +78,20 @@ struct T91Tests {
     }
 
     // MARK: 3 · Navegación por teclado
+
+    @Test func onlyKeyActivatedControlsKeepSpaceWithFullKeyboardAccess() {
+        let activates = { (responder: NSResponder?, fka: Bool) in
+            KeyboardShortcutMonitor.controlActivatesWithKey(responder, fullKeyboardAccess: fka)
+        }
+        #expect(activates(NSButton(), true))
+        #expect(activates(NSPopUpButton(), true))
+        #expect(activates(NSSegmentedControl(), true))
+        #expect(!activates(NSButton(), false), "sin navegación por teclado completa, Espacio es Cut")
+        #expect(!activates(NSTableView(), true), "la lista de la playlist no roba Espacio")
+        #expect(!activates(NSSlider(), true))
+        #expect(!activates(NSView(), true))
+        #expect(!activates(nil, true))
+    }
 
     @Test func focusedControlKeepsSpaceAndEnter() {
         let context = ShortcutContext(isMainWindow: true, isKeyWindow: true, hasSheetOrModal: false,

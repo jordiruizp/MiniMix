@@ -65,11 +65,22 @@ struct KeyboardShortcutMonitor: ViewModifier {
             hasSheetOrModal: main.attachedSheet != nil || NSApp.modalWindow != nil,
             isRepeat: event.isARepeat,
             isEditingText: main.firstResponder is NSText,
-            focusedControlUsesKey: activationKey && main.firstResponder is NSControl
+            focusedControlUsesKey: activationKey && Self.controlActivatesWithKey(
+                main.firstResponder, fullKeyboardAccess: NSApp.isFullKeyboardAccessEnabled)
         )
         guard context.allowsShortcuts, let action = ShortcutMap.action(for: key) else { return false }
         app.perform(action)
         return true
+    }
+
+    /// Espacio/Intro deben activar el control con foco en vez de hacer Cut/Fundido solo si hay
+    /// navegación por teclado completa y el control se activa con esas teclas (botones, menús
+    /// emergentes, segmentados). Tablas (la lista de la playlist), deslizadores, etc. no: tras
+    /// pulsar una fila, Espacio sigue siendo Cut.
+    @MainActor
+    static func controlActivatesWithKey(_ responder: NSResponder?, fullKeyboardAccess: Bool) -> Bool {
+        guard fullKeyboardAccess, let responder else { return false }
+        return responder is NSButton || responder is NSPopUpButton || responder is NSSegmentedControl
     }
 
     static func keyInput(from event: NSEvent) -> KeyInput {
