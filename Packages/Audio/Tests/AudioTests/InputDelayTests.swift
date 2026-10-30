@@ -22,6 +22,8 @@ import Testing
     }
 
     @Test func playerTapProfileUsesCalibratedLeadPlusVideoLatency() throws {
+        // Con el tap alineado de Media, el adelanto calibrado es 0: el perfil = latencia de vídeo.
+        #expect(AudioEngine.playerTapLead == 0)
         let engine = try makeOfflineEngine()
         let source = makeSource(.step(start: 0, level: 0.5))
         engine.setAudioFollowsProgram(false, for: source.id)
@@ -44,9 +46,10 @@ import Testing
         let engine = try makeOfflineEngine()
         let source = makeSource(.step(start: 0, level: 0.5))
         engine.setAudioFollowsProgram(false, for: source.id)
-        engine.videoPresentationLatency = 0
+        engine.videoPresentationLatency = 0.072
         engine.setSyncProfile(.playerTap, for: source.id)
-        engine.setInputDelay(milliseconds: -22, for: source.id) // 72 − 22 = 50 ms
+        // Perfil = playerTapLead (0 con el tap alineado de Media) + 72 ms de vídeo; −22 → 50 ms.
+        engine.setInputDelay(milliseconds: -22 - AudioEngine.playerTapLead * 1_000, for: source.id)
         try engine.attach(source)
         try engine.start()
         #expect(abs(engine.inputDelayMilliseconds(for: source.id) - 50) < 1e-9)

@@ -5,13 +5,17 @@ import Core
 extension AudioEngine {
     // MARK: Sincronismo A/V
 
-    /// Adelanto del audio de un `AVPlayer` sacado por `MTAudioProcessingTap` respecto a la
-    /// presentación de su vídeo, **sin** contar la latencia del dispositivo (que el reproductor
-    /// ya descuenta y la salida del motor vuelve a sumar). Medido con el test de claqueta por la
-    /// cadena real (VideoInput → AudioEngine, altavoces integrados, PCM y AAC, 11 pasadas): adelanto
-    /// en render 77,6…92,1 ms (media ≈ 84) − latencia HAL 11,3 ms ≈ 72 ms. El adelanto es constante
-    /// dentro de una reproducción (±0,1 ms) pero varía ±7 ms entre reproducciones.
-    public static let playerTapLead: Double = 0.072
+    /// Adelanto residual del audio de un `AVPlayer` sacado por `MTAudioProcessingTap` respecto a la
+    /// presentación de su vídeo, sin contar la latencia del dispositivo.
+    ///
+    /// **0 presupone el tap alineado de Media** (VideoInput entrega el audio por tiempo de item, C ·
+    /// feat/c-av-start: +3,8 ms desde el primer clic, +1,7…+5,2 ms en régimen, sin transitorio de
+    /// arranque). Con el tap sin alinear (versión anterior de Media) el adelanto medido por la
+    /// cadena real era de ≈ 72 ms (77,6…92,1 ms en render − 11,3 ms de HAL, ±7 ms entre
+    /// reproducciones); si se vuelve a esa vía hay que restaurar ese valor. Así, el perfil
+    /// `.playerTap` queda en `videoPresentationLatency`. Recalibrar con la sonda de inicios
+    /// (`startOnsetDetection`) y el test de claqueta.
+    public static let playerTapLead: Double = 0
 
     /// Retardo manual de una entrada (ms), aplicado antes del gate de Programa (así el fundido
     /// de la transición actúa sobre el audio ya alineado con su vídeo). Se suma al retardo del

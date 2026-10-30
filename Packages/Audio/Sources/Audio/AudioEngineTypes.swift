@@ -65,9 +65,10 @@ struct ChannelSettings {
 public enum InputSyncProfile: Sendable, Equatable {
     /// Audio sin vídeo asociado o ya alineado (AudioInput, AVAudioPlayerNode): sin retardo extra.
     case direct
-    /// Audio de un `AVPlayer` sacado con `MTAudioProcessingTap` (VideoInput): el tap entrega el
-    /// audio cuando el reproductor lo renderiza, **antes** de que su reloj presente ese instante.
-    /// Se retrasa `AudioEngine.playerTapLead + videoPresentationLatency`.
+    /// Audio de un `AVPlayer` sacado con `MTAudioProcessingTap` (VideoInput). Se retrasa
+    /// `AudioEngine.playerTapLead + videoPresentationLatency`; con el tap alineado por tiempo de
+    /// item de Media `playerTapLead` es 0, así que equivale a `videoPresentationLatency` (el
+    /// fotograma se ve un vsync después del tick en que su audio ya está alineado).
     case playerTap
 }
 
