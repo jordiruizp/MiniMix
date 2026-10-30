@@ -21,10 +21,20 @@ public struct SwitcherMenuItem: Identifiable, Hashable, Sendable {
 }
 
 extension AppViewModel {
+    /// Hay algo que pasar a Programa: Preview asignado y distinto de Programa (o una transición
+    /// en curso, que Cut completa).
+    public var canTransition: Bool {
+        if transitionProgress != nil { return true }
+        guard let preview = project.preview else { return false }
+        return preview != project.program
+    }
+
     /// Comandos del menú Switcher, en el orden de la sección 7 del plan.
     public var switcherMenuItems: [SwitcherMenuItem] {
         func item(_ title: String, _ key: String, _ action: ShortcutAction) -> SwitcherMenuItem {
-            SwitcherMenuItem(title: title, key: key, action: action, isEnabled: !commands(for: action).isEmpty)
+            var enabled = !commands(for: action).isEmpty
+            if action == .cut || action == .fade { enabled = enabled && canTransition }
+            return SwitcherMenuItem(title: title, key: key, action: action, isEnabled: enabled)
         }
         var items = project.inputs.prefix(9).enumerated().map { index, input in
             item("Entrada \(index + 1) a Preview: \(input.name)", "\(index + 1)", .selectInput(index + 1))

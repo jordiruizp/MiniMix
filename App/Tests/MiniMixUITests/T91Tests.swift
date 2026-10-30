@@ -99,6 +99,16 @@ struct T91Tests {
         #expect(h.app.switcherMenuItems.filter { $0.key == "→" }.allSatisfy { $0.isEnabled })
     }
 
+    @Test func cutAndFadeMenuItemsNeedSomethingToTake() {
+        let h = Harness()
+        func enabled(_ key: String) -> Bool { h.app.switcherMenuItems.first { $0.key == key }?.isEnabled ?? false }
+        #expect(enabled("Espacio") && enabled("Intro"))
+        h.app.selectInput(h.video) // Preview == Programa
+        #expect(!enabled("Espacio") && !enabled("Intro"))
+        h.app.removeInput(h.video) // Programa y Preview vacíos
+        #expect(!enabled("Espacio") && !enabled("Intro"))
+    }
+
     // MARK: 2 · Tema claro/oscuro
 
     @Test func previewAndProgramColorsAreLegibleInBothModes() {
