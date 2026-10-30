@@ -8,7 +8,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 |---|---|
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | ✅ todos integrados |
-| 2 · D, F, G-real, ORQ T80 | 🟦 F, T80 y G-real integrados · D corrigiendo (PR #13) |
+| 2 · D, F, G-real, ORQ T80 | ✅ completa |
 | 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado (PR #15, ⛔ devuelto: microcortes por persecución continua) · G T91 (PR #16, en revisión) · H espera a D |
 | 4 · T99 release | ⬜ |
 
@@ -34,13 +34,13 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T51 | G | Panel de playlist | ✅ | feat/g-ui-mocks → main | fase mocks; conexión real en Ola 2 |
 | T60 | H | Generador TestMedia | ✅ | feat/h-qa → main | |
 | T61 | H | Harness de estrés | ✅ | feat/h-qa → main | |
-| T70 | D | PlaylistInput A/B | 🟨 | feat/d-playlist (PR #13, dc4ac48) | re-revisión en curso · CI: no compila en Swift 6.3 (AVAudioNode en closure @Sendable) → D corrigiendo |
-| T71 | D | Fundido entre items + hold | 🟨 | feat/d-playlist (PR #13) | fundido ΔE 0,23 · en revisión |
+| T70 | D | PlaylistInput A/B | ✅ | feat/d-playlist → main (PR #13) | playlist_mixed: 0 negros, 0 saltos, máx. 2 cargados |
+| T71 | D | Fundido entre items + hold | ✅ | feat/d-playlist → main (PR #13) | fundido ΔE 0,23 |
 | T80 | ORQ | Integración switcher | ✅ | feat/orq-t80 → main (PR #9, 91f396b) | sesión completa verificada en píxeles reales; smoke con sandbox en CI (84 MB) |
 | G-real | G | UI con módulos reales | ✅ | feat/g-ui-real → main (PR #12, b5d4252) | |
 | T81 | F | Output externo | ✅ | feat/f-output-persistence → main | |
 | T82 | F | Persistence | ✅ | feat/f-output-persistence → main | |
-| T90 | H | Estrés 1 h / 2 h | ⬜ | | Ola 3 |
+| T90 | H | Estrés 1 h / 2 h | 🟦 | feat/h-t90 | |
 | T91 | G | Pulido UI | ⛔ devuelto | feat/g-t91 (PR #16) | R: DEVOLVER (Espacio/Intro dejan de funcionar tras pulsar la playlist) + cierre con Cancelar sin ventana + formato en directo → G corrigiendo · pendiente verificación manual |
 | T99 | ORQ | Firma, notarización, DMG | ⬜ | | Ola 4 |
 
