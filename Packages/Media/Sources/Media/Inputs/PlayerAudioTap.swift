@@ -28,9 +28,12 @@ final class PlayerAudioTap: Sendable {
                                          channels: AVAudioChannelCount(ring.channels)) else {
             throw MediaError.noPlayableTrack("formato de audio no soportado (\(sampleRate) Hz)")
         }
-        let node = AVAudioSourceNode(format: format) { isSilence, _, frameCount, data in
+        let node = AVAudioSourceNode(format: format) { isSilence, timestamp, frameCount, data in
             let list = UnsafeMutableAudioBufferListPointer(data)
-            let got = ring.read(into: list, frames: Int(frameCount))
+            // Tiempo de item que debe sonar con este render (sin bloquear: atómicos).
+            let stamp = timestamp.pointee
+            let desired = stamp.mFlags.contains(.hostTimeValid) ? ring.desiredItemTime(hostTicks: stamp.mHostTime) : nil
+            let got = ring.read(into: list, frames: Int(frameCount), desiredItemTime: desired)
             if got == 0 { isSilence.pointee = true }
             return noErr
         }
@@ -78,9 +81,13 @@ private func tapProcess(_ tap: MTAudioProcessingTap, _ frames: CMItemCount, _ fl
                         _ framesOut: UnsafeMutablePointer<CMItemCount>,
                         _ flagsOut: UnsafeMutablePointer<MTAudioProcessingTapFlags>) {
     let list = UnsafeMutableAudioBufferListPointer(bufferList)
-    if MTAudioProcessingTapGetSourceAudio(tap, frames, bufferList, flagsOut, nil, framesOut) == noErr {
+    var range = CMTimeRange.invalid
+    if MTAudioProcessingTapGetSourceAudio(tap, frames, bufferList, flagsOut, &range, framesOut) == noErr {
         let ring = Unmanaged<AudioRingBuffer>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).takeUnretainedValue()
-        ring.write(list, frames: Int(framesOut.pointee))
+        // Primero la relación host ↔ item (la del render debe estar al día antes que
+        // las muestras nuevas), después las muestras marcadas con su tiempo de item.
+        ring.refreshMappingFromTimebase()
+        ring.write(list, frames: Int(framesOut.pointee), itemTime: range.start.isValid ? range.start.seconds : nil)
     } else {
         // Sin audio de origen: entregar silencio (el búfer de salida puede traer basura).
         framesOut.pointee = frames

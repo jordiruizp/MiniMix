@@ -41,6 +41,10 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         /// Carga en curso: `prepare()` concurrentes esperan la misma (un solo AVPlayerItem).
         var loadTask: Task<Void, Error>?
         var item: AVPlayerItem?
+        /// Arranque programado (`play(atHostTime:)`), consumido por el siguiente arranque.
+        var scheduledStartHost: Double?
+        /// Invalida arranques en curso (preroll) superados por otro play/pause.
+        var startGeneration = 0
         var loadCount = 0
         var loop: Bool
         var inPoint: Double?
@@ -159,6 +163,12 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
 
     var observerCountForTesting: Int { state.withLock { $0.observers.count } }
 
+    /// Tiempo de item que muestra el vídeo en `hostSeconds` (el de `texture(for:)`).
+    func itemTimeForTesting(hostSeconds: Double) -> Double? {
+        let time = output.itemTime(forHostTime: hostSeconds)
+        return time.isValid ? time.seconds : nil
+    }
+
     /// Posición actual en el archivo (s), sin bloquear; nil antes de `prepare`.
     public var currentTime: Double? {
         guard state.withLock({ $0.prepared }) else { return nil }
@@ -198,10 +208,23 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
     }
 
     public func play() {
+        startPlaying(atHostTime: nil)
+    }
+
+    /// Arranca de forma que la posición actual se presente exactamente en `time`
+    /// (p. ej. un tick del `MasterClock`): `preroll(atRate:)` y después
+    /// `setRate(1, time:, atHostTime:)`. Si `time` ya pasó, arranca en cuanto termina
+    /// el preroll como si hubiera empezado en `time` (sin desfase acumulado).
+    public func play(atHostTime time: HostTime) {
+        startPlaying(atHostTime: time.seconds)
+    }
+
+    private func startPlaying(atHostTime host: Double?) {
         let restart = state.withLock { s -> Bool in
             let ended = s.playback == .ended
             s.wantsPlay = true
             s.playback = .playing
+            s.scheduledStartHost = host
             return ended
         }
         if restart {
@@ -330,6 +353,9 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         player.replaceCurrentItem(with: item)
         try await waitUntilReady(item)
         try Task.checkCancellation()
+        // El tap marca cada muestra con su tiempo de item y el render la alinea con
+        // la relación host ↔ item de este timebase (el mismo reloj que el vídeo).
+        tap?.ring.setTimebase(item.timebase)
         if let inPoint, inPoint > 0 {
             await player.seek(to: CMTime(seconds: inPoint, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         }
@@ -416,12 +442,49 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
 
     /// Ajusta la velocidad del reproductor al estado lógico + visibilidad.
     private func applyRate() {
-        let run = state.withLock { $0.prepared && $0.wantsPlay && $0.decodingEnabled && $0.playback == .playing }
+        struct Decision {
+            let run: Bool
+            let generation: Int
+            let host: Double?
+        }
+        let decision = state.withLock { s -> Decision in
+            let run = s.prepared && s.wantsPlay && s.decodingEnabled && s.playback == .playing
+            s.startGeneration += 1
+            defer { if run { s.scheduledStartHost = nil } }
+            return Decision(run: run, generation: s.startGeneration, host: s.scheduledStartHost)
+        }
+        let run = decision.run
         if run, player.rate == 0 {
-            player.play()
+            start(generation: decision.generation, atHostTime: decision.host)
         } else if !run, player.rate != 0 {
             player.pause()
         }
+    }
+
+    /// Preroll (llena las tuberías de audio y vídeo) y arranque, inmediato o en `host`.
+    private func start(generation: Int, atHostTime host: Double?) {
+        refreshAudioLatency()
+        let begin: @Sendable () -> Void = { [weak self] in
+            guard let self else { return }
+            let current = self.state.withLock { s in
+                s.startGeneration == generation && s.prepared && s.wantsPlay && s.decodingEnabled && s.playback == .playing
+            }
+            guard current else { return }
+            if let host {
+                self.player.setRate(1, time: .invalid, atHostTime: CMTime(seconds: host, preferredTimescale: 1_000_000_000))
+            } else {
+                self.player.play()
+            }
+        }
+        guard player.status == .readyToPlay else { return begin() }
+        player.preroll(atRate: 1) { _ in begin() }
+    }
+
+    /// Latencia de presentación de la salida del motor de E (para alinear el audio
+    /// con lo que se ve en ese instante).
+    private func refreshAudioLatency() {
+        guard let tap = state.withLock({ $0.audioTap }), let engine = tap.node.engine else { return }
+        tap.ring.outputLatency = engine.outputNode.presentationLatency
     }
 
     private static func count(frameAt pts: Double, in stats: inout Stats) {

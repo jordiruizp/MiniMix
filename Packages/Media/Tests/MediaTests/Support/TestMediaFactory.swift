@@ -16,13 +16,20 @@ actor TestMediaFactory {
         var seconds: Double = 4
         var audio = false
         var audioSampleRate = 48_000
+        /// Clics de 5 ms en 0,1 s + k·1 s (PCM sin compresión, sin retardo de códec):
+        /// verdad de referencia para medir la sincronía A/V.
+        var clicks = false
+
+        static let clickOffset = 0.1
+        static let clickInterval = 1.0
         var container: AVFileType = .mov
 
         enum Codec: String, Sendable { case h264, hevc, hevcAlpha, proRes422 }
 
         var name: String {
             let ext = container == .mp4 ? "mp4" : container == .m4v ? "m4v" : "mov"
-            return "\(codec.rawValue)-\(width)x\(height)-\(fps)-\(seconds)-\(audio ? "a\(audioSampleRate)" : "na").\(ext)"
+            let audioTag = audio ? "a\(audioSampleRate)\(clicks ? "c" : "")" : "na"
+            return "\(codec.rawValue)-\(width)x\(height)-\(fps)-\(seconds)-\(audioTag).\(ext)"
         }
     }
 
@@ -125,10 +132,13 @@ actor TestMediaFactory {
         writer.add(videoInput)
         var audioInput: AVAssetWriterInput?
         if spec.audio {
-            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
-                AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: spec.audioSampleRate, AVNumberOfChannelsKey: 2,
-                AVEncoderBitRateKey: 128_000
-            ])
+            let settings: [String: Any] = spec.clicks
+                ? [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: spec.audioSampleRate, AVNumberOfChannelsKey: 2,
+                   AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true, AVLinearPCMIsBigEndianKey: false,
+                   AVLinearPCMIsNonInterleaved: false]
+                : [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: spec.audioSampleRate, AVNumberOfChannelsKey: 2,
+                   AVEncoderBitRateKey: 128_000]
+            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
             input.expectsMediaDataInRealTime = false
             writer.add(input)
             audioInput = input
@@ -153,7 +163,8 @@ actor TestMediaFactory {
             }
             if let audioInput, written < totalSamples, audioInput.isReadyForMoreMediaData {
                 let count = min(1024, totalSamples - written)
-                audioInput.append(try sineSampleBuffer(start: written, count: count, sampleRate: sampleRate))
+                audioInput.append(try sineSampleBuffer(start: written, count: count, sampleRate: sampleRate,
+                                                       clicks: spec.clicks))
                 written += count
                 if written == totalSamples { audioInput.markAsFinished() }
                 progressed = true
@@ -190,7 +201,7 @@ actor TestMediaFactory {
         }
     }
 
-    private static func sineSampleBuffer(start: Int, count: Int, sampleRate: Int) throws -> CMSampleBuffer {
+    private static func sineSampleBuffer(start: Int, count: Int, sampleRate: Int, clicks: Bool = false) throws -> CMSampleBuffer {
         var asbd = AudioStreamBasicDescription(
             mSampleRate: Float64(sampleRate), mFormatID: kAudioFormatLinearPCM,
             mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
@@ -201,7 +212,12 @@ actor TestMediaFactory {
                                        magicCookieSize: 0, magicCookie: nil, extensions: nil, formatDescriptionOut: &format)
         var samples = [Float](repeating: 0, count: count * 2)
         for i in 0..<count {
-            let v = Float(sin(2 * Double.pi * 440 * Double(start + i) / Double(sampleRate))) * 0.5
+            let t = Double(start + i) / Double(sampleRate)
+            var v = Float(sin(2 * Double.pi * 440 * t)) * 0.5
+            if clicks {
+                let phase = (t - VideoSpec.clickOffset).truncatingRemainder(dividingBy: VideoSpec.clickInterval)
+                v = t >= VideoSpec.clickOffset && phase < 0.005 ? Float(sin(2 * Double.pi * 2_000 * t)) * 0.8 : 0
+            }
             samples[2 * i] = v
             samples[2 * i + 1] = v
         }
