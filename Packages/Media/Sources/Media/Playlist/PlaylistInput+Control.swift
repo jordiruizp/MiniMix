@@ -135,9 +135,12 @@ extension PlaylistInput {
     }
 
     /// Programa el `play()` del vídeo entrante para que su fotograma 0 esté en pantalla en el
-    /// tick `at`: medio fotograma (del clip) antes, más la latencia de arranque de AVPlayer estimada
-    /// (media móvil de las medidas; ~250 ms en frío en MacBook Neo). Con `now` solo programa
-    /// si ya toca (falta menos que esa latencia + 2 ticks); sin `now`, siempre.
+    /// tick `at`: medio fotograma (del clip) antes, más la latencia de arranque de AVPlayer
+    /// estimada. Esa latencia varía mucho (190–260 ms en frío en MacBook Neo, ±40 ms), así que
+    /// se usa el 85 % de la estimación: si falla, el fotograma 0 se mantiene algún tick de más
+    /// (preferible a saltarlo). El arranque exacto necesita `setRate(_:time:atHostTime:)` en
+    /// `VideoInput` (pedido a C). Con `now` solo programa si ya toca; sin `now`, siempre.
+    /// Temporizador `DispatchSource` con `.strict` (sin agrupar con otros despertares).
     private func scheduleStart(of incoming: Slot, at: HostTime, now: HostTime?) {
         guard let video = incoming.source as? VideoInput else { return }
         let canvasFrame = environment.clock.frameRate.frameDuration
@@ -147,7 +150,7 @@ extension PlaylistInput {
         let key = ObjectIdentifier(video)
         let schedule = state.withLock { s -> (id: Int, latency: Double)? in
             guard s.scheduledSource != key else { return nil }
-            let latency = now == nil ? 0 : s.startLatency
+            let latency = now == nil ? 0 : 0.85 * s.startLatency
             if let now, at.seconds - now.seconds > latency + lead + 2 * canvasFrame { return nil }
             s.armID += 1
             s.scheduledPlay = s.armID
@@ -157,7 +160,14 @@ extension PlaylistInput {
         guard let schedule else { return }
         let fireAt = at + -(lead + schedule.latency)
         let deadline = DispatchTime(uptimeNanoseconds: UInt64(max(0, HostClock.nanos(fireAt))))
-        queue.asyncAfter(deadline: deadline) { [weak self] in self?.firePlay(schedule.id) }
+        let timer = DispatchSource.makeTimerSource(flags: .strict, queue: queue)
+        timer.schedule(deadline: deadline, leeway: .nanoseconds(0))
+        // El temporizador se retiene a sí mismo hasta dispararse (y se cancela al hacerlo).
+        timer.setEventHandler { [weak self, timer] in
+            timer.cancel()
+            self?.firePlay(schedule.id)
+        }
+        timer.resume()
     }
 
     private func firePlay(_ id: Int) {
@@ -167,13 +177,15 @@ extension PlaylistInput {
             return s.standby?.source ?? s.active?.source
         }
         guard let source else { return }
+        let wasPaused = source.playbackState == .paused
         source.play()
-        measureStartLatency(of: source)
+        if wasPaused { measureStartLatency(of: source) }
     }
 
-    /// Mide cuánto tarda el reproductor en mover su posición tras `play()` y actualiza la
-    /// estimación (la primera medida sustituye al valor inicial; después, media móvil acotada a 0…0,5 s).
-    private func measureStartLatency(of source: FrameSource) {
+    /// Mide cuánto tarda el reproductor (que estaba en pausa) en mover su posición tras `play()`
+    /// y actualiza la estimación: la primera medida sustituye al valor inicial; después, media
+    /// móvil. Se descartan las medidas atípicas (< 20 ms o > 600 ms).
+    func measureStartLatency(of source: FrameSource) {
         guard source is VideoInput else { return }
         let origin = source.currentTime ?? 0
         let started = HostClock.nowNanos()
@@ -182,9 +194,10 @@ extension PlaylistInput {
                 if let position = source.currentTime, position > origin + 0.0005 {
                     // La posición ya avanzó `position - origin` desde que arrancó.
                     let latency = Double(HostClock.nowNanos() - started) / 1e9 - (position - origin)
+                    guard (0.02...0.6).contains(latency) else { return }
                     self?.state.withLock { s in
                         let blended = s.stats.lastStartLatency == nil ? latency : 0.5 * s.startLatency + 0.5 * latency
-                        s.startLatency = min(0.5, max(0, blended))
+                        s.startLatency = blended
                         s.stats.lastStartLatency = latency
                     }
                     return

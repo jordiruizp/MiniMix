@@ -172,7 +172,9 @@ extension PlaylistInput {
                 source.play()
             }
         } else {
+            let wasPaused = source.playbackState == .paused
             source.play()
+            if wasPaused { measureStartLatency(of: source) }
         }
         emitStarted(slot)
     }
