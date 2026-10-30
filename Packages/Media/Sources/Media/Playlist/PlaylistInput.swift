@@ -82,7 +82,9 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
 
     deinit {
         tickTask.withLock { $0?.cancel() }
-        mixer.teardown()
+        // Puede ejecutarse en el hilo de render (suelta la última referencia): sin cerrojos del
+        // motor aquí; rampa y desconexión en otra cola.
+        mixer.teardownLater()
         continuation.finish()
     }
 

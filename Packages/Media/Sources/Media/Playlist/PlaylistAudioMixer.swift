@@ -86,5 +86,35 @@ final class PlaylistAudioMixer: Sendable {
         }
     }
 
+    /// Igual que `teardown`, pero fuera del hilo que llama (p. ej. el `deinit` de la playlist
+    /// en el hilo de render, que no debe tomar el cerrojo del motor): rampa de 20 ms a 0 y
+    /// después desconexión, en una cola de utilidad. Solo captura los nodos (envueltos).
+    func teardownLater() {
+        let nodes = owned.withLock { o -> [SendableAudioNode<AVAudioNode>] in
+            defer { o.removeAll() }
+            return Array(o.values)
+        }
+        guard !nodes.isEmpty else { return }
+        let queue = DispatchQueue.global(qos: .utility)
+        let ramp = 0.02
+        queue.async {
+            let starts = nodes.map { ($0.node as? AVAudioMixing)?.volume ?? 1 }
+            for step in 1...4 {
+                queue.asyncAfter(deadline: .now() + ramp * Double(step) / 4) {
+                    for (ref, start) in zip(nodes, starts) {
+                        (ref.node as? AVAudioMixing)?.volume = start * Float(1 - Double(step) / 4)
+                    }
+                }
+            }
+            queue.asyncAfter(deadline: .now() + ramp + 0.005) {
+                for ref in nodes {
+                    guard let engine = ref.node.engine else { continue }
+                    engine.disconnectNodeOutput(ref.node)
+                    engine.detach(ref.node)
+                }
+            }
+        }
+    }
+
     var ownedCount: Int { owned.withLock { $0.count } }
 }
