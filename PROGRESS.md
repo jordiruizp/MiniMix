@@ -41,7 +41,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T81 | F | Output externo | ✅ | feat/f-output-persistence → main | |
 | T82 | F | Persistence | ✅ | feat/f-output-persistence → main | |
 | T90 | H | Estrés 1 h / 2 h | ⬜ | | Ola 3 |
-| T91 | G | Pulido UI | 🟨 | feat/g-t91 (PR #16) | 97 tests · smoke OK · en revisión · pendiente verificación manual (atajos reales, VoiceOver, texto dinámico) |
+| T91 | G | Pulido UI | ⛔ devuelto | feat/g-t91 (PR #16) | R: DEVOLVER (Espacio/Intro dejan de funcionar tras pulsar la playlist) + cierre con Cancelar sin ventana + formato en directo → G corrigiendo · pendiente verificación manual |
 | T99 | ORQ | Firma, notarización, DMG | ⬜ | | Ola 4 |
 
 ## Contratos
@@ -100,6 +100,8 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 ## GitHub Actions
 
 - ~~2026-10-23: jobs no arrancados por límite de facturación~~ → resuelto: el usuario hizo público el repo.
+- **D15** · Preferencias = valores por defecto para proyectos nuevos y el inicial; cambiar el formato del proyecto actual es una acción explícita con confirmación si hay salida activa.
+- **D16** · Tolerancia temporal de repeticiones en cambios de playlist (`lost + 6`) hasta usar `VideoInput.play(atHostTime:)` (PR #15).
 - **D14** · `ProjectDecoder` sigue rechazando `schemaVersion < 1` (v1 es el primer esquema); las migraciones se prueban con el registro.
 - **D13** · Tests de rendimiento: miden siempre y exigen objetivos solo fuera de CI (runners macOS = VM con GPU paravirtualizada).
 - **D12** · CI reducido: un solo job macOS (`scripts/ci.sh` + bundle) en push a main y PRs no borrador, más `core-linux`.
