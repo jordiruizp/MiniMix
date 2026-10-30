@@ -1,6 +1,7 @@
 import AVFAudio
 import Core
 import os
+import Synchronization
 
 /// Mezclador de audio de MiniMix sobre `AVAudioEngine` (T40/T41).
 ///
@@ -71,6 +72,11 @@ public final class AudioEngine: AudioMixing, Sendable {
     static let retireMaxAttempts = 40
 
     public let configuration: AudioEngineConfiguration
+    /// Dispositivo de salida del motor (0 en offline). Atómico: `outputLatency` y la sonda de
+    /// inicios lo leen sin el cerrojo del estado (la sonda corre en el hilo del tap, y quitar el
+    /// tap bajo el cerrojo esperaría a ese hilo). Se actualiza al crear el motor y en cada cambio
+    /// de configuración.
+    let outputDeviceID = Atomic<UInt32>(0)
     /// Interno (no privado) para las extensiones de otros archivos del módulo.
     let state: LockedState<State>
     private let meterPublisher: MeterPublisher
@@ -125,6 +131,7 @@ public final class AudioEngine: AudioMixing, Sendable {
         (events, eventContinuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(16))
 
         if configuration.renderMode == .realtime {
+            outputDeviceID.store(engine.outputNode.auAudioUnit.deviceID, ordering: .relaxed)
             state.withLock { state in
                 state.configurationObserver = NotificationCenter.default.addObserver(
                     forName: .AVAudioEngineConfigurationChange, object: state.engine, queue: nil
@@ -187,6 +194,9 @@ public final class AudioEngine: AudioMixing, Sendable {
 
     private func restartAfterConfigurationChange() {
         let outcome = state.withLock { state -> RestartOutcome in
+            if !state.engine.isInManualRenderingMode {
+                outputDeviceID.store(state.engine.outputNode.auAudioUnit.deviceID, ordering: .relaxed)
+            }
             guard state.wantsRunning, !state.engine.isRunning else { return .notNeeded }
             if !state.engine.isInManualRenderingMode { Self.reconnectOutput(state.engine) }
             state.engine.prepare()

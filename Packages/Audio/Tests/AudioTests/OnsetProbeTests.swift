@@ -1,3 +1,4 @@
+import AVFAudio
 import Core
 import CoreMocks
 import Foundation
@@ -52,5 +53,33 @@ import Testing
         for await onset in onsets { found.append(onset.sampleTime) }
         #expect(found.count == 2)
         #expect(found.allSatisfy { abs(($0 % 24_000) - 960) <= 8 })
+    }
+
+    /// La latencia de presentación se consulta en cada inicio (la actual, no la del arranque).
+    @Test func presentationUsesCurrentLatency() async throws {
+        let latency = Locked(0.010)
+        let (stream, continuation) = AsyncStream.makeStream(of: AudioOnset.self)
+        let detector = OnsetDetector(threshold: 0.3, holdOffFrames: 100,
+                                     presentationLatency: { latency.current }, continuation: continuation)
+        let format = AVAudioFormat(standardFormatWithSampleRate: testSampleRate, channels: 2)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 512)!
+        buffer.frameLength = 512
+        for channel in 0..<2 {
+            buffer.floatChannelData![channel].update(repeating: 0, count: 512)
+            buffer.floatChannelData![channel][10] = 0.5
+        }
+        let host = AVAudioTime.hostTime(forSeconds: 100)
+        detector.process(buffer, at: AVAudioTime(hostTime: host, sampleTime: 0, atRate: testSampleRate))
+        latency.withLock { $0 = 0.200 } // p. ej. se conectan unos auriculares Bluetooth
+        detector.process(buffer, at: AVAudioTime(hostTime: AVAudioTime.hostTime(forSeconds: 101),
+                                                 sampleTime: 48_000, atRate: testSampleRate))
+        detector.finish()
+        var onsets: [AudioOnset] = []
+        for await onset in stream { onsets.append(onset) }
+        #expect(onsets.count == 2)
+        let offsets = onsets.compactMap { onset in onset.presentationHostTime.flatMap { p in onset.renderHostTime.map { p - $0 } } }
+        #expect(offsets.count == 2)
+        #expect(abs(offsets[0] - 0.010) < 1e-6)
+        #expect(abs(offsets[1] - 0.200) < 1e-6)
     }
 }

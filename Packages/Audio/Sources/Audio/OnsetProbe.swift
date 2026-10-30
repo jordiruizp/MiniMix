@@ -24,11 +24,13 @@ final class OnsetDetector: @unchecked Sendable {
     // un único hilo; `quietSince` y `armed` no se tocan desde ningún otro sitio.
     private let threshold: Float
     private let holdOffFrames: Int64
-    private let presentationLatency: Double
+    /// Latencia de presentación actual (s); se consulta en cada inicio (no la del arranque: el
+    /// dispositivo puede cambiar durante la medición).
+    private let presentationLatency: @Sendable () -> Double
     private let continuation: AsyncStream<AudioOnset>.Continuation
     private var lastLoud: Int64 = .min / 2
 
-    init(threshold: Float, holdOffFrames: Int64, presentationLatency: Double,
+    init(threshold: Float, holdOffFrames: Int64, presentationLatency: @escaping @Sendable () -> Double,
          continuation: AsyncStream<AudioOnset>.Continuation) {
         self.threshold = threshold
         self.holdOffFrames = holdOffFrames
@@ -49,8 +51,9 @@ final class OnsetDetector: @unchecked Sendable {
             let sample = time.sampleTime + Int64(index)
             if sample - lastLoud > holdOffFrames {
                 let render = hostSeconds.map { $0 + Double(index) / rate }
+                let latency = render == nil ? 0 : presentationLatency()
                 continuation.yield(AudioOnset(sampleTime: sample, renderHostTime: render,
-                                              presentationHostTime: render.map { $0 + presentationLatency },
+                                              presentationHostTime: render.map { $0 + latency },
                                               level: level))
             }
             lastLoud = sample
@@ -68,7 +71,7 @@ extension AudioEngine {
     ///   - holdOff: silencio mínimo (s) entre dos inicios.
     public func startOnsetDetection(threshold: Float = 0.3, holdOff: Double = 0.5) -> AsyncStream<AudioOnset> {
         let (stream, continuation) = AsyncStream.makeStream(of: AudioOnset.self, bufferingPolicy: .unbounded)
-        let latency = outputLatency?.presentationSeconds ?? 0
+        let latency: @Sendable () -> Double = { [weak self] in self?.outputLatency?.presentationSeconds ?? 0 }
         installOutputTap { node, format in
             let detector = OnsetDetector(threshold: threshold,
                                          holdOffFrames: Int64((holdOff * format.sampleRate).rounded()),

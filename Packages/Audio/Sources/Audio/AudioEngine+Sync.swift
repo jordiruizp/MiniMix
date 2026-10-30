@@ -58,12 +58,13 @@ extension AudioEngine {
 
     /// Latencia del dispositivo de salida que usa el motor (HAL). nil en modo offline o si no hay
     /// dispositivo.
+    /// No toma el cerrojo del estado: el `deviceID` está en un atómico (actualizado al crear el
+    /// motor y en cada cambio de configuración) y las consultas al HAL, que pueden tardar, van
+    /// fuera de cualquier cerrojo. Así la sonda de inicios puede llamarlo desde el hilo del tap.
     public var outputLatency: OutputLatency? {
-        state.withLock { state -> OutputLatency? in
-            guard !state.engine.isInManualRenderingMode else { return nil }
-            let deviceID = state.engine.outputNode.auAudioUnit.deviceID
-            return OutputLatency.device(deviceID) ?? OutputLatency.defaultOutputDevice()
-        }
+        guard configuration.renderMode == .realtime else { return nil }
+        let deviceID = outputDeviceID.load(ordering: .relaxed)
+        return OutputLatency.device(deviceID) ?? OutputLatency.defaultOutputDevice()
     }
 
     /// `AVAudioOutputNode.presentationLatency` (s): render → altavoz según `AVAudioEngine`
