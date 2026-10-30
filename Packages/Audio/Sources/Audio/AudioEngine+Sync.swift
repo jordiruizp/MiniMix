@@ -31,9 +31,18 @@ extension AudioEngine {
         return state.withLock { min(Self.inputDelay(for: input, in: $0), maxDelay) * 1_000 }
     }
 
-    /// Del tick del `MasterClock` a la pantalla (s). Por defecto 1 fotograma a 60 fps (el
-    /// fotograma se compone en el tick y se muestra en el siguiente vsync); súmale la latencia
-    /// de una pantalla externa o proyector. Recalcula el retardo de las entradas `.playerTap`.
+    /// Del tick del `MasterClock` a la pantalla integrada (s). Por defecto 1 fotograma a 60 fps
+    /// (el fotograma se compone en el tick y se muestra en el siguiente vsync). Solo retrasa las
+    /// entradas `.playerTap` (para alinear su contenido con su vídeo antes del gate); **no** retrasa
+    /// el gate de Programa ni las entradas `.direct`.
+    ///
+    /// - La latencia de una pantalla externa o proyector **no** va aquí: va en la compensación
+    ///   global (`setLatencyCompensation(milliseconds:)`), que retrasa toda la salida (contenido y
+    ///   fundidos) por igual.
+    /// - Limitación con salidas de audio de alta latencia (Bluetooth, AirPlay: 100–250 ms): el
+    ///   audio, incluido el fundido del gate, llega tarde respecto a la imagen en esa latencia
+    ///   menos la del vídeo; la compensación global solo puede retrasar audio, así que corregirlo
+    ///   exigiría retrasar el vídeo (Media/App).
     public var videoPresentationLatency: Double {
         get { state.withLock { $0.videoPresentationLatency } }
         set {
