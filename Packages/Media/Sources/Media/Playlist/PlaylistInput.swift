@@ -176,6 +176,12 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
     public func jump(to item: ItemID) { enqueue { $0.navigate(.jump(item)) } }
     public func restartItem() { enqueue { $0.navigate(.restartItem) } }
 
+    /// Aplica en directo una playlist editada sin volver al primer item: el secuenciador sigue
+    /// el item actual por su `ItemID` (reglas de edición de `PlaylistSequencer`); las ranuras
+    /// cuyo item sigue igual se conservan (solo cambia su índice/duración) y se descartan las
+    /// que ya no corresponden (item eliminado, otro medio o In/Out, o ya no es el siguiente).
+    public func update(playlist: Playlist) { enqueue { $0.applyEdit(playlist) } }
+
     public var playlist: Playlist { state.withLock { $0.sequencer.playlist } }
     public var sequencerState: SequencerState { state.withLock { $0.sequencer.state } }
     public var currentItemID: ItemID? { state.withLock { $0.sequencer.currentItem?.id } }
@@ -261,7 +267,7 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
         tickTask.withLock { $0 = task }
     }
 
-    private func probeDurations(_ playlist: Playlist) {
+    func probeDurations(_ playlist: Playlist) {
         let environment = environment
         let probe = environment.durationProbe ?? { await environment.probeDuration($0) }
         Task.detached(priority: .utility) { [weak self] in
