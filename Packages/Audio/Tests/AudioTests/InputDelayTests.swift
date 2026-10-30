@@ -59,4 +59,28 @@ import Testing
         // seguiría sonando hasta 7 168 + 4 800.
         #expect(lastLoud < 7_168 + 960)
     }
+
+    /// Con retardo de entrada, mute/fader actúan sobre lo que sale ya (el retardo va antes de la
+    /// ganancia), no `delay` más tarde; y el vúmetro del canal mide lo que se oye.
+    @Test func faderAndMeterActOnDelayedOutput() async throws {
+        let engine = try makeOfflineEngine()
+        let source = makeSource(.step(start: 0, level: 0.5))
+        engine.setAudioFollowsProgram(false, for: source.id)
+        engine.setInputDelay(milliseconds: 100, for: source.id) // 4 800 muestras
+        try engine.attach(source)
+        try engine.start()
+
+        // Antes de que llegue el contenido retrasado, el vúmetro marca silencio.
+        _ = try render(engine, frames: 2_048)
+        engine.publishMetersNow()
+        let early = try #require(await nextLevels(engine))
+        #expect(early[source.id] == [Decibels.silenceFloor, Decibels.silenceFloor])
+
+        var samples = try render(engine, frames: 5_120) // hasta la muestra 7 168
+        engine.setMute(true, for: source.id)
+        samples += try render(engine, frames: 9_600)
+        let lastLoud = try #require(samples.lastIndex { abs($0) >= 0.01 })
+        // Silencio tras la rampa de 20 ms (960) desde el mute, no 4 800 muestras después.
+        #expect(lastLoud + 2_048 < 7_168 + 960)
+    }
 }
