@@ -62,6 +62,8 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
     private let tickTask = LockedState<Task<Void, Never>?>(nil)
     /// Temporizadores de arranque anticipado pendientes (por id de programación).
     let timers = LockedState<[Int: DispatchSourceTimer]>([:])
+    /// Cargas en curso por fuente (se cancelan si la ranura se descarta antes de estar lista).
+    let loadTasks = LockedState<[ObjectIdentifier: Task<Void, Never>]>([:])
 
     /// - Parameters:
     ///   - fit: encaje de los items dentro de la playlist durante los fundidos (fuera del
@@ -77,7 +79,7 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
                                   frameDuration: environment.clock.frameRate.frameDuration))
         queue = DispatchQueue(label: "minimix.playlist.\(id)", qos: .userInteractive)
         if drivenByClock { startTicking() }
-        probeDurations(playlist)
+        probeDurations(playlist.items)
     }
 
     deinit {
@@ -271,11 +273,11 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
         tickTask.withLock { $0 = task }
     }
 
-    func probeDurations(_ playlist: Playlist) {
+    func probeDurations(_ items: [PlaylistItem]) {
         let environment = environment
         let probe = environment.durationProbe ?? { await environment.probeDuration($0) }
         Task.detached(priority: .utility) { [weak self] in
-            for item in playlist.items {
+            for item in items {
                 guard let duration = await probe(item) else { continue }
                 self?.state.withLock { s in
                     if s.knownDurations[item.id] == nil { s.knownDurations[item.id] = duration }

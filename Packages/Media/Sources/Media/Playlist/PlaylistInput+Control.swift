@@ -219,6 +219,8 @@ extension PlaylistInput {
                 s.pending = nil
                 s.armed = nil
                 let result = s.sequencer.handle(.itemEnded)
+                // Validación: si (tras una edición) el secuenciador sigue sonando, no es un final.
+                if case .playing = result { return (nil, false) }
                 let hold = s.sequencer.playlist.holdBehavior
                 if var slot = s.active {
                     slot.elapsedBase = slot.duration ?? slot.elapsedBase
@@ -247,10 +249,19 @@ extension PlaylistInput {
             let new: Slot
             let play: Bool
         }
-        let result = state.withLock { s -> Switched? in
+        enum Outcome {
+            case switched(Switched)
+            /// El secuenciador no lleva al entrante (edición entre medias): sin cambio.
+            case mismatch(SequencerState)
+            case none
+        }
+        let outcome = state.withLock { s -> Outcome in
             s.pending = nil
-            guard let incoming = s.standby else { return nil }
-            s.sequencer.handle(.itemEnded)
+            guard let incoming = s.standby else { return .none }
+            var probe = s.sequencer
+            let after = probe.handle(.itemEnded)
+            guard after == .playing(index: incoming.index) else { return .mismatch(after) }
+            s.sequencer = probe
             let play = s.scheduledPlay != nil || !incoming.isVideo
             s.scheduledPlay = nil
             s.scheduledSource = nil
@@ -263,27 +274,50 @@ extension PlaylistInput {
             s.standby = nil
             s.lateMarked = false
             s.stats.switches += 1
-            switch pending.kind {
-            case .cut(let visual):
-                s.fallback = s.shown
-                s.shown = visual
-                s.armed = nil
-            case .fade(let duration):
-                s.shown = s.fade?.to
-                s.outgoing = old
-                s.fadeEnd = pending.at + duration
-            case .hold, .end:
-                break
-            }
-            return Switched(old: old, new: slot, play: play)
+            Self.applyVisual(of: pending, old: old, to: &s)
+            return .switched(Switched(old: old, new: slot, play: play))
         }
-        guard let result else { return }
+        let result: Switched
+        switch outcome {
+        case .switched(let switched): result = switched
+        case .none: return
+        case .mismatch(let after):
+            resolveMismatch(after, at: pending.at)
+            return
+        }
         if result.play { result.new.source.play() }
         if case .cut = pending.kind {
             if let node = (result.new.source as? AudioSource)?.node { mixer.setGain(1, for: node) }
             if let old = result.old { release(old, delayed: true) }
         }
         emitStarted(result.new)
+    }
+
+    /// Visual tras el cambio: corte (con el anterior de reserva) o fundido en curso.
+    private static func applyVisual(of pending: Pending, old: Slot?, to s: inout State) {
+        switch pending.kind {
+        case .cut(let visual):
+            s.fallback = s.shown
+            s.shown = visual
+            s.armed = nil
+        case .fade(let duration):
+            s.shown = s.fade?.to
+            s.outgoing = old
+            s.fadeEnd = pending.at + duration
+        case .hold, .end:
+            break
+        }
+    }
+
+    /// El fin del item ya no lleva al entrante programado (edición entre medias): se cancela
+    /// y se aplica lo que diga el secuenciador.
+    private func resolveMismatch(_ after: SequencerState, at time: HostTime) {
+        cancelTransition()
+        switch after {
+        case .held, .ended: commit(Pending(at: time, kind: after == .ended ? .end : .hold))
+        case .playing: state.withLock { _ = $0.sequencer.handle(.itemEnded) } // la navegación carga el que toque
+        case .idle: break
+        }
     }
 
     func finishFade() {

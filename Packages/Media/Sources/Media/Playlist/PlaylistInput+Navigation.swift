@@ -232,15 +232,19 @@ extension PlaylistInput {
     @discardableResult
     func loadStandby(_ index: Int) -> Bool {
         guard let source = createSlot(index: index, asActive: false) else { return false }
-        Task {
+        let key = ObjectIdentifier(source)
+        let task = Task {
             do {
                 try await source.prepare()
+                try Task.checkCancellation()
                 await Self.prewarm(source)
                 self.enqueue { $0.loadFinished(source: source) }
             } catch {
                 self.enqueue { $0.loadFailed(source: source, index: index, error: error) }
             }
+            self.loadTasks.withLock { $0[key] = nil }
         }
+        loadTasks.withLock { $0[key] = task }
         return true
     }
 
@@ -256,7 +260,7 @@ extension PlaylistInput {
             source = try (environment.itemFactory ?? environment.makeItemSource)(item, playlist)
         } catch {
             continuation.yield(.error("Item \(index + 1): \(error)"))
-            disableFailedItem(index: index, id: item.id)
+            disableFailedItem(id: item.id)
             return nil
         }
         if !decoding { (source as? DecodingControllable)?.setDecodingEnabled(false) }
@@ -311,17 +315,17 @@ extension PlaylistInput {
             if s.standby?.source === source { defer { s.standby = nil }; return s.standby }
             return nil
         }
+        // Ranura ya descartada (carga cancelada): no es un fallo del item.
+        guard let slot else { return }
         continuation.yield(.error("Item \(index + 1): \(error)"))
-        if let slot {
-            release(slot, delayed: false)
-            disableFailedItem(index: index, id: slot.item.id)
-        }
+        release(slot, delayed: false)
+        disableFailedItem(id: slot.item.id)
     }
 
     /// Un item que no carga se deshabilita en la copia de la playlist del secuenciador (se salta).
-    private func disableFailedItem(index: Int, id: ItemID) {
+    private func disableFailedItem(id: ItemID) {
         let stopped = state.withLock { s -> FrameSource?? in
-            guard s.sequencer.playlist.items.indices.contains(index), s.sequencer.playlist.items[index].id == id else { return nil }
+            guard let index = s.sequencer.playlist.index(ofItem: id) else { return nil }
             s.sequencer.playlist.items[index].enabled = false
             guard s.sequencer.currentIndex == index else { return nil }
             // Era el destino de la navegación: al siguiente; si no lo hay, vuelta al item que
@@ -337,7 +341,7 @@ extension PlaylistInput {
             s.sequencer = PlaylistSequencer(playlist: s.sequencer.playlist)
             return .some(s.active?.source)
         }
-        logger.error("Playlist \(self.id): item \(index + 1) no se pudo cargar; se salta")
+        logger.error("Playlist \(self.id): item \(id) no se pudo cargar; se salta")
         if let stopped {
             stopped?.pause()
             continuation.yield(.itemChanged(nil))
@@ -375,6 +379,8 @@ extension PlaylistInput {
             if let node = (source as? AudioSource)?.node { input.mixer.disconnect(node) }
         }
         guard delayed else {
+            // Si aún cargaba, se cancela la carga (no llega a decodificar).
+            loadTasks.withLock { $0.removeValue(forKey: ObjectIdentifier(source)) }?.cancel()
             stop(self)
             state.withLock { $0.stats.loadedItems -= 1 }
             return

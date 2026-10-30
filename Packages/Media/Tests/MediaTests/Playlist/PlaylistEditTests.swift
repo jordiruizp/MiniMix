@@ -81,5 +81,51 @@ extension MediaSerialTests {
             let ended = await firstEvent(events, timeout: 1) { $0 == .ended }
             #expect(ended == .ended)
         }
+
+        /// N1: una edición con un cambio ya programado lo revalida (stopAfter recién activado).
+        @Test func editWhileSwitchIsArmedRevalidates() async throws {
+            let items = Kit.colors([Kit.red, Kit.green], seconds: 1)
+            var (input, driver) = try await started(Playlist(items: items))
+            await driver.run(59)
+            #expect(input.state.withLock { $0.pending != nil })
+            var edited = items
+            edited[0].stopAfter = true
+            input.update(playlist: Playlist(items: edited))
+            var colors: [Int?] = []
+            await driver.run(30) { _, texture in
+                let px = Kit.pixel(texture)
+                colors.append([Kit.red, Kit.green].firstIndex { Kit.isColor(px, $0) })
+            }
+            #expect(input.sequencerState == .held(index: 0, cued: 1))
+            #expect(colors.allSatisfy { $0 == 0 }, "\(colors)")
+        }
+
+        /// N3: si la edición deja la playlist terminada, se avisa como al final normal.
+        @Test func editThatEndsPlaylistEmitsEnded() async throws {
+            let items = Kit.colors([Kit.red, Kit.green], seconds: 2)
+            var (input, driver) = try await started(Playlist(items: items))
+            let events = input.events
+            await driver.run(10)
+            // Se elimina el actual y no queda sucesor.
+            input.update(playlist: Playlist(items: []))
+            await driver.run(5)
+            let ended = await firstEvent(events, timeout: 1) { $0 == .ended }
+            #expect(ended == .ended)
+            #expect(input.playbackState == .ended)
+        }
+
+        /// N4: eliminar el actual cuando el precargado es su sucesor reutiliza la ranura.
+        @Test func removingCurrentReusesPreloadedSuccessor() async throws {
+            let items = Kit.colors([Kit.red, Kit.green, Kit.blue], seconds: 1)
+            var (input, driver) = try await started(Playlist(items: items))
+            await driver.run(40) // a < 3 s del final: verde precargado
+            let preloaded = try #require(input.state.withLock { $0.standby })
+            #expect(preloaded.item.id == items[1].id)
+            input.update(playlist: Playlist(items: [items[1], items[2]]))
+            await driver.run(3)
+            #expect(input.currentItemID == items[1].id)
+            #expect(input.state.withLock { $0.active?.source } === preloaded.source)
+            #expect(Kit.isColor(Kit.pixel(input.texture(for: driver.time)), Kit.green))
+        }
     }
 }
