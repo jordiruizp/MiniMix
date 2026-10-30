@@ -8,8 +8,8 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 |---|---|
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | ✅ todos integrados |
-| 2 · D, F, G-real, ORQ T80 | 🟦 F y T80 integrados · D en curso · G-real en curso |
-| 3 · H rendimiento, E sync, G pulido | 🟦 E sync: PR #14 R=APROBAR CON MENORES (pendiente integrar) · C con transitorio de arranque · H y G esperan |
+| 2 · D, F, G-real, ORQ T80 | 🟦 F, T80 y G-real integrados · D corrigiendo (PR #13) |
+| 3 · H rendimiento, E sync, G pulido | 🟦 E sync (PR #14, menores) · C transitorio de arranque · G T91 · H espera a D |
 | 4 · T99 release | ⬜ |
 
 ## Tareas
@@ -37,11 +37,11 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T70 | D | PlaylistInput A/B | ⛔ devuelto | feat/d-playlist (PR #13) | R: DEVOLVER (bucle de reintentos con item fallido; AVFoundation bajo el lock del render; pool de fundido sin reciclar…) → D corrigiendo |
 | T71 | D | Fundido entre items + hold | 🟨 | feat/d-playlist (PR #13) | fundido ΔE 0,23 · en revisión |
 | T80 | ORQ | Integración switcher | ✅ | feat/orq-t80 → main (PR #9, 91f396b) | sesión completa verificada en píxeles reales; smoke con sandbox en CI (84 MB) |
-| G-real | G | UI con módulos reales | 🟨 | feat/g-ui-real (PR #12) | correcciones hechas (281ae01) · CI en cola → integrar si verde |
+| G-real | G | UI con módulos reales | ✅ | feat/g-ui-real → main (PR #12, b5d4252) | |
 | T81 | F | Output externo | ✅ | feat/f-output-persistence → main | |
 | T82 | F | Persistence | ✅ | feat/f-output-persistence → main | |
 | T90 | H | Estrés 1 h / 2 h | ⬜ | | Ola 3 |
-| T91 | G | Pulido UI | ⬜ | | Ola 3 |
+| T91 | G | Pulido UI | 🟦 | feat/g-t91 | |
 | T99 | ORQ | Firma, notarización, DMG | ⬜ | | Ola 4 |
 
 ## Contratos
