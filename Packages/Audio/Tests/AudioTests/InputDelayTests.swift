@@ -102,4 +102,26 @@ import Testing
         // Silencio tras la rampa de 20 ms (960) desde el mute, no 4 800 muestras después.
         #expect(lastLoud + 2_048 < 7_168 + 960)
     }
+
+    /// Cambiar el retardo de entrada en caliente no hace clic (fundido de 10 ms al cambiar),
+    /// medido como `faderMovesHaveNoClicks` (salto de la envolvente).
+    @Test func inputDelayChangeWhileRunningHasNoClicks() throws {
+        let engine = try makeOfflineEngine()
+        let source = makeSource(.sine(frequency: 1_000, amplitude: 0.5))
+        engine.setAudioFollowsProgram(false, for: source.id)
+        try engine.attach(source)
+        try engine.start()
+        var samples = try render(engine, frames: 2_400)
+        for (milliseconds, frames) in [(40.0, 4_800), (10.0, 4_800), (89.0, 9_600), (0.0, 4_800)] {
+            engine.setInputDelay(milliseconds: milliseconds, for: source.id)
+            samples += try render(engine, frames: frames)
+        }
+        engine.setSyncProfile(.playerTap, for: source.id)
+        samples += try render(engine, frames: 9_600)
+        let jump = maxEnvelopeJump(envelope(samples, window: 48))
+        print("[AV] cambio de retardo de entrada en caliente: salto máx de envolvente \(jump)")
+        // Fundido de 10 ms (480 muestras) a 0,5: ≈ 0,5/480 por muestra; sin fundido sería ~0,5.
+        #expect(jump < 0.06)
+        #expect(abs(peak(samples, last: 480) - 0.5) < 1e-3)
+    }
 }

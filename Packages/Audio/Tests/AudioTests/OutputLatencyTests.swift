@@ -30,11 +30,40 @@ import Testing
         let offline = try makeOfflineEngine()
         #expect(offline.outputLatency == nil)
         #expect(offline.outputPresentationLatency == 0)
-        let realtime = try AudioEngine()
+        // Sin dispositivo (CI) crear el motor en tiempo real puede fallar: se tolera como el nil.
+        guard let realtime = try? AudioEngine() else {
+            print("[AV] AudioEngine() en tiempo real no disponible (sin dispositivo)")
+            return
+        }
         if let latency = realtime.outputLatency {
             print("[AV] motor: \(latency.deviceName) \(latency.presentationSeconds * 1_000) ms; "
                   + "presentationLatency \(realtime.outputPresentationLatency * 1_000) ms")
             #expect(latency.presentationSeconds >= 0)
         }
+    }
+
+    /// Tiempo real (si hay dispositivo): la sonda consulta la latencia desde el hilo del tap
+    /// mientras se quita bajo el cerrojo; arrancar, medir y parar no debe bloquearse.
+    @Test func realtimeOnsetProbeStartsAndStops() async throws {
+        guard let engine = try? AudioEngine() else { return }
+        let source = makeSource(.sine(frequency: 1_000, amplitude: 0.5))
+        engine.setAudioFollowsProgram(false, for: source.id)
+        engine.setMasterVolume(0) // no sonar
+        try engine.attach(source)
+        let onsets = engine.startOnsetDetection(threshold: 0, holdOff: 0.01)
+        do { try engine.start() } catch {
+            print("[AV] el motor en tiempo real no arrancó (sin dispositivo): \(error)")
+            engine.stopOnsetDetection()
+            return
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        engine.stopOnsetDetection()
+        engine.stop()
+        var count = 0
+        for await onset in onsets {
+            count += 1
+            #expect(onset.presentationHostTime != nil)
+        }
+        print("[AV] sonda en tiempo real: \(count) inicios en 150 ms")
     }
 }
