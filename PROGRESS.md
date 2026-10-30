@@ -9,7 +9,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | ✅ todos integrados |
 | 2 · D, F, G-real, ORQ T80 | 🟦 F, T80 y G-real integrados · D corrigiendo (PR #13) |
-| 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado (PR #15, en revisión) · G T91 (PR #16, en revisión) · H espera a D |
+| 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado (PR #15, ⛔ devuelto: microcortes por persecución continua) · G T91 (PR #16, en revisión) · H espera a D |
 | 4 · T99 release | ⬜ |
 
 ## Tareas
@@ -133,6 +133,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 - C (obligatorio): transitorio de arranque (1.er segundo tras play(): audio 142–240 ms tarde) → `preroll(atRate:)` +
   marcar el tap con `timeRangeOut` y alinear por tiempo de item en el AVAudioSourceNode (elimina también ±7 ms entre reproducciones).
 - H: test de integración de claqueta en Tests/ (Media + Audio), exigiendo |desfase| < 20 ms solo fuera de CI.
+- ⚠ main tiene playerTapLead = 0 (PR #14) que presupone el tap alineado de #15: NO activar `.playerTap` en la App hasta integrar #15.
 - C (PR #15): tap alineado por tiempo de item → arranque +3,8 ms, régimen +1,7…+5,2 ms; E pone playerTapLead = 0.
   Validar con claqueta tras integrar #14 + #15 y activar el perfil en la App (si el audio va tarde, videoPresentationLatency = 0 o .direct).
 - L8 (D): `usesVideoDecoder` es Bool; contar 2 decodificadores de playlist requiere cambio de contrato o lógica en InputManager.
