@@ -15,7 +15,7 @@ struct MiniMixApp: App {
             let app = AppViewModel(services: .mocks())
             _app = State(initialValue: app)
             runtime = nil
-            AppDelegate.onTerminate = { app.stop() }
+            AppDelegate.install(app)
             return
         }
         do {
@@ -25,7 +25,7 @@ struct MiniMixApp: App {
             self.runtime = runtime
             // El motor (audio + render) lo arranca `app.start()` desde la vista (no en init) y lo
             // para `app.stop()`; al salir, `applicationWillTerminate`.
-            AppDelegate.onTerminate = { app.stop() }
+            AppDelegate.install(app)
             FileHandle.standardOutput.write(Data("live: ok\n".utf8)) // sin búfer; lo busca scripts/smoke-app.sh
         } catch {
             // Un fallo real nunca pasa en silencio a la demo: se avisa y, si se exige el modo real, se sale.
@@ -35,6 +35,7 @@ struct MiniMixApp: App {
             demo.errorMessage = "No se pudieron iniciar los servicios reales (\(error)). Modo demostración."
             _app = State(initialValue: demo)
             runtime = nil
+            AppDelegate.install(demo)
         }
     }
 
@@ -43,6 +44,9 @@ struct MiniMixApp: App {
             RootView(app: app)
         }
         .commands { MiniMixCommands(app: app) }
+        Settings {
+            PreferencesView(app: app)
+        }
     }
 }
 
@@ -50,6 +54,17 @@ struct MiniMixApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Parada ordenada (reloj, render y audio) al salir.
     @MainActor static var onTerminate: (() -> Void)?
+    /// Confirmación de salida con cambios sin guardar (true = salir).
+    @MainActor static var shouldTerminate: (() -> Bool)?
+
+    @MainActor static func install(_ app: AppViewModel) {
+        onTerminate = { app.stop() }
+        shouldTerminate = { ProjectDialogs.confirmDiscard(app) }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        (Self.shouldTerminate?() ?? true) ? .terminateNow : .terminateCancel
+    }
 
     func applicationWillTerminate(_ notification: Notification) {
         Self.onTerminate?()

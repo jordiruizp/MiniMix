@@ -11,6 +11,12 @@ extension AppViewModel {
     public func addInputs(from urls: [URL]) -> Int {
         let descriptors = urls.compactMap(InputFactory.descriptor(for:))
         descriptors.forEach(addInput)
+        let rejected = urls.filter { InputFactory.kind(for: $0) == nil }.map(\.lastPathComponent)
+        if !rejected.isEmpty {
+            errorMessage = "No se añadieron \(rejected.count) archivo(s) de un formato no admitido "
+                + "(\(rejected.prefix(3).joined(separator: ", "))\(rejected.count > 3 ? "…" : "")). "
+                + "Admite vídeo (mov, mp4…), audio (wav, mp3, m4a…) e imagen (png, jpg, heic…)."
+        }
         return descriptors.count
     }
 
@@ -195,7 +201,8 @@ extension AppViewModel {
 
     /// Guarda con `ProjectStore.write` (si existe) y adopta el proyecto devuelto (con bookmarks)
     /// para no regenerarlos en cada guardado.
-    public func saveProject(to url: URL) {
+    @discardableResult
+    public func saveProject(to url: URL) -> Bool {
         do {
             if let write = services.writeProject {
                 let stored = try write(project, url)
@@ -204,8 +211,11 @@ extension AppViewModel {
                 try services.store.save(project, to: url)
             }
             projectURL = url
+            markSaved()
+            return true
         } catch {
             errorMessage = "No se pudo guardar: \(error.localizedDescription)"
+            return false
         }
     }
 
@@ -220,6 +230,7 @@ extension AppViewModel {
             let loaded = try services.store.load(from: url)
             await replaceProject(with: loaded)
             projectURL = url
+            markSaved()
             missingReferences = services.store.unresolvedReferences(in: project)
         } catch {
             errorMessage = "No se pudo abrir: \(error.localizedDescription)"

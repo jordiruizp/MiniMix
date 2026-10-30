@@ -103,7 +103,7 @@ struct MonitorPane: View {
         }
     }
 
-    private var tint: Color { bus == .preview ? .green : .red }
+    private var tint: Color { bus == .preview ? Theme.preview : Theme.program }
     private var input: InputDescriptor? {
         (bus == .preview ? app.project.preview : app.project.program).flatMap(app.descriptor)
     }

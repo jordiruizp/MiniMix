@@ -12,7 +12,13 @@ struct PlaylistPanel: View {
             if let input = app.selectedInput, let playlist = input.content.playlist {
                 PlaylistHeader(model: app.playlists, input: input, isPlaying: app.isPlaying(input.id))
                 PlaylistSettings(model: app.playlists, id: input.id, playlist: playlist)
+                if playlist.items.isEmpty {
+                    Label("Playlist vacía: arrastra archivos aquí o usa «Añadir archivos…».",
+                          systemImage: "music.note.list")
+                        .foregroundStyle(.secondary)
+                }
                 PlaylistItemList(model: app.playlists, id: input.id, playlist: playlist)
+                    .accessibilityLabel("Panel de playlist de \(input.name)")
             } else {
                 Text("Playlist").font(.headline)
                 Text("Selecciona una entrada de tipo playlist para editarla.")
@@ -188,8 +194,8 @@ private struct PlaylistItemList: View {
     }
 
     private func rowBackground(isCurrent: Bool, isNext: Bool) -> Color {
-        if isCurrent { return .red.opacity(0.25) }
-        if isNext { return .green.opacity(0.18) }
+        if isCurrent { return Theme.program.opacity(0.22) }
+        if isNext { return Theme.preview.opacity(0.18) }
         return .clear
     }
 }
@@ -209,7 +215,7 @@ private struct PlaylistItemRow: View {
                 .accessibilityLabel("Activar item \(index + 1)")
             Text("\(index + 1)").font(.caption.monospacedDigit()).frame(width: 18)
             Image(systemName: isCurrent ? "play.fill" : item.source.symbolName)
-                .foregroundStyle(isCurrent ? .red : (isNext ? .green : .secondary))
+                .foregroundStyle(isCurrent ? Theme.program : (isNext ? Theme.preview : .secondary))
             Text(item.source.displayName).lineLimit(1).truncationMode(.middle)
                 .foregroundStyle(item.enabled ? .primary : .tertiary)
             Spacer()

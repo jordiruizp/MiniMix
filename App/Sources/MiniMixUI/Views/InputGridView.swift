@@ -15,15 +15,38 @@ struct InputGridView: View {
                     InputCard(app: app, input: input, number: index + 1)
                 }
                 AddInputButton(app: app)
+                if app.project.inputs.isEmpty { emptyState }
             }
             .padding(10)
         }
         .frame(height: 168)
         .background(isDropTargeted ? Color.accentColor.opacity(0.15) : Color.clear)
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6]))
+                    .overlay(Label("Suelta para añadir entradas", systemImage: "plus.rectangle.on.rectangle")
+                        .font(.headline).padding(8)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8)))
+                    .padding(4)
+                    .allowsHitTesting(false)
+            }
+        }
         .dropDestination(for: URL.self) { urls, _ in
             app.addInputs(from: urls) > 0
         } isTargeted: { isDropTargeted = $0 }
         .accessibilityLabel("Rejilla de entradas")
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Sin entradas", systemImage: "rectangle.stack.badge.plus").font(.headline)
+            Text("Arrastra aquí vídeos, audio o imágenes desde Finder, o pulsa + para añadir archivos, un color o una playlist.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(width: 360, height: 120, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -123,8 +146,8 @@ struct InputCard: View {
     private var isSelected: Bool { app.selectedInputID == input.id }
 
     private var borderColor: Color {
-        if app.project.program == input.id { return .red }
-        if app.project.preview == input.id { return .green }
+        if app.project.program == input.id { return Theme.program }
+        if app.project.preview == input.id { return Theme.preview }
         return .clear
     }
 
@@ -148,6 +171,14 @@ struct InputContextMenu: View {
     @Binding var isEditingColor: Bool
 
     var body: some View {
+        Button("Poner en Preview") { app.selectInput(input.id) }
+        if input.kind != .color && input.kind != .image {
+            Button(app.isPlaying(input.id) ? "Pausar" : "Reproducir") {
+                app.send(app.isPlaying(input.id) ? .pause(input.id) : .play(input.id))
+            }
+            Button("Reiniciar") { app.send(.restart(input.id)) }
+        }
+        Divider()
         Button("Renombrar…") {
             newName = input.name
             isRenaming = true
@@ -167,6 +198,11 @@ struct InputContextMenu: View {
             Toggle("Audio sigue a Programa", isOn: Binding(
                 get: { input.audioFollowsProgram },
                 set: { app.send(.setAudioFollowsProgram(input.id, $0)) }))
+        }
+        if let path = input.content.mediaReference?.path {
+            Button("Mostrar en Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+            }
         }
         Divider()
         Button("Quitar", role: .destructive) { app.removeInput(input.id) }

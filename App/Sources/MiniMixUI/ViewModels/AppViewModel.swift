@@ -60,6 +60,17 @@ public final class AppViewModel {
     /// ignoran sus valores hasta `releaseTBar()` para que no arranque otra transición.
     @ObservationIgnored private var tbarLockedUntilRelease = false
 
+    /// Contenido del proyecto en el último guardado/apertura (cambios sin guardar, T91).
+    var savedContent: Project
+    /// Preferencias (escena Settings); se guardan y se aplican al cambiar.
+    public var preferences: Preferences {
+        didSet {
+            guard preferences != oldValue else { return }
+            preferences.save(to: services.defaults)
+            applyPreferences(changedFrom: oldValue)
+        }
+    }
+
     public let mixer: MixerViewModel
     public let playlists: PlaylistViewModel
     public let status: StatusViewModel
@@ -85,12 +96,14 @@ public final class AppViewModel {
         self.services = services
         let project = services.initialProject
         self.project = project
+        self.savedContent = Self.documentContent(project)
+        self.preferences = Preferences.load(from: services.defaults)
         self.switcher = services.makeSwitcher(project)
         self.mediaDurations = services.mediaDurations
         self.now = services.uptime()
         self.mixer = MixerViewModel()
         self.playlists = PlaylistViewModel(makeSequencer: services.makeSequencer)
-        self.status = StatusViewModel(renderStats: services.renderStats)
+        self.status = StatusViewModel(renderStats: services.renderStats, decoderUsage: services.decoderUsage)
         mixer.app = self
         playlists.app = self
         playlists.reset(for: project)
@@ -122,6 +135,7 @@ public final class AppViewModel {
         if let demo = services.demoStart { tasks.append(demo()) }
         if !inputsRegistered {
             inputsRegistered = true
+            applyPreferences(changedFrom: nil)
             track { await $0.registerAllInputs() }
             restoreProgramOutput()
         }

@@ -11,17 +11,22 @@ public struct ShortcutContext: Hashable, Sendable {
     public var isRepeat: Bool
     /// Hay un campo de texto editándose.
     public var isEditingText: Bool
+    /// Navegación por teclado: un control con foco (botón, casilla…) y la tecla es Espacio/Intro,
+    /// que deben activar ese control y no hacer Cut/Fundido.
+    public var focusedControlUsesKey: Bool
 
-    public init(isMainWindow: Bool, isKeyWindow: Bool, hasSheetOrModal: Bool, isRepeat: Bool, isEditingText: Bool) {
+    public init(isMainWindow: Bool, isKeyWindow: Bool, hasSheetOrModal: Bool, isRepeat: Bool, isEditingText: Bool,
+                focusedControlUsesKey: Bool = false) {
         self.isMainWindow = isMainWindow
         self.isKeyWindow = isKeyWindow
         self.hasSheetOrModal = hasSheetOrModal
         self.isRepeat = isRepeat
         self.isEditingText = isEditingText
+        self.focusedControlUsesKey = focusedControlUsesKey
     }
 
     public var allowsShortcuts: Bool {
-        isMainWindow && isKeyWindow && !hasSheetOrModal && !isRepeat && !isEditingText
+        isMainWindow && isKeyWindow && !hasSheetOrModal && !isRepeat && !isEditingText && !focusedControlUsesKey
     }
 }
 
@@ -52,15 +57,17 @@ struct KeyboardShortcutMonitor: ViewModifier {
     @MainActor
     private func handle(_ event: NSEvent) -> Bool {
         guard let main = window.window else { return false }
+        let key = Self.keyInput(from: event)
+        let activationKey = key.special == .space || key.special == .enter
         let context = ShortcutContext(
             isMainWindow: event.window === main,
             isKeyWindow: main.isKeyWindow,
             hasSheetOrModal: main.attachedSheet != nil || NSApp.modalWindow != nil,
             isRepeat: event.isARepeat,
-            isEditingText: main.firstResponder is NSText
+            isEditingText: main.firstResponder is NSText,
+            focusedControlUsesKey: activationKey && main.firstResponder is NSControl
         )
-        guard context.allowsShortcuts,
-              let action = ShortcutMap.action(for: Self.keyInput(from: event)) else { return false }
+        guard context.allowsShortcuts, let action = ShortcutMap.action(for: key) else { return false }
         app.perform(action)
         return true
     }

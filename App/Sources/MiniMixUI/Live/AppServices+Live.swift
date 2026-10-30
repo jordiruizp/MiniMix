@@ -126,6 +126,11 @@ extension AppServices {
                                  stillUnresolved: result.stillUnresolved)
         }
         services.supportsPlaylists = playlistFactory != nil
+        services.setLatencyCompensation = { audio.setLatencyCompensation(milliseconds: $0) }
+        services.setEfficiencyMode = { renderer.efficiencyMode = $0 }
+        services.decoderUsage = {
+            DecoderUsage(active: manager.activeDecoderIDs.count, limit: manager.maxActiveVideoDecoders)
+        }
         return (services, runtime)
     }
 }

@@ -46,6 +46,15 @@ public final class LiveRenderer: @unchecked Sendable {
     private let frames = OSAllocatedUnfairLock(initialState: 0)
     /// Fotogramas que faltan para la segunda purga del pool tras reconfigurar (las texturas del
     /// tamaño viejo que estaban en vuelo o en los feeds vuelven al pool después de la primera).
+    private struct Efficiency: Sendable {
+        var enabled = false
+        var skipNext = false
+    }
+
+    private let efficiency = OSAllocatedUnfairLock(initialState: Efficiency())
+    /// Fotogramas de Preview compuestos (diagnóstico y tests).
+    private let previewFrames = OSAllocatedUnfairLock(initialState: 0)
+    var renderedPreviewFrames: Int { previewFrames.withLock { $0 } }
     private let purgeCountdown = OSAllocatedUnfairLock<Int?>(initialState: nil)
 
     /// - Parameter sources: resuelve una entrada a su fuente (normalmente `InputManaging.frameSource(for:)`).
@@ -64,6 +73,21 @@ public final class LiveRenderer: @unchecked Sendable {
     }
 
     public var canvas: PixelSize { pipeline.withLock { $0.canvas } }
+
+    /// Modo eficiencia (T91): Preview se compone uno de cada dos fotogramas; Programa (y la
+    /// salida externa) siguen a la frecuencia completa.
+    public var efficiencyMode: Bool {
+        get { efficiency.withLock { $0.enabled } }
+        set { efficiency.withLock { $0.enabled = newValue } }
+    }
+
+    private func shouldComposePreview() -> Bool {
+        efficiency.withLock { state in
+            guard state.enabled else { return true }
+            state.skipNext.toggle()
+            return !state.skipNext
+        }
+    }
     public var frameRate: FrameRate { pipeline.withLock { $0.frameRate } }
 
     /// Cambia lienzo y/o frecuencia (proyecto abierto con otro formato). Los fotogramas en vuelo
@@ -125,10 +149,11 @@ public final class LiveRenderer: @unchecked Sendable {
         // `.external` el colector ya cuenta el hueco entre `frameSubmitted` como fotograma perdido.
         guard admitted else { return nil }
         let pipe = pipeline.withLock { $0 }
+        let composePreview = shouldComposePreview()
         let programTarget = pool.dequeue(width: pipe.canvas.width, height: pipe.canvas.height)
-        let previewTarget = pool.dequeue(width: pipe.canvas.width, height: pipe.canvas.height)
+        let previewTarget = composePreview ? pool.dequeue(width: pipe.canvas.width, height: pipe.canvas.height) : nil
         guard let commandBuffer = context.commandQueue.makeCommandBuffer(),
-              let programTarget, let previewTarget else {
+              let programTarget, previewTarget != nil || !composePreview else {
             [programTarget, previewTarget].compactMap { $0 }.forEach { pool.recycle($0) }
             inFlight.withLock { $0 -= 1 }
             return nil
@@ -136,7 +161,9 @@ public final class LiveRenderer: @unchecked Sendable {
         commandBuffer.label = "MiniMix.Frame"
         let current = snapshot.withLock { $0 }
         pipe.program.encode(programFrame(current, at: time), into: programTarget, commandBuffer: commandBuffer)
-        pipe.preview.encode(previewFrame(current, at: time), into: previewTarget, commandBuffer: commandBuffer)
+        if let previewTarget {
+            pipe.preview.encode(previewFrame(current, at: time), into: previewTarget, commandBuffer: commandBuffer)
+        }
 
         // El tiempo de GPU lo registra el propio Compositor (.external); aquí solo se libera el hueco.
         let inFlight = self.inFlight
@@ -147,7 +174,10 @@ public final class LiveRenderer: @unchecked Sendable {
         // tracking por defecto: leen después de este CB y una textura reciclada no se reescribe
         // antes. Si se usara otra cola o `.hazardTrackingModeUntracked`, esto dejaría de valer.
         programFeed.display(programTarget, returningTo: pool)
-        previewFeed.display(previewTarget, returningTo: pool)
+        if let previewTarget {
+            previewFeed.display(previewTarget, returningTo: pool)
+            previewFrames.withLock { $0 += 1 }
+        }
         frames.withLock { $0 += 1 }
         let purgeNow = purgeCountdown.withLock { countdown -> Bool in
             guard let left = countdown else { return false }

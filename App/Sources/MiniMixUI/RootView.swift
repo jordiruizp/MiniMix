@@ -12,16 +12,18 @@ public struct RootView: View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 MonitorPane(app: app, bus: .preview)
-                TransitionControls(app: app)
+                TransitionControls(app: app).focusSection()
                 MonitorPane(app: app, bus: .program)
             }
             .padding(10)
             Divider()
-            InputGridView(app: app)
+            InputGridView(app: app).focusSection()
             Divider()
             HSplitView {
                 PlaylistPanel(app: app).frame(minWidth: 420, maxHeight: .infinity, alignment: .top)
+                    .focusSection()
                 MixerPanel(mixer: app.mixer).frame(minWidth: 300, maxHeight: .infinity, alignment: .top)
+                    .focusSection()
             }
             .frame(minHeight: 230)
             Divider()
@@ -29,6 +31,8 @@ public struct RootView: View {
         }
         .frame(minWidth: 1100, minHeight: 760)
         .background(Color(nsColor: .windowBackgroundColor))
+        .background(DocumentEditedMarker(edited: app.hasUnsavedChanges))
+        .navigationTitle(app.documentName)
         .modifier(KeyboardShortcutMonitor(app: app))
         .alert("MiniMix", isPresented: Binding(get: { app.errorMessage != nil }, set: { if !$0 { app.errorMessage = nil } })) {
             Button("OK", role: .cancel) {}
@@ -64,5 +68,14 @@ public struct RootView: View {
             let relinked = await app.relinkMissing(in: folder)
             if relinked == 0 { app.errorMessage = "No se encontró ninguno de los \(missing.count) archivo(s) en esa carpeta." }
         }
+    }
+}
+
+/// Refleja los cambios sin guardar en la ventana (punto del botón de cierre).
+private struct DocumentEditedMarker: NSViewRepresentable {
+    let edited: Bool
+    func makeNSView(context: Context) -> NSView { NSView() }
+    func updateNSView(_ view: NSView, context: Context) {
+        view.window?.isDocumentEdited = edited
     }
 }

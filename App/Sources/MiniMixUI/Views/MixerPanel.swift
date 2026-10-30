@@ -29,7 +29,7 @@ private struct ChannelStrip: View {
     var body: some View {
         VStack(spacing: 4) {
             Text("\(channel.number) \(channel.name)").font(.caption).lineLimit(1).frame(width: 84)
-                .foregroundStyle(channel.onProgram ? .red : .primary)
+                .foregroundStyle(channel.onProgram ? Theme.program : .primary)
             HStack(alignment: .bottom, spacing: 4) {
                 VerticalFader(value: channel.volume) { mixer.setVolume($0, for: channel.id) }
                     .accessibilityLabel("Volumen de \(channel.name)")
@@ -38,7 +38,8 @@ private struct ChannelStrip: View {
             .frame(height: 110)
             Text(Formatting.decibels(gain: channel.volume)).font(.caption2.monospacedDigit())
             HStack(spacing: 2) {
-                ToggleChip(title: "M", isOn: channel.muted, tint: .red, label: "Silenciar \(channel.name)") {
+                ToggleChip(title: "M", isOn: channel.muted, tint: Theme.program, label: "Silenciar \(channel.name)",
+                           onText: .white) {
                     mixer.toggleMute(channel.id)
                 }
                 ToggleChip(title: "S", isOn: channel.solo, tint: .yellow, label: "Solo \(channel.name)") {
@@ -52,6 +53,8 @@ private struct ChannelStrip: View {
         }
         .padding(6)
         .background(RoundedRectangle(cornerRadius: 6).fill(.quinary))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Canal \(channel.number): \(channel.name)\(channel.onProgram ? ", en Programa" : "")")
     }
 }
 
@@ -71,6 +74,8 @@ private struct MasterStrip: View {
         }
         .padding(6)
         .background(RoundedRectangle(cornerRadius: 6).fill(.quinary))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Canal Master")
     }
 }
 
@@ -153,13 +158,14 @@ struct ToggleChip: View {
     let isOn: Bool
     let tint: Color
     let label: String
+    var onText: Color = .black
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Text(title).font(.caption2.bold()).frame(minWidth: 18).padding(.horizontal, 3).padding(.vertical, 2)
                 .background(RoundedRectangle(cornerRadius: 3).fill(isOn ? tint : Color.gray.opacity(0.25)))
-                .foregroundStyle(isOn ? .black : .primary)
+                .foregroundStyle(isOn ? onText : .primary)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
