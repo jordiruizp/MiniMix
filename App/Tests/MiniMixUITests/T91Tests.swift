@@ -2,6 +2,7 @@ import AppKit
 import Core
 import CoreMocks
 import Foundation
+import Observation
 import Metal
 @testable import MiniMixUI
 import Render
@@ -24,6 +25,39 @@ struct T91Tests {
         #expect(h.app.saveProject(to: URL(fileURLWithPath: "/tmp/t91.minimix")))
         #expect(!h.app.hasUnsavedChanges)
         #expect(h.app.documentName == "t91")
+    }
+
+    @Test func openingIsCleanButEditsDuringRegistrationAreKept() async {
+        let manager = TestInputManager(updateDelay: nil)
+        let h = Harness(configure: { $0.inputs = manager })
+        let url = URL(fileURLWithPath: "/tmp/t91-open.minimix")
+        h.app.saveProject(to: url)
+        h.app.rename(h.video, to: "cambio")
+        #expect(h.app.isDirty)
+        await h.app.openProject(from: url)
+        #expect(!h.app.isDirty, "abrir no deja un falso «editado»")
+        // Una edición mientras se dan de alta las entradas no se pierde como «guardada».
+        let opening = Task { await h.app.openProject(from: url) }
+        await Task.yield()
+        h.app.rename(h.video, to: "durante")
+        await opening.value
+        #expect(h.app.isDirty == (h.input(1).name == "durante"))
+    }
+
+    @Test func statusRefreshDoesNotRepublishUnchangedValues() {
+        let status = StatusViewModel(renderStats: { RenderStats(fps: 60, droppedFrames: 0, gpuTimeMs: 5) },
+                                     thermalState: { .nominal })
+        status.refresh()
+        let changed = Box(false)
+        withObservationTracking {
+            _ = status.fps
+            _ = status.droppedFrames
+            _ = status.gpuPercent
+            _ = status.thermal
+            _ = status.decoders
+        } onChange: { MainActor.assumeIsolated { changed.value = true } }
+        status.refresh()
+        #expect(!changed.value)
     }
 
     @Test func confirmDiscardAsksOnlyWhenDirty() {

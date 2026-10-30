@@ -26,14 +26,20 @@ public final class StatusViewModel {
         self.thermalState = thermalState
     }
 
+    /// Relee las métricas. Solo asigna lo que cambió: la barra de estado no se reevalúa si todo sigue igual.
     public func refresh() {
         let stats = renderStats()
-        fps = stats.fps
-        droppedFrames = stats.droppedFrames
-        gpuPercent = stats.fps > 0 ? min(100, stats.gpuTimeMs * stats.fps / 10) : 0
-        memoryBytes = ProcessMetrics.memoryFootprint()
-        thermal = thermalState()
-        decoders = decoderUsage?()
+        let gpu = stats.fps > 0 ? min(100, stats.gpuTimeMs * stats.fps / 10) : 0
+        let memory = ProcessMetrics.memoryFootprint()
+        let state = thermalState()
+        let usage = decoderUsage?()
+        if fps != stats.fps { fps = stats.fps }
+        if droppedFrames != stats.droppedFrames { droppedFrames = stats.droppedFrames }
+        if gpuPercent != gpu { gpuPercent = gpu }
+        // La RAM se muestra en décimas de GB/MB: no republicar por variaciones de pocos KB.
+        if Formatting.memory(memoryBytes) != Formatting.memory(memory) { memoryBytes = memory }
+        if thermal != state { thermal = state }
+        if decoders != usage { decoders = usage }
     }
 
     public var thermalIsWarning: Bool { thermal == .serious || thermal == .critical }

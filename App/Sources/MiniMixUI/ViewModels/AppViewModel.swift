@@ -38,7 +38,18 @@ public struct PlaybackInfo: Hashable, Sendable {
 /// el switcher (`SwitcherStateMachine`) produce `Effect`s y aquí se despachan a los servicios.
 @MainActor @Observable
 public final class AppViewModel {
-    public internal(set) var project: Project
+    public internal(set) var project: Project {
+        didSet {
+            // Cambios sin guardar (T91): solo el contenido de documento (los buses no cuentan).
+            // Se compara una vez por mutación, no en cada evaluación de las vistas.
+            guard !isDirty, !suppressDirtyTracking,
+                  Self.documentContent(oldValue) != Self.documentContent(project) else { return }
+            isDirty = true
+        }
+    }
+    /// Hay cambios desde el último guardado/apertura/proyecto nuevo.
+    public internal(set) var isDirty = false
+    @ObservationIgnored var suppressDirtyTracking = false
     public private(set) var transition: TransitionState = .idle
     /// Entrada seleccionada en la rejilla (paneles de playlist y propiedades).
     public var selectedInputID: InputID?
@@ -60,8 +71,6 @@ public final class AppViewModel {
     /// ignoran sus valores hasta `releaseTBar()` para que no arranque otra transición.
     @ObservationIgnored private var tbarLockedUntilRelease = false
 
-    /// Contenido del proyecto en el último guardado/apertura (cambios sin guardar, T91).
-    var savedContent: Project
     /// Preferencias (escena Settings); se guardan y se aplican al cambiar.
     public var preferences: Preferences {
         didSet {
@@ -96,7 +105,6 @@ public final class AppViewModel {
         self.services = services
         let project = services.initialProject
         self.project = project
-        self.savedContent = Self.documentContent(project)
         self.preferences = Preferences.load(from: services.defaults)
         self.switcher = services.makeSwitcher(project)
         self.mediaDurations = services.mediaDurations

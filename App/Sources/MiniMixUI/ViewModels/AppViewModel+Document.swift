@@ -18,10 +18,10 @@ extension AppViewModel {
     }
 
     /// Hay cambios desde el último guardado/apertura/proyecto nuevo.
-    public var hasUnsavedChanges: Bool { Self.documentContent(project) != savedContent }
+    public var hasUnsavedChanges: Bool { isDirty }
 
     /// Marca el proyecto actual como guardado.
-    func markSaved() { savedContent = Self.documentContent(project) }
+    func markSaved() { isDirty = false }
 
     /// Nombre del documento para el título de la ventana.
     public var documentName: String {
@@ -42,9 +42,8 @@ extension AppViewModel {
     /// Proyecto vacío con el formato y la duración de fundido de las preferencias.
     public func newProject() async {
         let fresh = Project(canvas: preferences.canvas, defaultFadeDuration: preferences.defaultFadeDuration)
-        await replaceProject(with: fresh)
         projectURL = nil
         missingReferences = []
-        markSaved()
+        await replaceProject(with: fresh, asSaved: true)
     }
 }

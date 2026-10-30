@@ -228,9 +228,8 @@ extension AppViewModel {
     public func openProject(from url: URL) async {
         do {
             let loaded = try services.store.load(from: url)
-            await replaceProject(with: loaded)
             projectURL = url
-            markSaved()
+            await replaceProject(with: loaded, asSaved: true)
             missingReferences = services.store.unresolvedReferences(in: project)
         } catch {
             errorMessage = "No se pudo abrir: \(error.localizedDescription)"
@@ -301,7 +300,9 @@ extension AppViewModel {
         return content.mediaReference.map { [$0] } ?? []
     }
 
-    func replaceProject(with newProject: Project) async {
+    /// - Parameter asSaved: el proyecto nuevo cuenta como guardado desde el momento en que se
+    ///   adopta (abrir/nuevo); las ediciones posteriores, aunque lleguen durante las altas, lo ensucian.
+    func replaceProject(with newProject: Project, asSaved: Bool = false) async {
         pendingTasks.values.forEach { $0.cancel() }
         pendingTasks.removeAll()
         liveEditChains = [:]
@@ -310,7 +311,10 @@ extension AppViewModel {
             await services.inputs.remove(input.id)
         }
         if newProject.canvas != project.canvas { services.reconfigureCanvas?(newProject.canvas) }
+        suppressDirtyTracking = asSaved
         project = newProject
+        suppressDirtyTracking = false
+        if asSaved { isDirty = false }
         switcher = services.makeSwitcher(newProject)
         resetTransitionState()
         playback = [:]
