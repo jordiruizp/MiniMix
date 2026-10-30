@@ -25,10 +25,20 @@ extension PlaylistInput {
             return texture
         }
         if let texture = shown.flatMap({ resolve($0, at: time) }) {
-            if fallback != nil { state.withLock { $0.fallback = nil } }
+            // Solo se suelta la reserva leída (un cambio posterior pudo poner otra).
+            if let fallback { state.withLock { s in if Self.same(s.fallback, fallback) { s.fallback = nil } } }
             return texture
         }
         return fallback.flatMap { resolve($0, at: time) }
+    }
+
+    static func same(_ lhs: Visual?, _ rhs: Visual) -> Bool {
+        switch (lhs, rhs) {
+        case let (.source(a)?, .source(b)): a === b
+        case let (.texture(a)?, .texture(b)): a === b
+        case (.black?, .black): true
+        default: false
+        }
     }
 
     private func resolve(_ visual: Visual, at time: HostTime) -> MTLTexture? {
