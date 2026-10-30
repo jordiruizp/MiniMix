@@ -61,7 +61,7 @@ extension MediaSerialTests {
                   "alineado \(firstAfter.map { String(format: "%+.1f", $0) }) ms · " +
                   "alineado todos: medio \(String(format: "%+.1f", allAfter.reduce(0, +) / Double(max(allAfter.count, 1)))) ms, " +
                   "rango \(String(format: "%+.1f…%+.1f", allAfter.min() ?? 0, allAfter.max() ?? 0)) ms")
-            #expect(after.allSatisfy { !$0.isEmpty })
+            PerfGate.check(after.allSatisfy { !$0.isEmpty }, "clics detectados en cada arranque")
             // Alineado desde el primer clic (0,1 s tras play) y estable entre arranques.
             PerfGate.check(allAfter.allSatisfy { abs($0) < 10 }, "error A/V alineado < 10 ms: \(allAfter)")
             PerfGate.check((allAfter.max() ?? 0) - (allAfter.min() ?? 0) < 6, "variación entre arranques < 6 ms")
