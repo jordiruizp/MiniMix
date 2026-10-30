@@ -14,10 +14,11 @@ extension AudioEngine {
     public static let playerTapLead: Double = 0.072
 
     /// Retardo manual de una entrada (ms), aplicado antes del gate de Programa (así el fundido
-    /// de la transición actúa sobre el audio ya alineado con su vídeo). 0…`maxInputDelay`, más
-    /// el retardo automático del perfil de sincronismo.
+    /// de la transición actúa sobre el audio ya alineado con su vídeo). Se suma al retardo del
+    /// perfil de sincronismo y admite negativos (p. ej. calibrar a la baja el adelanto de
+    /// `.playerTap`); el retardo efectivo se limita a 0…`maxInputDelay`.
     public func setInputDelay(milliseconds: Double, for input: InputID) {
-        updateSettings(input) { $0.inputDelay = milliseconds.isFinite ? max(0, milliseconds) / 1_000 : 0 }
+        updateSettings(input) { $0.inputDelay = milliseconds.isFinite ? milliseconds / 1_000 : 0 }
     }
 
     /// Perfil de sincronismo de una entrada (`.playerTap` para VideoInput): ajuste automático.

@@ -55,7 +55,8 @@ struct ChannelSettings {
     var muted = false
     var solo = false
     var followsProgram = true
-    /// Retardo manual de la entrada (s), antes del gate de Programa.
+    /// Retardo manual de la entrada (s), antes del gate de Programa; puede ser negativo (se suma
+    /// al del perfil y el total se limita a ≥ 0).
     var inputDelay: Double = 0
     var syncProfile: InputSyncProfile = .direct
 }

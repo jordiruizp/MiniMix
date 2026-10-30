@@ -39,6 +39,25 @@ import Testing
         #expect(engine.inputDelayMilliseconds(for: source.id) == 250)
     }
 
+    /// Un retardo manual negativo calibra a la baja el del perfil; el total nunca baja de 0.
+    @Test func negativeManualDelayTrimsTheProfile() throws {
+        let engine = try makeOfflineEngine()
+        let source = makeSource(.step(start: 0, level: 0.5))
+        engine.setAudioFollowsProgram(false, for: source.id)
+        engine.videoPresentationLatency = 0
+        engine.setSyncProfile(.playerTap, for: source.id)
+        engine.setInputDelay(milliseconds: -22, for: source.id) // 72 − 22 = 50 ms
+        try engine.attach(source)
+        try engine.start()
+        #expect(abs(engine.inputDelayMilliseconds(for: source.id) - 50) < 1e-9)
+        #expect(Self.firstOnset(try render(engine, frames: 4_800)) == 2_400)
+
+        engine.setInputDelay(milliseconds: -500, for: source.id)
+        #expect(engine.inputDelayMilliseconds(for: source.id) == 0)
+        engine.setSyncProfile(.direct, for: source.id)
+        #expect(engine.inputDelayMilliseconds(for: source.id) == 0)
+    }
+
     /// El retardo va antes del gate de Programa: al cortar a otra entrada, el audio retrasado deja
     /// de sonar con la rampa del corte (no `delay` más tarde). Así el fundido actúa sobre el audio
     /// ya alineado con su vídeo.
