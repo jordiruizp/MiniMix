@@ -40,6 +40,19 @@ public struct MonitorFactory {
     }
 }
 
+/// Resultado de un reenlace (espejo de `Persistence.RelinkResult`, que no tiene init público).
+public struct RelinkOutcome: Sendable, Equatable {
+    public var project: Project
+    public var relinkedPaths: [String]
+    public var stillUnresolved: [MediaReference]
+
+    public init(project: Project, relinkedPaths: [String], stillUnresolved: [MediaReference]) {
+        self.project = project
+        self.relinkedPaths = relinkedPaths
+        self.stillUnresolved = stillUnresolved
+    }
+}
+
 /// Dependencias de la interfaz. Todo se habla a través de los protocolos del contrato.
 /// `AppServices.mocks()` es la configuración con CoreMocks; T80 crea `AppServices.live(...)`.
 @MainActor
@@ -65,8 +78,33 @@ public struct AppServices {
     public var demoTick: (@MainActor (AppViewModel) -> Void)?
     /// Demo: tarea lanzada en `start()` (p. ej. hace avanzar `MockClock` a 60 Hz). nil en producción.
     public var demoStart: (@MainActor () -> Task<Void, Never>)?
-    /// T80: recibe los buses/transición/encajes cada vez que cambian (lo consume el render).
-    public var busStateSink: (@MainActor (BusState) -> Void)?
+    /// T80: recibe los buses/transición/encajes cuando cambian (lo consume el render).
+    /// `sourcesChanged`: alguna fuente se dio de alta, se sustituyó o se quitó (el render debe
+    /// volver a resolver sus `FrameSource`).
+    public var busStateSink: (@MainActor (_ state: BusState, _ sourcesChanged: Bool) -> Void)?
+
+    // MARK: Integración real (G-real). nil/valores neutros en mocks.
+
+    /// Arranca el motor real (audio + bucle de render) antes que el reloj. Devuelve los errores
+    /// que la UI debe mostrar (p. ej. el audio no arrancó).
+    public var startRuntime: (@MainActor () -> [String])?
+    /// Para el motor real (render y audio). Lo llama `AppViewModel.stop()`.
+    public var stopRuntime: (@MainActor () -> Void)?
+    /// Proyecto con otro lienzo/frecuencia: reloj y render se reconfiguran antes de dar de alta las entradas.
+    public var reconfigureCanvas: (@MainActor (CanvasFormat) -> Void)?
+    /// Errores asíncronos de los servicios (p. ej. conectar el audio de una entrada). Un solo consumidor.
+    public var serviceErrors: AsyncStream<String>?
+    /// `ProjectStore.write(_:to:)`: guarda y devuelve el proyecto con bookmarks, que la App adopta.
+    /// nil → `store.save`.
+    public var writeProject: (@MainActor (Project, URL) throws -> Project)?
+    /// `ProjectStore.activate(_:)`: tras sustituir las entradas, abre el acceso a los archivos del proyecto.
+    public var activateProject: (@MainActor (Project) -> Void)?
+    /// `ProjectStore.relinkReporting(_:to:in:searchingIn:)` (diálogo de reenlace).
+    public var relinkProject: (@MainActor (MediaReference, URL, Project, URL?) throws -> RelinkOutcome)?
+    /// El gestor de entradas sabe crear fuentes de playlist (`InputManager(playlistFactory:)`).
+    public var supportsPlaylists = true
+    /// Preferencias (pantalla de salida elegida). Inyectable en tests.
+    public var defaults: UserDefaults = .standard
 
     public init(
         initialProject: Project,

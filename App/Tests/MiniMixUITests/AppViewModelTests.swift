@@ -150,15 +150,22 @@ struct AppViewModelTests {
         #expect(harness.app.transitionProgress == 0.3)
     }
 
-    @Test func seekAndRestartTasksAreTrackedAndCancelled() {
+    @Test func seekAndRestartTasksAreTrackedAndRemovedWhenDone() async {
         let harness = Harness()
         harness.app.send(.seek(harness.video, seconds: 5))
         harness.app.send(.restart(harness.video))
-        #expect(harness.app.pendingTasks.count >= 2)
-        let tasks = harness.app.pendingTasks
+        #expect(harness.app.pendingTasks.count == 2)
+        // Cada tarea se quita sola al terminar (la lista no crece sin límite).
+        #expect(await eventually { harness.app.pendingTasks.isEmpty })
+    }
+
+    @Test func stopCancelsPendingTasks() {
+        let harness = Harness()
+        let task = harness.app.track { _ in try? await Task.sleep(for: .seconds(30)) }
+        #expect(harness.app.pendingTasks.count == 1)
         harness.app.stop()
         #expect(harness.app.pendingTasks.isEmpty)
-        #expect(tasks.allSatisfy { $0.isCancelled })
+        #expect(task.isCancelled)
     }
 
     @Test func seekCountsFromInPoint() {

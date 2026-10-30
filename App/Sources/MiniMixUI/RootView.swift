@@ -1,3 +1,4 @@
+import AppKit
 import Core
 import SwiftUI
 
@@ -34,6 +35,34 @@ public struct RootView: View {
         } message: {
             Text(app.errorMessage ?? "")
         }
+        .alert("Archivos no encontrados", isPresented: Binding(
+            get: { !app.missingReferences.isEmpty && app.errorMessage == nil },
+            set: { if !$0 { app.missingReferences = [] } })) {
+            Button("Elegir carpeta…") { chooseRelinkFolder() }
+            Button("Ahora no", role: .cancel) {}
+        } message: {
+            Text(Self.missingMessage(app.missingReferences))
+        }
         .task { app.start() }
+    }
+
+    static func missingMessage(_ missing: [MediaReference]) -> String {
+        let names = missing.prefix(5).map { URL(fileURLWithPath: $0.path).lastPathComponent }
+        let more = missing.count > 5 ? " y \(missing.count - 5) más" : ""
+        return "Faltan \(missing.count) archivo(s): \(names.joined(separator: ", "))\(more). "
+            + "Elige la carpeta donde están ahora para reenlazarlos."
+    }
+
+    private func chooseRelinkFolder() {
+        let missing = app.missingReferences
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.message = "Carpeta con los archivos que faltan"
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        Task {
+            let relinked = await app.relinkMissing(in: folder)
+            if relinked == 0 { app.errorMessage = "No se encontró ninguno de los \(missing.count) archivo(s) en esa carpeta." }
+        }
     }
 }

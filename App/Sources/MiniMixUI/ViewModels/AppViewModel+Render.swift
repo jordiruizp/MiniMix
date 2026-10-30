@@ -19,7 +19,12 @@ extension AppViewModel {
         return state
     }
 
-    func publishBusState() {
-        services.busStateSink?(busState)
+    /// Publica el estado al render solo si cambió (M9), salvo `sourcesChanged`: tras dar de alta,
+    /// sustituir o quitar fuentes se publica siempre para que el render vuelva a resolverlas (M7).
+    func publishBusState(sourcesChanged: Bool = false) {
+        let state = busState
+        guard sourcesChanged || state != lastPublishedBus else { return }
+        lastPublishedBus = state
+        services.busStateSink?(state, sourcesChanged)
     }
 }

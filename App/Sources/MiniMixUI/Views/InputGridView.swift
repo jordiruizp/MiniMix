@@ -35,6 +35,11 @@ struct AddInputButton: View {
             Button("Archivos…") { openFiles() }
             Button("Color") { app.addColorInput() }
             Button("Playlist") { app.addPlaylistInput() }
+                .disabled(app.playlistsUnavailableReason != nil)
+                .help(app.playlistsUnavailableReason ?? "Añadir una entrada de playlist")
+            if let reason = app.playlistsUnavailableReason {
+                Text(reason).font(.caption)
+            }
         } label: {
             Image(systemName: "plus").font(.title)
                 .frame(width: 60, height: 120)
