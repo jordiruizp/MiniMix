@@ -229,7 +229,8 @@ extension PlaylistInput {
                 case (.held, .nextFirstFrame): if let standby = s.standby, standby.ready { s.shown = .source(standby.source) }
                 default: s.shown = .black
                 }
-                return (s.active?.source, result == .ended)
+                // held sin cued (último item con stopAfter, sin bucle): también es el final.
+                return (s.active?.source, result == .ended || result == .held(index: s.sequencer.currentIndex ?? -1, cued: nil))
             }
             source?.pause()
             if ended {
