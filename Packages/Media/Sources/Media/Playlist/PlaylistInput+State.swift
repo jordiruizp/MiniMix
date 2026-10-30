@@ -77,6 +77,9 @@ extension PlaylistInput {
         var shown: Visual?
         var armed: (visual: Visual, at: HostTime)?
         var fade: Fade?
+        /// Visual anterior a un cambio: se muestra mientras el entrante aún no tenga textura
+        /// (nunca negro por un cambio); se suelta con el primer fotograma del entrante.
+        var fallback: Visual?
 
         var timelineFrozen: Bool { userPaused || !decodingEnabled }
 

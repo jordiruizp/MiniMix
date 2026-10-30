@@ -250,6 +250,7 @@ extension PlaylistInput {
             s.stats.switches += 1
             switch pending.kind {
             case .cut(let visual):
+                s.fallback = s.shown
                 s.shown = visual
                 s.armed = nil
             case .fade(let duration):
@@ -275,6 +276,7 @@ extension PlaylistInput {
             defer {
                 s.outgoing = nil
                 s.fadeEnd = nil
+                if let from = s.fade?.from { s.fallback = from }
                 s.fade = nil
             }
             return (s.outgoing, s.active)

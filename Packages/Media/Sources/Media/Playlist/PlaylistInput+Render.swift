@@ -9,7 +9,9 @@ extension PlaylistInput {
     /// fotograma de tolerancia) → visual actual. Si el entrante aún no tiene textura se
     /// sigue mostrando el saliente (nunca negro por un cambio).
     public func texture(for time: HostTime) -> MTLTexture? {
-        let (fade, armed, shown, frame, fit) = state.withLock { s in (s.fade, s.armed, s.shown, s.frameDuration, s.fit) }
+        let (fade, armed, shown, frame, fit, fallback) = state.withLock { s in
+            (s.fade, s.armed, s.shown, s.frameDuration, s.fit, s.fallback)
+        }
         if let fade, time.seconds >= fade.start.seconds - frame / 2 {
             let progress = fade.duration > 0 ? (time - fade.start) / fade.duration : 1
             let incoming = resolve(fade.to, at: time)
@@ -22,7 +24,11 @@ extension PlaylistInput {
         if let armed, time.seconds >= armed.at.seconds - frame / 2, let texture = resolve(armed.visual, at: time) {
             return texture
         }
-        return shown.flatMap { resolve($0, at: time) }
+        if let texture = shown.flatMap({ resolve($0, at: time) }) {
+            if fallback != nil { state.withLock { $0.fallback = nil } }
+            return texture
+        }
+        return fallback.flatMap { resolve($0, at: time) }
     }
 
     private func resolve(_ visual: Visual, at time: HostTime) -> MTLTexture? {

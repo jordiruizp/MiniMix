@@ -96,17 +96,34 @@ extension PlaylistInput {
 
     /// Lleva la ranura activa al item `index`: corte inmediato si está precargado; si no, lo carga.
     func navigateStep(to index: Int, at time: HostTime) {
-        let (standby, prepared, loaded) = state.withLock { ($0.standby, $0.prepared, $0.stats.loadedItems) }
+        let (standby, prepared) = state.withLock { ($0.standby, $0.prepared) }
         guard prepared else { return }
         if let standby, standby.index == index {
             if standby.ready { cutNow(at: time) }
             return
         }
         if let standby {
-            state.withLock { $0.standby = nil }
-            release(standby, delayed: false)
+            // Si se estaba viendo (held con nextFirstFrame), se pasa a ver el item activo y la
+            // ranura se libera con retardo (la GPU puede estar leyéndola).
+            let active = state.withLock { $0.active }
+            let replacement = active.map { visual(for: $0, previous: nil) } ?? .black
+            let displayed = state.withLock { s -> Bool in
+                s.standby = nil
+                let displayed = Self.shows(s.shown, standby.source) || Self.shows(s.fallback, standby.source)
+                if displayed {
+                    s.shown = replacement
+                    s.fallback = nil
+                }
+                return displayed
+            }
+            release(standby, delayed: displayed)
         }
-        if loaded - (standby == nil ? 0 : 1) < 2 { _ = loadStandby(index) }
+        if state.withLock({ $0.stats.loadedItems }) < 2 { _ = loadStandby(index) }
+    }
+
+    static func shows(_ visual: Visual?, _ source: FrameSource) -> Bool {
+        if case .source(let shown)? = visual { return shown === source }
+        return false
     }
 
     /// Corte manual al item de la ranura de espera (ya lista).
@@ -118,6 +135,7 @@ extension PlaylistInput {
             let old = s.active
             s.active = incoming
             s.standby = nil
+            s.fallback = s.shown
             s.shown = visual
             s.stats.switches += 1
             s.lateMarked = false
