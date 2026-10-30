@@ -367,10 +367,12 @@ extension PlaylistInput {
     func release(_ slot: Slot, delayed: Bool) {
         let source = slot.source
         let node = (source as? AudioSource)?.node
+        // Solo se captura la fuente (Sendable): con el SDK de macOS 26 los nodos de AVFAudio no
+        // son Sendable, así que el nodo se vuelve a pedir dentro del cierre.
         let stop: @Sendable (PlaylistInput) -> Void = { input in
             source.pause()
             (source as? DecodingControllable)?.setDecodingEnabled(false)
-            if let node { input.mixer.disconnect(node) }
+            if let node = (source as? AudioSource)?.node { input.mixer.disconnect(node) }
         }
         guard delayed else {
             stop(self)

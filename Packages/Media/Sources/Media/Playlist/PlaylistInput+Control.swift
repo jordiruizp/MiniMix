@@ -162,15 +162,16 @@ extension PlaylistInput {
         let deadline = DispatchTime(uptimeNanoseconds: UInt64(max(0, HostClock.nanos(fireAt))))
         let timer = DispatchSource.makeTimerSource(flags: .strict, queue: queue)
         timer.schedule(deadline: deadline, leeway: .nanoseconds(0))
-        // El temporizador se retiene a sí mismo hasta dispararse (y se cancela al hacerlo).
-        timer.setEventHandler { [weak self, timer] in
-            timer.cancel()
-            self?.firePlay(schedule.id)
-        }
+        // El cierre solo captura el id (los temporizadores no son Sendable en el SDK de
+        // macOS 26): el temporizador se retiene en `timers` hasta dispararse.
+        let id = schedule.id
+        timer.setEventHandler { [weak self] in self?.firePlay(id) }
+        timers.withLock { $0[id] = timer }
         timer.resume()
     }
 
     private func firePlay(_ id: Int) {
+        timers.withLock { $0.removeValue(forKey: id) }?.cancel()
         let source = state.withLock { s -> FrameSource? in
             guard s.scheduledPlay == id else { return nil }
             s.scheduledPlay = nil

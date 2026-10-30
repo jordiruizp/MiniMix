@@ -60,6 +60,8 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
     let queue: DispatchQueue
     let logger = Logger(subsystem: "MiniMix", category: "Playlist")
     private let tickTask = LockedState<Task<Void, Never>?>(nil)
+    /// Temporizadores de arranque anticipado pendientes (por id de programación).
+    let timers = LockedState<[Int: DispatchSourceTimer]>([:])
 
     /// - Parameters:
     ///   - fit: encaje de los items dentro de la playlist durante los fundidos (fuera del
