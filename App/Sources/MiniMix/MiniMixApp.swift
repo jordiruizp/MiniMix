@@ -19,7 +19,9 @@ struct MiniMixApp: App {
             return
         }
         do {
-            let (services, runtime) = try AppServices.live()
+            // Proyecto inicial con los valores por defecto de las preferencias (lienzo, fps, fundido).
+            let initial = Preferences.load(from: .standard).newProject
+            let (services, runtime) = try AppServices.live(project: initial)
             let app = AppViewModel(services: services)
             _app = State(initialValue: app)
             self.runtime = runtime

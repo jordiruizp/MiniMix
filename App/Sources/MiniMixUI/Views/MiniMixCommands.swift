@@ -22,6 +22,9 @@ public struct MiniMixCommands: Commands {
             Button("Guardar proyecto como…") { ProjectDialogs.save(app, askForURL: true) }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
         }
+        CommandMenu("Proyecto") {
+            Button("Formato del proyecto…") { app.isEditingProjectFormat = true }
+        }
         CommandMenu("Switcher") {
             let items = app.switcherMenuItems
             ForEach(items.filter(\.selectsInput)) { item in
@@ -82,6 +85,16 @@ public enum ProjectDialogs {
         panel.allowedContentTypes = [projectType]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task { await app.openProject(from: url) }
+    }
+
+    /// Confirmación para cambiar el formato con la salida de Programa en el aire.
+    public static func confirmFormatChangeWhileLive() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "¿Cambiar el formato durante la emisión?"
+        alert.informativeText = "La salida de Programa está activa. El render se reconfigurará y puede verse un salto."
+        alert.addButton(withTitle: "Cambiar")
+        alert.addButton(withTitle: "Cancelar")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     public static func newProject(_ app: AppViewModel) {

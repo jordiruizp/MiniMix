@@ -41,7 +41,7 @@ extension AppViewModel {
 
     /// Proyecto vacío con el formato y la duración de fundido de las preferencias.
     public func newProject() async {
-        let fresh = Project(canvas: preferences.canvas, defaultFadeDuration: preferences.defaultFadeDuration)
+        let fresh = preferences.newProject
         projectURL = nil
         missingReferences = []
         await replaceProject(with: fresh, asSaved: true)

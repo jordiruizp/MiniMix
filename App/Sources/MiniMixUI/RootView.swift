@@ -47,6 +47,10 @@ public struct RootView: View {
         } message: {
             Text(Self.missingMessage(app.missingReferences))
         }
+        .sheet(isPresented: Binding(get: { app.isEditingProjectFormat },
+                                    set: { app.isEditingProjectFormat = $0 })) {
+            ProjectFormatSheet(app: app)
+        }
         .task { app.start() }
     }
 

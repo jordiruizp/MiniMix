@@ -49,6 +49,8 @@ public final class AppViewModel {
     }
     /// Hay cambios desde el último guardado/apertura/proyecto nuevo.
     public internal(set) var isDirty = false
+    /// Hoja Proyecto › Formato… abierta.
+    public var isEditingProjectFormat = false
     @ObservationIgnored var suppressDirtyTracking = false
     public private(set) var transition: TransitionState = .idle
     /// Entrada seleccionada en la rejilla (paneles de playlist y propiedades).

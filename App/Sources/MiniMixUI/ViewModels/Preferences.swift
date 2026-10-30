@@ -45,6 +45,9 @@ public struct Preferences: Equatable, Sendable {
 
     public var canvas: CanvasFormat { CanvasFormat(size: canvasPreset.size, frameRate: frameRate) }
 
+    /// Proyecto vacío con los valores por defecto (proyecto inicial y ⌘N).
+    public var newProject: Project { Project(canvas: canvas, defaultFadeDuration: defaultFadeDuration) }
+
     public static func label(for rate: FrameRate) -> String {
         rate.denominator == 1 ? "\(rate.numerator) fps" : String(format: "%.2f fps", rate.fps)
     }

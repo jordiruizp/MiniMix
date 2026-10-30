@@ -218,9 +218,39 @@ struct T91Tests {
         h.app.setCanvas(format)
         #expect(canvases.value == [format])
         #expect(h.project.canvas == format)
-        #expect(h.app.preferences.canvasPreset == .hd720)
+        #expect(h.app.preferences.canvasPreset == .hd1080, "el formato del proyecto no cambia los valores por defecto")
         #expect(h.app.hasUnsavedChanges)
         h.app.stop()
+    }
+
+    @Test func settingsDefaultsDoNotTouchTheOpenProject() {
+        let h = Harness()
+        let canvas = h.project.canvas
+        let fade = h.app.fadeDuration
+        h.app.preferences.canvasPreset = .uhd4K
+        h.app.preferences.frameRate = .fps25
+        h.app.preferences.defaultFadeDuration = 3
+        #expect(h.project.canvas == canvas)
+        #expect(h.app.fadeDuration == fade)
+        #expect(!h.app.hasUnsavedChanges)
+        #expect(h.app.preferences.newProject.canvas == CanvasFormat(size: .uhd4K, frameRate: .fps25))
+        #expect(h.app.preferences.newProject.defaultFadeDuration == 3)
+    }
+
+    @Test func projectFormatAsksWhileOutputIsLive() {
+        let output = FakeOutput()
+        let h = Harness(configure: { $0.output = output })
+        let format = CanvasFormat(size: .hd720, frameRate: .fps30)
+        var asked = 0
+        #expect(h.app.requestProjectFormat(format) { asked += 1; return false })
+        #expect(asked == 0, "sin salida activa no pregunta")
+        h.app.toggleProgramOutput()
+        let other = CanvasFormat(size: .hd1080, frameRate: .fps50)
+        #expect(!h.app.requestProjectFormat(other) { asked += 1; return false })
+        #expect(asked == 1)
+        #expect(h.project.canvas == format)
+        #expect(h.app.requestProjectFormat(other) { true })
+        #expect(h.project.canvas == other)
     }
 
     @Test func appNapPreferenceIsRespected() {
