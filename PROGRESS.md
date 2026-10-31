@@ -9,7 +9,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | ✅ todos integrados |
 | 2 · D, F, G-real, ORQ T80 | ✅ completa |
-| 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado (PR #15: B1 resuelto; ⛔ devuelto por audio perdido tras seek en pausa) · G T91 (PR #16, en revisión) · H espera a D |
+| 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado (PR #15: B1 resuelto; ⛔ devuelto por audio perdido tras seek en pausa) · G T91 ✅ · G conecta Playlist en la App · H espera a D |
 | 4 · T99 release | ⬜ |
 
 ## Tareas
@@ -41,7 +41,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T81 | F | Output externo | ✅ | feat/f-output-persistence → main | |
 | T82 | F | Persistence | ✅ | feat/f-output-persistence → main | |
 | T90 | H | Estrés 1 h / 2 h | 🟦 | feat/h-t90 | |
-| T91 | G | Pulido UI | ⛔ devuelto | feat/g-t91 (PR #16) | R: DEVOLVER (Espacio/Intro dejan de funcionar tras pulsar la playlist) + cierre con Cancelar sin ventana + formato en directo → G corrigiendo · pendiente verificación manual |
+| T91 | G | Pulido UI | ✅ | feat/g-t91 → main (PR #16, df575ff) | pendiente verificación manual: atajos reales, VoiceOver, texto dinámico, cierre de ventana |
 | T99 | ORQ | Firma, notarización, DMG | ⬜ | | Ola 4 |
 
 ## Contratos
