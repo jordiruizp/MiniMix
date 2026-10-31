@@ -55,7 +55,7 @@ final class AVSyncProbe {
         var quiet = 0
         for chunk in captured.current {
             for (i, sample) in chunk.samples.enumerated() {
-                if abs(sample) > 0.2, quiet > Int(sampleRate * 0.2) {
+                if abs(sample) > 0.2, quiet > Int(sampleRate * 0.05) {
                     let heard = chunk.host + Double(i) / sampleRate + latency
                     if let item = input.itemTimeForTesting(hostSeconds: heard) {
                         let k = ((item - TestMediaFactory.VideoSpec.clickOffset) / TestMediaFactory.VideoSpec.clickInterval)
