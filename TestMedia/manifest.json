@@ -819,6 +819,287 @@
           "duration": 3
         }
       ]
+    },
+    {
+      "name": "playlist_50",
+      "purpose": "Estrés 1 h (T90): 50 items vídeo/imagen/color de la matriz, sin repetir archivo en items consecutivos",
+      "items": [
+        {
+          "type": "video",
+          "file": "video/h264_1080p23976.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "image/jpeg_1920x1080.jpg",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "video/h264_720p25.mp4",
+          "duration": null
+        },
+        {
+          "type": "color",
+          "color": {
+            "red": 0.8,
+            "green": 0.2,
+            "blue": 0.2,
+            "alpha": 1
+          },
+          "duration": 2
+        },
+        {
+          "type": "video",
+          "file": "video/hevc_720p2997.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "image/tiff_1920x1080.tif",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "video/h264_1080p50.mp4",
+          "duration": null
+        },
+        {
+          "type": "video",
+          "file": "playlist_mixed/01_h264_1080p25.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "image/heic_1920x1080.heic",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "playlist_mixed/03_h264_1080p30.mp4",
+          "duration": null
+        },
+        {
+          "type": "video",
+          "file": "video/hevc_1080p5994.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "playlist_mixed/02_image_1920x1080.png",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "video/prores422_1080p2997.mov",
+          "duration": null
+        },
+        {
+          "type": "color",
+          "color": {
+            "red": 0.2,
+            "green": 0.6,
+            "blue": 0.3,
+            "alpha": 1
+          },
+          "duration": 2
+        },
+        {
+          "type": "video",
+          "file": "video/h264_720p5994.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "image/tiff_1920x1080.tif",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "video/h264_1080p50.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "image/heic_1920x1080.heic",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "video/h264_720p25.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "image/jpeg_1920x1080.jpg",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "video/h264_1080p23976.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "image/jpeg_1920x1080.jpg",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "video/h264_720p25.mp4",
+          "duration": null
+        },
+        {
+          "type": "color",
+          "color": {
+            "red": 0.8,
+            "green": 0.2,
+            "blue": 0.2,
+            "alpha": 1
+          },
+          "duration": 2
+        },
+        {
+          "type": "video",
+          "file": "video/hevc_720p2997.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "image/tiff_1920x1080.tif",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "video/h264_1080p50.mp4",
+          "duration": null
+        },
+        {
+          "type": "video",
+          "file": "playlist_mixed/01_h264_1080p25.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "image/heic_1920x1080.heic",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "playlist_mixed/03_h264_1080p30.mp4",
+          "duration": null
+        },
+        {
+          "type": "video",
+          "file": "video/hevc_1080p5994.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "playlist_mixed/02_image_1920x1080.png",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "video/prores422_1080p2997.mov",
+          "duration": null
+        },
+        {
+          "type": "color",
+          "color": {
+            "red": 0.2,
+            "green": 0.6,
+            "blue": 0.3,
+            "alpha": 1
+          },
+          "duration": 2
+        },
+        {
+          "type": "video",
+          "file": "video/h264_720p5994.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "image/tiff_1920x1080.tif",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "video/h264_1080p50.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "image/heic_1920x1080.heic",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "video/h264_720p25.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "image/jpeg_1920x1080.jpg",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "video/h264_1080p23976.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "image/jpeg_1920x1080.jpg",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "video/h264_720p25.mp4",
+          "duration": null
+        },
+        {
+          "type": "color",
+          "color": {
+            "red": 0.8,
+            "green": 0.2,
+            "blue": 0.2,
+            "alpha": 1
+          },
+          "duration": 2
+        },
+        {
+          "type": "video",
+          "file": "video/hevc_720p2997.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "image/tiff_1920x1080.tif",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "video/h264_1080p50.mp4",
+          "duration": null
+        },
+        {
+          "type": "video",
+          "file": "playlist_mixed/01_h264_1080p25.mp4",
+          "duration": null
+        },
+        {
+          "type": "image",
+          "file": "image/heic_1920x1080.heic",
+          "duration": 3
+        },
+        {
+          "type": "video",
+          "file": "playlist_mixed/03_h264_1080p30.mp4",
+          "duration": null
+        }
+      ]
     }
   ]
 }
