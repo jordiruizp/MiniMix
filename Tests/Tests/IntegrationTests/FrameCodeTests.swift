@@ -219,6 +219,17 @@ struct FrameSequenceAnalysisTests {
         #expect(analysis.black == 1)
         #expect(analysis.unreadable == 1)
     }
+
+    @Test func incrementalAppendMatchesBatchAndCountsLoopWraps() {
+        // Vídeo en bucle (124 → 0) y análisis incremental sin guardar códigos.
+        let values = [2170, 2171, 2172, 2048, 2049, 2049]
+        let batch = FrameSequenceAnalysis(values.map { reading($0) })
+        var incremental = FrameSequenceAnalysis(keepsCodes: false)
+        values.forEach { incremental.append(reading($0)) }
+        #expect(batch.loopWraps == 1 && batch.backwardJumps == 0 && batch.isGapless)
+        #expect(incremental.loopWraps == 1 && incremental.repeats == 1 && incremental.total == 6)
+        #expect(incremental.codes.isEmpty && batch.codes.count == 6)
+    }
 }
 
 /// PRNG determinista para tests.
