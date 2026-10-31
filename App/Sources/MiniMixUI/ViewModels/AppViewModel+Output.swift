@@ -55,7 +55,7 @@ extension AppViewModel {
     func outputDisplaysChanged() {
         programOutputDisplay = services.output.activeDisplay
         guard let extras = outputExtras else { return }
-        let presented = programOutputDisplay != nil
+        let presented = programOutputDisplay != nil && preferences.preventAppNapWhileLive
         if extras.preventsAppNap != presented { extras.preventsAppNap = presented }
         // Una elección recordada que resulta ser la integrada (preferencias antiguas) se olvida.
         if let active = programOutputDisplay,

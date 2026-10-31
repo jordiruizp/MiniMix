@@ -18,7 +18,7 @@ struct TransitionControls: View {
             Button { app.send(.cut) } label: {
                 Text("CUT").font(.headline).frame(width: 96)
             }
-            .buttonStyle(.borderedProminent).tint(.red)
+            .buttonStyle(.borderedProminent).tint(Theme.program)
             .accessibilityHint("Pasa Preview a Programa al instante (Espacio)")
             Menu {
                 ForEach(Self.fadePresets, id: \.self) { seconds in

@@ -38,7 +38,20 @@ public struct PlaybackInfo: Hashable, Sendable {
 /// el switcher (`SwitcherStateMachine`) produce `Effect`s y aquí se despachan a los servicios.
 @MainActor @Observable
 public final class AppViewModel {
-    public internal(set) var project: Project
+    public internal(set) var project: Project {
+        didSet {
+            // Cambios sin guardar (T91): solo el contenido de documento (los buses no cuentan).
+            // Se compara una vez por mutación, no en cada evaluación de las vistas.
+            guard !isDirty, !suppressDirtyTracking,
+                  Self.documentContent(oldValue) != Self.documentContent(project) else { return }
+            isDirty = true
+        }
+    }
+    /// Hay cambios desde el último guardado/apertura/proyecto nuevo.
+    public internal(set) var isDirty = false
+    /// Hoja Proyecto › Formato… abierta.
+    public var isEditingProjectFormat = false
+    @ObservationIgnored var suppressDirtyTracking = false
     public private(set) var transition: TransitionState = .idle
     /// Entrada seleccionada en la rejilla (paneles de playlist y propiedades).
     public var selectedInputID: InputID?
@@ -59,6 +72,15 @@ public final class AppViewModel {
     /// Una transición se completó con la palanca agarrada (p. ej. un fundido automático): se
     /// ignoran sus valores hasta `releaseTBar()` para que no arranque otra transición.
     @ObservationIgnored private var tbarLockedUntilRelease = false
+
+    /// Preferencias (escena Settings); se guardan y se aplican al cambiar.
+    public var preferences: Preferences {
+        didSet {
+            guard preferences != oldValue else { return }
+            preferences.save(to: services.defaults)
+            applyPreferences(changedFrom: oldValue)
+        }
+    }
 
     public let mixer: MixerViewModel
     public let playlists: PlaylistViewModel
@@ -85,12 +107,13 @@ public final class AppViewModel {
         self.services = services
         let project = services.initialProject
         self.project = project
+        self.preferences = Preferences.load(from: services.defaults)
         self.switcher = services.makeSwitcher(project)
         self.mediaDurations = services.mediaDurations
         self.now = services.uptime()
         self.mixer = MixerViewModel()
         self.playlists = PlaylistViewModel(makeSequencer: services.makeSequencer)
-        self.status = StatusViewModel(renderStats: services.renderStats)
+        self.status = StatusViewModel(renderStats: services.renderStats, decoderUsage: services.decoderUsage)
         mixer.app = self
         playlists.app = self
         playlists.reset(for: project)
@@ -122,6 +145,7 @@ public final class AppViewModel {
         if let demo = services.demoStart { tasks.append(demo()) }
         if !inputsRegistered {
             inputsRegistered = true
+            applyPreferences(changedFrom: nil)
             track { await $0.registerAllInputs() }
             restoreProgramOutput()
         }

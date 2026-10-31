@@ -53,6 +53,16 @@ public struct RelinkOutcome: Sendable, Equatable {
     }
 }
 
+/// Uso de decodificadores de vídeo (barra de estado).
+public struct DecoderUsage: Sendable, Equatable {
+    public var active: Int
+    public var limit: Int
+    public init(active: Int, limit: Int) {
+        self.active = active
+        self.limit = limit
+    }
+}
+
 /// Dependencias de la interfaz. Todo se habla a través de los protocolos del contrato.
 /// `AppServices.mocks()` es la configuración con CoreMocks; T80 crea `AppServices.live(...)`.
 @MainActor
@@ -101,6 +111,12 @@ public struct AppServices {
     public var activateProject: (@MainActor (Project) -> Void)?
     /// `ProjectStore.relinkReporting(_:to:in:searchingIn:)` (diálogo de reenlace).
     public var relinkProject: (@MainActor (MediaReference, URL, Project, URL?) throws -> RelinkOutcome)?
+    /// Compensación de latencia de la salida de audio en ms (`AudioEngine.setLatencyCompensation`).
+    public var setLatencyCompensation: (@MainActor (Double) -> Void)?
+    /// Modo eficiencia del render (Preview a media frecuencia).
+    public var setEfficiencyMode: (@MainActor (Bool) -> Void)?
+    /// Decodificadores de vídeo activos y límite (`InputManager.activeDecoderIDs`, máx. 4).
+    public var decoderUsage: (@MainActor () -> DecoderUsage)?
     /// El gestor de entradas sabe crear fuentes de playlist (`InputManager(playlistFactory:)`).
     public var supportsPlaylists = true
     /// Preferencias (pantalla de salida elegida). Inyectable en tests.
