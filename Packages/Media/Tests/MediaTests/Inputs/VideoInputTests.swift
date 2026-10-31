@@ -140,7 +140,7 @@ extension MediaSerialTests {
             attempt.cancel()
             _ = await attempt.result
             try await input.prepare()
-            #expect(input.observerCountForTesting == 2)
+            #expect(input.observerCountForTesting == 3) // fin, fallo, cambio de configuración de audio
             #expect(await waitForTexture(input) != nil)
         }
 
