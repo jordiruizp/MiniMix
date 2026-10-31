@@ -83,17 +83,23 @@ public enum LiveSetupError: Error {
 
 extension AppServices {
     /// Servicios reales (T80): Core + Render + Media + Audio + Output + Persistence.
-    /// - Parameter playlistFactory: fuente de las entradas `.playlist` (`PlaylistInput` de D, Ola 2).
-    ///   Mientras sea nil, la UI desactiva «Añadir playlist». Cuando llegue: manda el secuenciador
-    ///   de `PlaylistInput`; la UI refleja `SourceEvent.itemChanged` y envía playlistNext/Previous/Jump.
-    public static func live(project: Project = Project(),
-                            playlistFactory: InputManager.PlaylistFactory? = nil) throws -> (AppServices, LiveRuntime) {
+    /// - Parameter playlists: crea las entradas `.playlist` con `PlaylistInput` (Media), con el
+    ///   mismo `MasterClock` y el mismo resolutor de archivos que `InputManager`. Manda el
+    ///   secuenciador de `PlaylistInput`: la UI le reenvía play/pause/next/previous/jump/restart y
+    ///   refleja su estado (`SourceEvent.itemChanged/ended` y sus propiedades). false → la UI
+    ///   desactiva «Añadir playlist».
+    public static func live(project: Project = Project(), playlists: Bool = true) throws -> (AppServices, LiveRuntime) {
         guard let context = MetalContext.shared else { throw LiveSetupError.noMetalDevice }
         let canvas = project.canvas.size
         let clock = MasterClock(frameRate: project.canvas.frameRate)
         let audio = try AudioEngine()
         let store = ProjectStore()
-        let manager = InputManager(context: context, canvasSize: canvas, urlResolver: store.urlResolver,
+        let urlResolver = store.urlResolver
+        let playlistFactory = playlists
+            ? PlaylistInput.factory(environment: PlaylistEnvironment(context: context, clock: clock, canvasSize: canvas,
+                                                                     urlResolver: urlResolver))
+            : nil
+        let manager = InputManager(context: context, canvasSize: canvas, urlResolver: urlResolver,
                                    playlistFactory: playlistFactory)
         let inputs = LiveInputs(inputs: manager, audio: audio)
         let renderer = try LiveRenderer(context: context, canvas: canvas, frameRate: project.canvas.frameRate) {
@@ -125,7 +131,7 @@ extension AppServices {
             return RelinkOutcome(project: result.project, relinkedPaths: result.relinkedPaths,
                                  stillUnresolved: result.stillUnresolved)
         }
-        services.supportsPlaylists = playlistFactory != nil
+        services.supportsPlaylists = playlists
         services.setLatencyCompensation = { audio.setLatencyCompensation(milliseconds: $0) }
         services.setEfficiencyMode = { renderer.efficiencyMode = $0 }
         services.decoderUsage = {
