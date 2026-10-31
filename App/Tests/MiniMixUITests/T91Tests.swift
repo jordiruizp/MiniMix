@@ -60,6 +60,47 @@ struct T91Tests {
         #expect(!changed.value)
     }
 
+    final class SpyDelegate: NSObject, NSWindowDelegate {
+        var resized = 0
+        var allowClose = true
+        func windowShouldClose(_ sender: NSWindow) -> Bool { allowClose }
+        func windowDidResize(_ notification: Notification) { resized += 1 }
+    }
+
+    @Test func closingTheMainWindowAsksAndKeepsOtherDelegateCalls() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled, .closable],
+                              backing: .buffered, defer: true)
+        let spy = SpyDelegate()
+        window.delegate = spy
+        let closeGuard = WindowCloseGuard()
+        closeGuard.install(on: window)
+        closeGuard.install(on: window) // idempotente
+        #expect(window.delegate === closeGuard)
+        #expect(closeGuard.original === spy)
+        closeGuard.shouldClose = { false } // «Cancelar»
+        #expect(window.delegate?.windowShouldClose?(window) == false)
+        closeGuard.shouldClose = { true }
+        #expect(window.delegate?.windowShouldClose?(window) == true)
+        spy.allowClose = false
+        #expect(window.delegate?.windowShouldClose?(window) == false, "se respeta al delegado de SwiftUI")
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
+        window.delegate?.windowDidResize?(Notification(name: NSWindow.didResizeNotification, object: window))
+        #expect(spy.resized >= 1, "los demás mensajes llegan al delegado original")
+    }
+
+    @Test func closeDecisionTerminatesOnlyWhenConfirmed() async {
+        QuitGuard.confirmed = false
+        let terminated = Box(0)
+        let cancelled = QuitGuard.shouldCloseMainWindow(confirm: { false }, terminate: { terminated.value += 1 })
+        #expect(!cancelled)
+        #expect(!QuitGuard.confirmed)
+        let closed = QuitGuard.shouldCloseMainWindow(confirm: { true }, terminate: { terminated.value += 1 })
+        #expect(closed)
+        #expect(QuitGuard.confirmed)
+        #expect(await eventually { terminated.value == 1 })
+        QuitGuard.confirmed = false
+    }
+
     @Test func confirmDiscardAsksOnlyWhenDirty() {
         let h = Harness()
         var asked = 0

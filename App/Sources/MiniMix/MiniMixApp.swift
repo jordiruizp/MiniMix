@@ -65,7 +65,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        (Self.shouldTerminate?() ?? true) ? .terminateNow : .terminateCancel
+        if QuitGuard.confirmed { return .terminateNow } // ya se preguntó al cerrar la ventana
+        return (Self.shouldTerminate?() ?? true) ? .terminateNow : .terminateCancel
     }
 
     func applicationWillTerminate(_ notification: Notification) {

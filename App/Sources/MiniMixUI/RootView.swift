@@ -32,6 +32,10 @@ public struct RootView: View {
         .frame(minWidth: 1100, minHeight: 760)
         .background(Color(nsColor: .windowBackgroundColor))
         .background(DocumentEditedMarker(edited: app.hasUnsavedChanges))
+        .background(WindowCloseGuardView {
+            QuitGuard.shouldCloseMainWindow(confirm: { ProjectDialogs.confirmDiscard(app) },
+                                            terminate: { NSApp.terminate(nil) })
+        })
         .navigationTitle(app.documentName)
         .modifier(KeyboardShortcutMonitor(app: app))
         .alert("MiniMix", isPresented: Binding(get: { app.errorMessage != nil }, set: { if !$0 { app.errorMessage = nil } })) {
