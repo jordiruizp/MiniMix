@@ -13,12 +13,13 @@ import Synchronization
 ///
 /// Consumidor: el bloque de render de `AVAudioSourceNode` (hilo de tiempo real).
 /// Con la marca de tiempo de host del render y la relación publicada calcula qué
-/// tiempo de item debe sonar (`host + latencia de salida`) y **descarta** lo que
-/// llega tarde o **retiene** (silencio delante) lo que llega pronto. Así el audio
-/// coincide con el fotograma que `texture(for:)` muestra en ese instante, también
-/// en el arranque (cuando el tap recibe el audio cientos de ms después de que el
-/// reloj del item ya corre). Sin relación publicada o sin tiempo de host (render
-/// offline) se comporta como una cola simple con latencia acotada.
+/// tiempo de item debe sonar (`host + latencia de salida`). **Solo en
+/// discontinuidades** (arranque, reanudación, vaciado, búsqueda o bucle) descarta
+/// lo que llega tarde o retiene (silencio delante) lo que llega pronto; en régimen
+/// es una cola pura (la cadena tap → nodo no deriva), así que no hay correcciones
+/// ni clics. Así el audio coincide con el fotograma que `texture(for:)` muestra
+/// desde el primer render. En pausa/preroll (rate 0) emite silencio sin consumir.
+/// Sin tiempo de host (render offline) es una cola simple con latencia acotada.
 ///
 /// `@unchecked Sendable` justificado: el almacenamiento es memoria cruda
 /// compartida por exactamente un productor y un consumidor, sincronizados con
@@ -65,8 +66,41 @@ final class AudioRingBuffer: @unchecked Sendable {
     private let hostTicksToSeconds: Double
     /// Timebase del item (retenido), fijado antes de reproducir; lo lee el tap.
     private let timebasePointer = Atomic<UnsafeMutableRawPointer?>(nil)
-    /// Por debajo de esta diferencia no se corrige (evita micro-cortes por jitter).
+    /// Al alinear, diferencias menores no se corrigen.
     static let tolerance = 0.002
+    /// Salto de tiempo de item entre muestras consecutivas que se considera discontinuidad.
+    static let continuityTolerance = 0.001
+    /// Red de seguridad: error persistente mayor que esto durante `realignRenders` renders → realinear.
+    static let realignThreshold = 0.05
+    static let realignRenders = 100
+    /// Muestras más adelantadas que esto respecto a lo deseado son obsoletas (búsqueda atrás).
+    static let staleFuture = 0.5
+    /// Pausa del transporte (la fija `VideoInput`): silencio sin consumir.
+    let transportPaused = Atomic<Bool>(false)
+    /// Diferencia entre el tiempo informado de un bloque y la continuación del anterior
+    /// por encima de la cual se considera un salto real (búsqueda, bucle).
+    static let producerJumpThreshold = 0.02
+    /// Tiempo de item que continúa lo último escrito (solo productor).
+    private var producerNextTime = Double.nan
+    private var producerResetGeneration = 0
+    /// Afinado del ancla: suma y número de diferencias (informado − continuo) desde el último ancla.
+    private var anchorDiffs = 0.0
+    private var anchorDiffCount = 0
+    /// Bloques tras un ancla con los que se corrige su jitter (una sola vez).
+    static let anchorRefineBlocks = 6
+    private let timelineResetGeneration = Atomic<Int>(0)
+    /// Renders seguidos esperando muestras con tiempo (solo consumidor).
+    private var untimedRenders = 0
+    /// Si en este número de renders no llega ninguna muestra con tiempo, se reproduce sin alinear.
+    static let untimedGiveUpRenders = 50
+
+    /// Arranque o búsqueda: la línea de tiempo se vuelve a anclar y el consumidor realinea.
+    func resetTimeline() {
+        timelineResetGeneration.add(1, ordering: .releasing)
+        realignRequested.store(true, ordering: .relaxed)
+    }
+    /// Petición de realinear en el próximo render (arranque, búsqueda).
+    let realignRequested = Atomic<Bool>(true)
 
     init(channels: Int, sampleRate: Double, capacityFrames: Int = 1 << 15, maxLatencyFrames: Int = 4096,
          onFormatMismatch: (@Sendable (Double) -> Void)? = nil) {
@@ -104,6 +138,11 @@ final class AudioRingBuffer: @unchecked Sendable {
     }
 
     /// Hilo del tap: lee la relación actual del timebase con el reloj del host y la publica.
+    ///
+    /// Excepción documentada a «nada bloqueante en audio»: `CMSyncGetRelativeRateAndAnchorTime`
+    /// puede tomar un cerrojo interno breve de CoreMedia. Se llama en el hilo del tap
+    /// (el de proceso de audio de AVPlayer, que ya hace E/S y decodificación), nunca
+    /// en el render del motor de E, que solo lee atómicos.
     func refreshMappingFromTimebase() {
         guard let pointer = timebasePointer.load(ordering: .acquiring) else { return }
         let timebase = Unmanaged<CMTimebase>.fromOpaque(pointer).takeUnretainedValue()
@@ -159,7 +198,26 @@ final class AudioRingBuffer: @unchecked Sendable {
         let count = min(frames, capacity - (write - read))
         guard count > 0 else { return }
         copyIn(list, count: count, at: write, srcChannels: srcChannels, interleaved: interleaved)
-        let start = itemTime ?? .nan
+        // El `timeRangeOut` del tap tiene jitter de varios ms por bloque (p. ej. ±4 ms con
+        // AAC) aunque las muestras sean contiguas: se mantiene la línea de tiempo
+        // continua y solo se acepta el tiempo informado en un salto real (búsqueda, bucle).
+        // Tras arrancar o buscar (`resetTimeline`) se vuelve a anclar con el primer
+        // tiempo informado. Los bloques sin tiempo y sin ancla quedan sin tiempo (NaN):
+        // el consumidor no los puede situar y los salta al alinear.
+        let resetGeneration = timelineResetGeneration.load(ordering: .acquiring)
+        if resetGeneration != producerResetGeneration {
+            producerResetGeneration = resetGeneration
+            producerNextTime = .nan
+        }
+        var start = itemTime ?? producerNextTime
+        if !start.isNaN, !producerNextTime.isNaN, abs(start - producerNextTime) < Self.producerJumpThreshold {
+            start = producerNextTime + anchorCorrection(reported: itemTime)
+        } else {
+            // Ancla nueva (arranque o salto real): se afina con la media de los siguientes bloques.
+            anchorDiffs = 0
+            anchorDiffCount = 0
+        }
+        producerNextTime = start + Double(count) / sampleRate
         for i in 0..<count { times[(write + i) & mask] = start + Double(i) / sampleRate }
         writeIndex.store(write + count, ordering: .releasing)
     }
@@ -179,6 +237,20 @@ final class AudioRingBuffer: @unchecked Sendable {
         }
     }
 
+    /// El tiempo informado de un bloque tiene jitter; el ancla (primer bloque tras un
+    /// arranque o salto) lo hereda. Tras `anchorRefineBlocks` bloques se desplaza la
+    /// línea de tiempo una sola vez por la media de las diferencias, si supera 1 ms:
+    /// el consumidor lo ve como una pequeña discontinuidad y realinea una vez (en el
+    /// primer medio segundo), y después ya no hay correcciones.
+    private func anchorCorrection(reported: Double?) -> Double {
+        guard let reported, anchorDiffCount < Self.anchorRefineBlocks else { return 0 }
+        anchorDiffs += reported - producerNextTime
+        anchorDiffCount += 1
+        guard anchorDiffCount == Self.anchorRefineBlocks else { return 0 }
+        let mean = anchorDiffs / Double(anchorDiffCount)
+        return abs(mean) > 0.001 ? mean : 0
+    }
+
     // MARK: Consumidor (render)
 
     private struct TimeMapping {
@@ -187,7 +259,24 @@ final class AudioRingBuffer: @unchecked Sendable {
         let host: Double
     }
 
-    /// Relación host ↔ item publicada, o nil si no hay (o se está escribiendo).
+    /// Qué hacer en un render.
+    enum RenderClock {
+        /// Sin tiempo de host (render offline): cola simple.
+        case none
+        /// Reproduciendo: tiempo de item que debe sonar con el primer fotograma.
+        case playing(desiredItemTime: Double)
+        /// Pausa / preroll (rate 0): silencio sin consumir.
+        case paused
+    }
+
+    // Estado solo del consumidor (hilo de render): no necesita atómicos.
+    private var lastMapping: TimeMapping?
+    private var needsAlign = true
+    private var expectedNextTime = Double.nan
+    private var offAlignRenders = 0
+
+    /// Relación host ↔ item publicada; si el seqlock no se puede leer ahora, la
+    /// última válida (solo cambia en arranques, pausas y saltos).
     private func mapping() -> TimeMapping? {
         for _ in 0..<4 {
             let before = mappingSequence.load(ordering: .acquiring)
@@ -196,80 +285,148 @@ final class AudioRingBuffer: @unchecked Sendable {
             let item = Double(bitPattern: mappingItemAnchor.load(ordering: .relaxed))
             let host = Double(bitPattern: mappingHostAnchor.load(ordering: .relaxed))
             atomicMemoryFence(ordering: .acquiring)
-            if mappingSequence.load(ordering: .relaxed) == before { return TimeMapping(rate: rate, item: item, host: host) }
+            if mappingSequence.load(ordering: .relaxed) == before {
+                lastMapping = TimeMapping(rate: rate, item: item, host: host)
+                break
+            }
         }
-        return nil
+        return lastMapping
     }
 
-    /// Tiempo de item que debe sonar con el primer fotograma de un render cuyo
-    /// tiempo de host (ticks de `mach_absolute_time`) es `hostTicks`.
-    func desiredItemTime(hostTicks: UInt64) -> Double? {
-        guard alignmentEnabled.load(ordering: .relaxed), let map = mapping(), map.rate > 0 else { return nil }
+    /// Reloj del render cuyo tiempo de host (ticks de `mach_absolute_time`) es
+    /// `hostTicks` (nil = sin tiempo de host).
+    func renderClock(hostTicks: UInt64?) -> RenderClock {
+        guard alignmentEnabled.load(ordering: .relaxed), let hostTicks else { return .none }
+        if transportPaused.load(ordering: .relaxed) { return .paused }
+        guard let map = mapping() else { return .none }
+        guard map.rate > 0 else { return .paused }
         let host = Double(hostTicks) * hostTicksToSeconds + outputLatency + extraOffset
-        return map.item + map.rate * (host - map.host)
+        return .playing(desiredItemTime: map.item + map.rate * (host - map.host))
     }
 
-    /// true si la relación publicada indica pausa (rate 0): el render emite silencio
-    /// sin consumir.
-    func isPausedMapping() -> Bool {
-        guard alignmentEnabled.load(ordering: .relaxed), let map = mapping() else { return false }
-        return map.rate == 0
-    }
-
-    /// Lee `frames` muestras planas en `list` (formato estándar del nodo). Con
-    /// `desiredItemTime` alinea por tiempo de item; sin él, cola simple. Rellena con
-    /// silencio lo que falte. Devuelve las muestras reales leídas.
+    /// Render del nodo: índice de escritura primero (acquire), después el reloj.
     @discardableResult
-    func read(into list: UnsafeMutableAudioBufferListPointer, frames: Int, desiredItemTime: Double? = nil) -> Int {
+    func render(into list: UnsafeMutableAudioBufferListPointer, frames: Int, hostTicks: UInt64?) -> Int {
         let write = writeIndex.load(ordering: .acquiring)
+        return read(into: list, frames: frames, clock: renderClock(hostTicks: hostTicks), write: write)
+    }
+
+    /// Lee `frames` muestras planas en `list` (formato estándar del nodo).
+    ///
+    /// Con reloj de reproducción **solo alinea en discontinuidades** (primer render
+    /// tras arrancar, pausa o vaciado; salto de tiempo de item por búsqueda o bucle;
+    /// petición explícita; o error persistente > `realignThreshold`). Entre medias es
+    /// una cola pura: no quita ni inserta muestras, así que no hay clics en régimen.
+    @discardableResult
+    func read(into list: UnsafeMutableAudioBufferListPointer, frames: Int, clock: RenderClock, write: Int? = nil) -> Int {
+        let write = write ?? writeIndex.load(ordering: .acquiring)
         var read = readIndex.load(ordering: .relaxed)
         var pad = 0
-        if let desired = desiredItemTime {
-            (read, pad) = align(read: read, write: write, frames: frames, desired: desired)
-        } else if write - read > maxLatencyFrames + frames {
-            read = write - maxLatencyFrames
+        switch clock {
+        case .none:
+            if write - read > maxLatencyFrames + frames { read = write - maxLatencyFrames }
+        case .paused:
+            needsAlign = true
+            Self.silence(list, from: 0, frames: frames, channels: channels)
+            return 0
+        case .playing(let desired):
+            if realignRequested.exchange(false, ordering: .relaxed) { needsAlign = true }
+            guard read < write else {
+                needsAlign = true // vaciado: al volver el audio, realinear
+                Self.silence(list, from: 0, frames: frames, channels: channels)
+                return 0
+            }
+            checkContinuity(head: times[read & mask], desired: desired)
+            if needsAlign { (read, pad) = align(read: read, write: write, frames: frames, desired: desired) }
         }
-        let count = min(frames - pad, write - read)
+        let count = max(0, min(frames - pad, write - read))
+        copyOut(list, from: read, count: count, pad: pad, frames: frames)
+        if count > 0 {
+            let first = times[read & mask]
+            let last = times[(read + count - 1) & mask]
+            // Discontinuidad dentro de lo copiado (bucle, búsqueda): realinear en el siguiente.
+            if case .playing = clock, abs((last - first) - Double(count - 1) / sampleRate) > Self.continuityTolerance {
+                needsAlign = true
+            }
+            expectedNextTime = last + 1 / sampleRate
+        }
+        readIndex.store(read + count, ordering: .releasing)
+        return count
+    }
+
+    /// Marca realineación si la cabeza no continúa lo último leído o si el error
+    /// respecto al reloj supera el umbral durante `realignRenders` renders seguidos.
+    private func checkContinuity(head: Double, desired: Double) {
+        guard !needsAlign, !head.isNaN else { return }
+        if !expectedNextTime.isNaN, abs(head - expectedNextTime) > Self.continuityTolerance {
+            needsAlign = true
+            return
+        }
+        if abs(head - desired) > Self.realignThreshold {
+            offAlignRenders += 1
+            if offAlignRenders >= Self.realignRenders { needsAlign = true }
+        } else {
+            offAlignRenders = 0
+        }
+    }
+
+    /// Busca la primera muestra que toca sonar: descarta, muestra a muestra, las
+    /// atrasadas y las obsoletas muy por delante (tras buscar hacia atrás), y se para
+    /// en la primera válida, sin pasarse. Si llega pronto, antepone silencio.
+    private func align(read: Int, write: Int, frames: Int, desired: Double) -> (read: Int, pad: Int) {
+        var index = read
+        // Muestras sin tiempo (antes del primer `timeRangeOut` válido): no se pueden
+        // situar. Se saltan si detrás ya hay muestras con tiempo; si no, se espera
+        // (silencio) un máximo de `untimedGiveUpRenders` renders y después se reproduce sin alinear.
+        if times[read & mask].isNaN {
+            if times[(write - 1) & mask].isNaN {
+                untimedRenders += 1
+                if untimedRenders > Self.untimedGiveUpRenders {
+                    needsAlign = false
+                    return (read, 0)
+                }
+                return (read, frames)
+            }
+            while index < write, times[index & mask].isNaN { index += 1 }
+        }
+        untimedRenders = 0
+        while index < write {
+            let time = times[index & mask]
+            // Tarde: hasta la muestra exacta (media muestra); obsoleta: muy por delante.
+            if time < desired - 0.5 / sampleRate || time - desired > Self.staleFuture {
+                index += 1
+            } else {
+                break
+            }
+        }
+        droppedLateFrames.add(index - read, ordering: .relaxed)
+        offAlignRenders = 0
+        guard index < write else { return (index, frames) } // sigue pendiente de alinear
+        let early = times[index & mask] - desired
+        var pad = 0
+        if early > Self.tolerance { pad = min(frames, Int((early * sampleRate).rounded())) }
+        paddedEarlyFrames.add(pad, ordering: .relaxed)
+        // Si el audio empieza más allá de este render, se vuelve a calcular en el siguiente.
+        needsAlign = pad == frames
+        expectedNextTime = times[index & mask]
+        return (index, pad)
+    }
+
+    private func copyOut(_ list: UnsafeMutableAudioBufferListPointer, from read: Int, count: Int, pad: Int, frames: Int) {
         for ch in 0..<min(channels, list.count) {
             guard let out = list[ch].mData?.assumingMemoryBound(to: Float.self) else { continue }
             if pad > 0 { out.update(repeating: 0, count: pad) }
             let plane = storage + ch * capacity
-            for i in 0..<max(count, 0) { out[pad + i] = plane[(read + i) & mask] }
-            let filled = pad + max(count, 0)
+            for i in 0..<count { out[pad + i] = plane[(read + i) & mask] }
+            let filled = pad + count
             if filled < frames { (out + filled).update(repeating: 0, count: frames - filled) }
         }
-        readIndex.store(read + max(count, 0), ordering: .releasing)
-        return max(count, 0)
     }
 
-    /// Ajusta el índice de lectura al tiempo deseado: descarta lo que llega tarde y
-    /// calcula cuánto silencio anteponer si llega pronto. O(1) salvo un ajuste fino.
-    private func align(read: Int, write: Int, frames: Int, desired: Double) -> (read: Int, pad: Int) {
-        var read = read
-        guard read < write else { return (read, frames) }
-        var head = times[read & mask]
-        guard !head.isNaN else { return (read, 0) }
-        // Muestras viejas muy por delante (p. ej. tras buscar hacia atrás): obsoletas.
-        if head - desired > 0.5 {
-            droppedLateFrames.add(write - read, ordering: .relaxed)
-            return (write, frames)
+    private static func silence(_ list: UnsafeMutableAudioBufferListPointer, from start: Int, frames: Int, channels: Int) {
+        for buffer in list {
+            guard let out = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
+            (out + start).update(repeating: 0, count: frames - start)
         }
-        let late = desired - head
-        if late > Self.tolerance {
-            let skip = min(Int(late * sampleRate), write - read)
-            droppedLateFrames.add(skip, ordering: .relaxed)
-            read += skip
-            // Ajuste fino por discontinuidades (bucle, búsqueda) dentro de lo saltado.
-            while read < write, desired - times[read & mask] > Self.tolerance { read += 1 }
-            guard read < write else { return (read, frames) }
-            head = times[read & mask]
-        }
-        let early = head - desired
-        if early > Self.tolerance {
-            let pad = min(frames, Int(early * sampleRate))
-            paddedEarlyFrames.add(pad, ordering: .relaxed)
-            return (read, pad)
-        }
-        return (read, 0)
     }
 }

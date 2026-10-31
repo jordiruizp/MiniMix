@@ -30,10 +30,10 @@ final class PlayerAudioTap: Sendable {
         }
         let node = AVAudioSourceNode(format: format) { isSilence, timestamp, frameCount, data in
             let list = UnsafeMutableAudioBufferListPointer(data)
-            // Tiempo de item que debe sonar con este render (sin bloquear: atómicos).
+            // Sin bloquear: solo atómicos y estado propio del consumidor.
             let stamp = timestamp.pointee
-            let desired = stamp.mFlags.contains(.hostTimeValid) ? ring.desiredItemTime(hostTicks: stamp.mHostTime) : nil
-            let got = ring.read(into: list, frames: Int(frameCount), desiredItemTime: desired)
+            let host = stamp.mFlags.contains(.hostTimeValid) ? stamp.mHostTime : nil
+            let got = ring.render(into: list, frames: Int(frameCount), hostTicks: host)
             if got == 0 { isSilence.pointee = true }
             return noErr
         }
