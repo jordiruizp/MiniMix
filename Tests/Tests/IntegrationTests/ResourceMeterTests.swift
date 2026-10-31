@@ -68,6 +68,13 @@ struct ResourceMeterTests {
         #expect(try JSONDecoder().decode(MachineInfo.self, from: json) == info)
     }
 
+    @Test func gpuUtilizationIsAPercentage() {
+        // En VMs puede no existir el contador: solo se exige el rango si hay valor.
+        let value = GPUUtilization.systemPercent()
+        if let value { #expect((0...100).contains(value), "\(value)") }
+        if Self.enforcePerformance { #expect(value != nil) }
+    }
+
     @Test func thermalLevelsAreOrdered() {
         #expect(ThermalLevel.nominal < .fair && ThermalLevel.serious < .critical)
     }

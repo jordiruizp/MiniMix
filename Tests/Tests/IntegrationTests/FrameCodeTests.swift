@@ -116,6 +116,30 @@ struct FrameCodeTests {
         #expect(try RGBAImage(pixelBuffer: buffer) == image)
     }
 
+    @Test func readsRawBGRARegion() {
+        // Región de 640×160 abajo a la izquierda de un 1080p (lo que copia el harness T90).
+        var image = RGBAImage(width: 1920, height: 1080, fill: .init(r: 200, g: 200, b: 0))
+        FrameCodeWriter.draw(FrameCode(clipID: 9, frameIndex: 321), into: &image)
+        var bgra = [UInt8](repeating: 0, count: 640 * 160 * 4)
+        for y in 0..<160 {
+            for x in 0..<640 {
+                let pixel = image[x, 920 + y]
+                let i = (y * 640 + x) * 4
+                bgra[i] = pixel.b
+                bgra[i + 1] = pixel.g
+                bgra[i + 2] = pixel.r
+                bgra[i + 3] = pixel.a
+            }
+        }
+        let layout = FrameCodeLayout(contentRect: CGRect(x: 0, y: -920, width: 1920, height: 1080))
+        let reading = bgra.withUnsafeBytes { raw in
+            FrameCodeReader.read(BGRALumaSampler(base: raw.baseAddress!, width: 640, height: 160, bytesPerRow: 640 * 4),
+                                 layout: layout)
+        }
+        #expect(reading.code == FrameCode(clipID: 9, frameIndex: 321))
+        #expect(!reading.isBlack)
+    }
+
     @Test func unsupportedFormatsThrow() throws {
         var buffer: CVPixelBuffer?
         CVPixelBufferCreate(nil, 64, 64, kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange, nil, &buffer)

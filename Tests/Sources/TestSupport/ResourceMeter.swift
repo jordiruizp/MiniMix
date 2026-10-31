@@ -1,5 +1,30 @@
 import Darwin
 import Foundation
+import IOKit
+
+/// Utilización de la GPU de todo el sistema (0…100), la misma que muestra el Monitor de Actividad
+/// (`IOAccelerator` → `PerformanceStatistics["Device Utilization %"]`). nil si no está disponible.
+public enum GPUUtilization {
+    public static func systemPercent() -> Double? {
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOAccelerator"), &iterator)
+                == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(iterator) }
+        var result: Double?
+        var service = IOIteratorNext(iterator)
+        while service != 0 {
+            if let property = IORegistryEntryCreateCFProperty(service, "PerformanceStatistics" as CFString,
+                                                              kCFAllocatorDefault, 0)?.takeRetainedValue(),
+               let stats = property as? [String: Any],
+               let value = (stats["Device Utilization %"] as? NSNumber)?.doubleValue {
+                result = max(result ?? 0, value)
+            }
+            IOObjectRelease(service)
+            service = IOIteratorNext(iterator)
+        }
+        return result
+    }
+}
 
 /// Medidas instantáneas del proceso actual (memoria, CPU, térmica) y de la máquina.
 public enum ProcessMetrics {
