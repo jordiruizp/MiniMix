@@ -121,6 +121,8 @@ public final class InputManager: InputManaging {
         } catch is CancellationError {
             throw MediaError.cancelled(id.description)
         }
+        // El encaje de los items de una playlist sigue al `fit` del descriptor.
+        (source as? PlaylistInput)?.itemFit = descriptor.fit
         let decision = state.withLock { s -> Decision? in
             guard s.pending[id]?.token == token else { return nil }
             s.pending[id] = nil
@@ -170,7 +172,7 @@ public final class InputManager: InputManaging {
         guard let entry = state.withLock({ s in s.entries.first { $0.id == id } }) else {
             throw MediaError.notFound(id.description)
         }
-        if Self.needsReplacement(entry.descriptor.content, descriptor.content) {
+        if Self.needsReplacement(entry.descriptor.content, descriptor.content, source: entry.source) {
             try await replace(entry, with: descriptor)
         } else {
             try Self.applyInPlace(descriptor, to: entry.source)
@@ -275,8 +277,11 @@ extension InputManager {
         Self.discard(entry.source)
     }
 
-    static func needsReplacement(_ old: InputContent, _ new: InputContent) -> Bool {
-        switch (old, new) {
+    /// Con `source`: una `PlaylistInput` editada se actualiza en su sitio
+    /// (`update(playlist:)`, conserva el item en curso); solo se sustituye si es otra fuente.
+    static func needsReplacement(_ old: InputContent, _ new: InputContent, source: FrameSource? = nil) -> Bool {
+        if case .playlist = old, case .playlist = new, source is PlaylistInput { return false }
+        return switch (old, new) {
         case let (.video(a), .video(b)), let (.image(a), .image(b)):
             a.path != b.path
         case let (.audio(a, va), .audio(b, vb)):
@@ -300,14 +305,21 @@ extension InputManager {
             audio.setInOut(inPoint: descriptor.inPoint, outPoint: descriptor.outPoint)
         case let (color as ColorInput, .color(newColor)):
             if color.currentColor != newColor { try color.setColor(newColor) }
+        case let (playlist as PlaylistInput, .playlist(newPlaylist)):
+            if playlist.playlist != newPlaylist { playlist.update(playlist: newPlaylist) }
+            playlist.itemFit = descriptor.fit
         default:
             break
         }
     }
 
+    /// Se llama siempre fuera del cerrojo y desde `add`/`remove`/`update` (nunca desde el
+    /// hilo de render). Una `PlaylistInput` se desmonta explícitamente (items, reloj y nodos
+    /// de audio de los items), además de su `deinit` diferido.
     private static func discard(_ source: FrameSource) {
         source.pause()
         (source as? DecodingControllable)?.setDecodingEnabled(false)
+        (source as? PlaylistInput)?.teardown()
     }
 
     /// Calcula (bajo el cerrojo, sin llamar a las fuentes) qué fuentes decodifican:
@@ -321,9 +333,11 @@ extension InputManager {
             guard let control = entry.source as? DecodingControllable else { continue }
             var enabled = s.visible?.contains(entry.id) ?? true
             if enabled, control.usesVideoDecoder {
-                enabled = decoders < maxActiveVideoDecoders
+                // Una playlist que precarga o funde vídeo ocupa 2 decodificadores.
+                let cost = max(1, (control as? VideoDecoderCounting)?.activeVideoDecoderCount ?? 1)
+                enabled = decoders + cost <= maxActiveVideoDecoders
                 if enabled {
-                    decoders += 1
+                    decoders += cost
                     active.insert(entry.id)
                 }
             }
