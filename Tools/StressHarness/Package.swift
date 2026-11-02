@@ -26,6 +26,8 @@ let package = Package(
             .product(name: "TestSupport", package: "Tests")
         ]),
         .executableTarget(name: "minimix-stress", dependencies: ["StressHarnessKit"]),
-        .testTarget(name: "StressHarnessTests", dependencies: ["StressHarnessKit"])
+        .testTarget(name: "StressHarnessTests", dependencies: [
+            "StressHarnessKit", .product(name: "TestSupport", package: "Tests")
+        ])
     ]
 )

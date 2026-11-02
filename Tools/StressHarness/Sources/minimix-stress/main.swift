@@ -1,4 +1,8 @@
-// minimix-stress — harness de estrés y medición (H · T61).
+// minimix-stress — harness de estrés y medición (H · T61/T90).
+//
+// Escenarios T90 sobre los módulos reales (TestMedia generado): stress-5m-cuts, stress-5m-playlist,
+// stress-1h-playlist, stress-2h-cuts (admiten --duration). Ejecuciones largas en segundo plano con
+// `caffeinate -i`.
 //
 // Uso:
 //   swift run --package-path Tools/StressHarness -c release minimix-stress \
@@ -32,9 +36,32 @@ func loadScenario(_ options: StressOptions) throws -> ScenarioConfig {
     return config
 }
 
+func say(_ line: String) {
+    FileHandle.standardOutput.write(Data((line + "\n").utf8))
+}
+
+/// Escenario T90 (módulos reales): imprime progreso y la tabla de objetivos 10.2.
+func runLive(_ base: LiveScenarioConfig, options: StressOptions) async throws {
+    var config = base
+    if let duration = options.duration { config.durationSeconds = duration }
+    say("▶ \(config.name) · real · \(config.durationSeconds) s · 1080p60 · 8 entradas")
+    let report = try await LiveScenarioRunner(config: config).run { say($0) }
+    let url = try report.write(to: options.out ?? defaultReportsDirectory)
+    for target in report.targets {
+        let mark = target.pass.map { $0 ? "✔" : "✘" } ?? "·"
+        say("\(mark) \(target.name): objetivo \(target.target) — \(target.measured)")
+    }
+    say(url.path)
+}
+
 do {
     let options = try StressOptions.parse(Array(CommandLine.arguments.dropFirst()))
+    if let live = LiveScenarioConfig.named(options.scenario) {
+        try await runLive(live, options: options)
+        exit(0)
+    }
     if options.list {
+        print("Escenarios T90 (reales): " + LiveScenarioConfig.builtIn.map(\.name).joined(separator: ", "))
         print("Escenarios: " + ScenarioConfig.builtIn.map(\.name).joined(separator: ", "))
         print("Pipelines: " + PipelineRegistry.factories.keys.sorted().joined(separator: ", "))
         exit(0)
