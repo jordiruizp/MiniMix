@@ -52,7 +52,14 @@ extension MediaSerialTests {
             ring.alignmentEnabled.store(false, ordering: .relaxed)
             let before = try await measure(input, probe: probe, runs: 3, label: "sin alinear") { $0.play() }
             ring.alignmentEnabled.store(true, ordering: .relaxed)
-            let after = try await measure(input, probe: probe, runs: 3, label: "alineado") { $0.play() }
+            // Cada arranque: búsqueda a 0 con la entrada en pausa, 300 ms, play (N1).
+            let overflowBefore = ring.producerOverflowFrames.load(ordering: .relaxed)
+            let after = try await measure(input, probe: probe, runs: 5, label: "alineado") { $0.play() }
+            let overflow = ring.producerOverflowFrames.load(ordering: .relaxed) - overflowBefore
+            let firstClickRuns = after.filter { $0.contains { abs($0.clickTime - 0.1) < 0.01 } }.count
+            print("[AV] clic de 0,1 s detectado en \(firstClickRuns)/5 arranques · desbordes del productor \(overflow)")
+            PerfGate.check(firstClickRuns == 5, "clic de 0,1 s en todos los arranques: \(firstClickRuns)/5")
+            PerfGate.check(overflow == 0, "desbordes del productor: \(overflow)")
 
             let firstBefore = before.compactMap(\.first?.errorMs)
             let firstAfter = after.compactMap(\.first?.errorMs)
@@ -80,17 +87,17 @@ extension MediaSerialTests {
             }
             defer { probe.stop() }
             let ring = try #require(input.audioTapForTesting?.ring)
+            // Se cuenta desde el primer render con audio: la única corrección permitida es
+            // la alineación del arranque (como mucho una); después, ninguna.
             input.play()
-            try await Task.sleep(for: .seconds(1))
-            let startDropped = ring.droppedLateFrames.load(ordering: .relaxed)
-            let startPadded = ring.paddedEarlyFrames.load(ordering: .relaxed)
-            try await Task.sleep(for: .seconds(8))
-            let dropped = ring.droppedLateFrames.load(ordering: .relaxed) - startDropped
-            let padded = ring.paddedEarlyFrames.load(ordering: .relaxed) - startPadded
+            try await Task.sleep(for: .seconds(9))
+            let corrections = ring.alignmentCorrections.load(ordering: .relaxed)
+            let dropped = ring.droppedLateFrames.load(ordering: .relaxed)
+            let padded = ring.paddedEarlyFrames.load(ordering: .relaxed)
             input.pause()
-            print("[AV] régimen 8 s (tono continuo): arranque descartó \(startDropped) y retuvo \(startPadded) muestras; " +
-                  "después: descartadas \(dropped), silencio insertado \(padded)")
-            PerfGate.check(dropped == 0 && padded == 0, "correcciones en régimen: \(dropped) + \(padded)")
+            print("[AV] 9 s de tono continuo desde play: correcciones \(corrections) " +
+                  "(descartadas \(dropped), silencio \(padded) muestras en total)")
+            PerfGate.check(corrections <= 1, "correcciones desde el primer render: \(corrections)")
         }
 
         /// `play(atHostTime:)`: la posición actual se presenta exactamente en ese host.
