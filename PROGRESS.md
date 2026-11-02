@@ -9,7 +9,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | ✅ todos integrados |
 | 2 · D, F, G-real, ORQ T80 | ✅ completa |
-| 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado (PR #15: B1 resuelto; ⛔ devuelto por audio perdido tras seek en pausa) · G T91 ✅ · G conecta Playlist en la App · H espera a D |
+| 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado (PR #15: N1–N3 corregidos, tercera revisión) · C ediciones de playlist en vivo (feat/c-playlist-live) · G T91 ✅ · G conecta Playlist en la App · H espera a D |
 | 4 · T99 release | ⬜ |
 
 ## Tareas
