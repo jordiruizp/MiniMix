@@ -62,6 +62,8 @@ final class AudioRingBuffer: @unchecked Sendable {
     /// Muestras descartadas por llegar tarde / silencio insertado por llegar pronto (diagnóstico).
     let droppedLateFrames = Atomic<Int>(0)
     let paddedEarlyFrames = Atomic<Int>(0)
+    /// Alineaciones que quitaron o insertaron audio (diagnóstico; en régimen no debe crecer).
+    let alignmentCorrections = Atomic<Int>(0)
 
     private let hostTicksToSeconds: Double
     /// Timebase del item (retenido), fijado antes de reproducir; lo lee el tap.
@@ -83,12 +85,12 @@ final class AudioRingBuffer: @unchecked Sendable {
     /// Tiempo de item que continúa lo último escrito (solo productor).
     private var producerNextTime = Double.nan
     private var producerResetGeneration = 0
-    /// Afinado del ancla: suma y número de diferencias (informado − continuo) desde el último ancla.
-    private var anchorDiffs = 0.0
-    private var anchorDiffCount = 0
-    /// Bloques tras un ancla con los que se corrige su jitter (una sola vez).
-    static let anchorRefineBlocks = 6
     private let timelineResetGeneration = Atomic<Int>(0)
+    /// Índice de escritura antes del cual todo es obsoleto (lo publica el productor en
+    /// un salto; el consumidor avanza hasta él antes de leer, también en pausa).
+    private let discardBefore = Atomic<Int>(0)
+    /// Muestras que el productor no pudo escribir por cola llena (diagnóstico).
+    let producerOverflowFrames = Atomic<Int>(0)
     /// Renders seguidos esperando muestras con tiempo (solo consumidor).
     private var untimedRenders = 0
     /// Si en este número de renders no llega ninguna muestra con tiempo, se reproduce sin alinear.
@@ -195,9 +197,20 @@ final class AudioRingBuffer: @unchecked Sendable {
         let interleaved = format.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0
         let write = writeIndex.load(ordering: .relaxed)
         let read = readIndex.load(ordering: .acquiring)
+        let start = producerStartTime(reported: itemTime, write: write)
         let count = min(frames, capacity - (write - read))
+        if count < frames { producerOverflowFrames.add(frames - count, ordering: .relaxed) }
         guard count > 0 else { return }
         copyIn(list, count: count, at: write, srcChannels: srcChannels, interleaved: interleaved)
+        producerNextTime = start + Double(count) / sampleRate
+        for i in 0..<count { times[(write + i) & mask] = start + Double(i) / sampleRate }
+        writeIndex.store(write + count, ordering: .releasing)
+    }
+
+    /// Tiempo de item del bloque que empieza en `write`. Mantiene la línea de tiempo
+    /// continua frente al jitter; en un salto real (búsqueda, bucle, bloque repetido
+    /// durante pausa/preroll) publica `discardBefore = write`: lo anterior es obsoleto.
+    private func producerStartTime(reported itemTime: Double?, write: Int) -> Double {
         // El `timeRangeOut` del tap tiene jitter de varios ms por bloque (p. ej. ±4 ms con
         // AAC) aunque las muestras sean contiguas: se mantiene la línea de tiempo
         // continua y solo se acepta el tiempo informado en un salto real (búsqueda, bucle).
@@ -209,17 +222,13 @@ final class AudioRingBuffer: @unchecked Sendable {
             producerResetGeneration = resetGeneration
             producerNextTime = .nan
         }
-        var start = itemTime ?? producerNextTime
-        if !start.isNaN, !producerNextTime.isNaN, abs(start - producerNextTime) < Self.producerJumpThreshold {
-            start = producerNextTime + anchorCorrection(reported: itemTime)
-        } else {
-            // Ancla nueva (arranque o salto real): se afina con la media de los siguientes bloques.
-            anchorDiffs = 0
-            anchorDiffCount = 0
-        }
-        producerNextTime = start + Double(count) / sampleRate
-        for i in 0..<count { times[(write + i) & mask] = start + Double(i) / sampleRate }
-        writeIndex.store(write + count, ordering: .releasing)
+        let start = itemTime ?? producerNextTime
+        guard !start.isNaN, !producerNextTime.isNaN else { return start }
+        if abs(start - producerNextTime) < Self.producerJumpThreshold { return producerNextTime }
+        // Salto real: el audio anterior (otra posición, o bloques re-entregados en
+        // pausa/preroll) no debe sonar; el consumidor lo descarta antes de nada.
+        discardBefore.store(write, ordering: .releasing)
+        return start
     }
 
     private func copyIn(_ list: UnsafeMutableAudioBufferListPointer, count: Int, at write: Int,
@@ -235,20 +244,6 @@ final class AudioRingBuffer: @unchecked Sendable {
                 for i in 0..<count { plane[(write + i) & mask] = data[i] }
             }
         }
-    }
-
-    /// El tiempo informado de un bloque tiene jitter; el ancla (primer bloque tras un
-    /// arranque o salto) lo hereda. Tras `anchorRefineBlocks` bloques se desplaza la
-    /// línea de tiempo una sola vez por la media de las diferencias, si supera 1 ms:
-    /// el consumidor lo ve como una pequeña discontinuidad y realinea una vez (en el
-    /// primer medio segundo), y después ya no hay correcciones.
-    private func anchorCorrection(reported: Double?) -> Double {
-        guard let reported, anchorDiffCount < Self.anchorRefineBlocks else { return 0 }
-        anchorDiffs += reported - producerNextTime
-        anchorDiffCount += 1
-        guard anchorDiffCount == Self.anchorRefineBlocks else { return 0 }
-        let mean = anchorDiffs / Double(anchorDiffCount)
-        return abs(mean) > 0.001 ? mean : 0
     }
 
     // MARK: Consumidor (render)
@@ -321,6 +316,12 @@ final class AudioRingBuffer: @unchecked Sendable {
     func read(into list: UnsafeMutableAudioBufferListPointer, frames: Int, clock: RenderClock, write: Int? = nil) -> Int {
         let write = write ?? writeIndex.load(ordering: .acquiring)
         var read = readIndex.load(ordering: .relaxed)
+        let discard = min(discardBefore.load(ordering: .acquiring), write)
+        if discard > read {
+            droppedLateFrames.add(discard - read, ordering: .relaxed)
+            read = discard
+            needsAlign = true
+        }
         var pad = 0
         switch clock {
         case .none:
@@ -328,12 +329,14 @@ final class AudioRingBuffer: @unchecked Sendable {
         case .paused:
             needsAlign = true
             Self.silence(list, from: 0, frames: frames, channels: channels)
+            readIndex.store(read, ordering: .releasing) // solo avanza por `discardBefore`
             return 0
         case .playing(let desired):
             if realignRequested.exchange(false, ordering: .relaxed) { needsAlign = true }
             guard read < write else {
                 needsAlign = true // vaciado: al volver el audio, realinear
                 Self.silence(list, from: 0, frames: frames, channels: channels)
+                readIndex.store(read, ordering: .releasing)
                 return 0
             }
             checkContinuity(head: times[read & mask], desired: desired)
@@ -406,6 +409,7 @@ final class AudioRingBuffer: @unchecked Sendable {
         var pad = 0
         if early > Self.tolerance { pad = min(frames, Int((early * sampleRate).rounded())) }
         paddedEarlyFrames.add(pad, ordering: .relaxed)
+        if pad > 0 || index > read { alignmentCorrections.add(1, ordering: .relaxed) }
         // Si el audio empieza más allá de este render, se vuelve a calcular en el siguiente.
         needsAlign = pad == frames
         expectedNextTime = times[index & mask]

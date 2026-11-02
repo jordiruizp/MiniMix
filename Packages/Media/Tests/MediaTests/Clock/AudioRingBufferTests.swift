@@ -120,14 +120,40 @@ import Testing
         #expect(ring.availableFrames == 4_800 - 480)
     }
 
-    @Test func discontinuityInsideCopiedBlockTriggersRealign() {
+    /// Un salto (búsqueda adelante) descarta lo anterior antes de leer.
+    @Test func jumpDiscardsOlderAudio() {
         let ring = makeRing()
         append(ring, itemTime: 1.0, frames: 240)
+        readAt(ring, .playing(desiredItemTime: 1.0), frames: 120)
         append(ring, itemTime: 5.0, frames: 4_800) // búsqueda adelante
-        readAt(ring, .playing(desiredItemTime: 1.0))   // copia 240 + 240 del salto
-        let (got, _) = readAt(ring, .playing(desiredItemTime: 5.01))
-        #expect(got == 480)
-        #expect(dropped(ring) == 480 - 240) // realinea a 5,01: descarta lo anterior a 5,01
+        let (got, silence) = readAt(ring, .playing(desiredItemTime: 5.0))
+        #expect(got == 480 && silence == 0)
+        #expect(dropped(ring) == 120)
+    }
+
+    /// N1: en pausa/preroll el tap re-entrega bloques (mismo tiempo): solo cuenta el
+    /// último, la cola no se llena y al reproducir suena desde su tiempo.
+    @Test func repeatedBlocksWhilePausedDoNotOverflow() {
+        let ring = makeRing()
+        for _ in 0..<12 {
+            append(ring, itemTime: 8.523, frames: 4_096)
+            readAt(ring, .paused)
+        }
+        #expect(ring.producerOverflowFrames.load(ordering: .relaxed) == 0)
+        #expect(ring.availableFrames == 4_096)
+        let (got, silence) = readAt(ring, .playing(desiredItemTime: 8.523))
+        #expect(got == 480 && silence == 0)
+    }
+
+    /// Salto atrás pequeño (< 0,5 s, p. ej. bucle corto): se descarta solo lo anterior al salto.
+    @Test func smallBackwardJumpDiscardsOnlyOlderAudio() {
+        let ring = makeRing()
+        append(ring, itemTime: 2.0, frames: 4_800)
+        append(ring, itemTime: 1.7, frames: 4_800)
+        let (got, silence) = readAt(ring, .playing(desiredItemTime: 1.7))
+        #expect(got == 480 && silence == 0)
+        #expect(dropped(ring) == 4_800)
+        #expect(ring.availableFrames == 4_800 - 480)
     }
 
     /// El jitter del `timeRangeOut` del tap (±4 ms por bloque) no rompe la continuidad;
