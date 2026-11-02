@@ -64,6 +64,21 @@ struct LivePlaylistTests {
         #expect(await eventually { source.playbackState == .paused })
     }
 
+    @Test func editsDoNotRestartThePlayingPlaylist() async throws {
+        let session = try await makeSession(itemDuration: 30)
+        let (app, id, items, source) = (session.app, session.playlistID, session.items, session.source)
+        defer { app.stop() }
+        app.send(.play(id))
+        app.playlists.next(id)
+        #expect(await eventually { source.currentItemID == items[1] })
+        app.playlists.setStopAfter(true, item: items[1], in: id)
+        app.playlists.setEnabled(false, item: items[0], in: id)
+        #expect(await eventually { source.playlist.items.first?.enabled == false })
+        #expect(app.services.inputs.frameSource(for: id) === source, "la fuente no se sustituye")
+        #expect(source.currentItemID == items[1], "sigue sonando el mismo item")
+        #expect(source.playlist.items[1].stopAfter)
+    }
+
     @Test func itemChangedFromTheSourceIsReflectedInTheUI() async throws {
         let session = try await makeSession(itemDuration: 0.3)
         let (app, id, items, source) = (session.app, session.playlistID, session.items, session.source)
