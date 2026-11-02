@@ -70,21 +70,67 @@ public struct PreferencesView: View {
     }
 }
 
+/// Opciones de la hoja Proyecto › Formato…: los preajustes y, si el proyecto tiene un lienzo o
+/// una frecuencia no estándar, «Actual (…)» para conservarlos.
+struct ProjectFormatOptions {
+    enum Size: Hashable {
+        case preset(Preferences.CanvasPreset)
+        case current(PixelSize)
+    }
+
+    let current: CanvasFormat
+
+    var sizes: [Size] {
+        var result = Preferences.CanvasPreset.allCases.map(Size.preset)
+        if Preferences.CanvasPreset(size: current.size) == nil { result.insert(.current(current.size), at: 0) }
+        return result
+    }
+
+    var rates: [FrameRate] {
+        Preferences.frameRates.contains(current.frameRate)
+            ? Preferences.frameRates : [current.frameRate] + Preferences.frameRates
+    }
+
+    var initialSize: Size { Preferences.CanvasPreset(size: current.size).map(Size.preset) ?? .current(current.size) }
+
+    func label(_ size: Size) -> String {
+        switch size {
+        case .preset(let preset): preset.label
+        case .current(let pixels): "Actual (\(pixels.width)×\(pixels.height))"
+        }
+    }
+
+    func label(_ rate: FrameRate) -> String {
+        Preferences.frameRates.contains(rate) ? Preferences.label(for: rate) : "Actual (\(Preferences.label(for: rate)))"
+    }
+
+    func format(_ size: Size, _ rate: FrameRate) -> CanvasFormat {
+        switch size {
+        case .preset(let preset): CanvasFormat(size: preset.size, frameRate: rate)
+        case .current(let pixels): CanvasFormat(size: pixels, frameRate: rate)
+        }
+    }
+
+    /// La selección es el formato actual: «Aplicar» no tiene nada que hacer.
+    func isCurrent(_ size: Size, _ rate: FrameRate) -> Bool { format(size, rate) == current }
+}
+
 /// Proyecto › Formato…: lienzo y fps del proyecto abierto (con confirmación si se está emitiendo).
 struct ProjectFormatSheet: View {
     let app: AppViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var preset: Preferences.CanvasPreset = .hd1080
+    @State private var size: ProjectFormatOptions.Size = .preset(.hd1080)
     @State private var rate: FrameRate = .fps60
 
     var body: some View {
+        let options = ProjectFormatOptions(current: app.project.canvas)
         VStack(alignment: .leading, spacing: 12) {
             Text("Formato del proyecto").font(.headline)
-            Picker("Resolución", selection: $preset) {
-                ForEach(Preferences.CanvasPreset.allCases) { Text($0.label).tag($0) }
+            Picker("Resolución", selection: $size) {
+                ForEach(options.sizes, id: \.self) { Text(options.label($0)).tag($0) }
             }
             Picker("Frecuencia", selection: $rate) {
-                ForEach(Preferences.frameRates, id: \.self) { Text(Preferences.label(for: $0)).tag($0) }
+                ForEach(options.rates, id: \.self) { Text(options.label($0)).tag($0) }
             }
             if app.programOutputDisplay != nil {
                 Label("La salida de Programa está activa: el render se reconfigurará.",
@@ -95,19 +141,20 @@ struct ProjectFormatSheet: View {
                 Spacer()
                 Button("Cancelar", role: .cancel) { dismiss() }
                 Button("Aplicar") {
-                    let format = CanvasFormat(size: preset.size, frameRate: rate)
+                    let format = options.format(size, rate)
                     if app.requestProjectFormat(format, confirmWhileLive: ProjectDialogs.confirmFormatChangeWhileLive) {
                         dismiss()
                     }
                 }
                 .keyboardShortcut(.defaultAction)
+                .disabled(options.isCurrent(size, rate))
             }
         }
         .padding(20)
         .frame(width: 420)
         .onAppear {
-            preset = Preferences.CanvasPreset(size: app.project.canvas.size) ?? .hd1080
-            rate = app.project.canvas.frameRate
+            size = options.initialSize
+            rate = options.current.frameRate
         }
     }
 }
