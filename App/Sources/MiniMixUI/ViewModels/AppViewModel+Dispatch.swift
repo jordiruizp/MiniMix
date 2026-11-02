@@ -19,7 +19,8 @@ extension AppViewModel {
             if descriptor(id)?.kind == .playlist { playlists.pauseClock(for: id) }
         case .restart(let id):
             let source = services.inputs.frameSource(for: id)
-            track { _ in await source?.seek(to: 0) }
+            // Una playlist real reinicia su item actual ella misma (`restartItem`).
+            if !(source is PlaylistSourceControlling) { track { _ in await source?.seek(to: 0) } }
             if descriptor(id)?.kind == .playlist {
                 playlists.handle(.restartItem, for: id)
             } else {

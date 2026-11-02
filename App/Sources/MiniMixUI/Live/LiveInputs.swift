@@ -59,6 +59,14 @@ public final class LiveInputs: InputManaging {
             audio.detach(descriptor.id)
             return
         }
+        // TODO(D/E): conectar el `AVAudioMixerNode` de `PlaylistInput` con `AudioEngine.attach`
+        // lanza una NSException de AVFAudio («required condition is false: !srcNodeMixerConns.empty()
+        // && !isSrcNodeConnectedToIONode»): el mezclador aún no tiene entradas cuando se conecta.
+        // Hasta que D/E lo resuelvan, las playlists reales van sin audio (no se puede capturar en Swift).
+        if source is PlaylistSourceControlling {
+            LiveLog.app.error("Audio de playlist «\(descriptor.name, privacy: .public)» desactivado (pendiente D/E)")
+            return
+        }
         do {
             try audio.attach(source)
             // Si un `remove` se coló entre la consulta y el attach, deshacerlo.

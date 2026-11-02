@@ -117,8 +117,8 @@ final class FakeOutput: OutputPresenting, ProgramOutputControlling {
 
 /// Espera (sondeo corto) a que se cumpla una condición en el MainActor.
 @MainActor
-func eventually(_ condition: () -> Bool) async -> Bool {
-    for _ in 0..<400 {
+func eventually(timeout: Double = 2, _ condition: () -> Bool) async -> Bool {
+    for _ in 0..<Int(timeout * 200) {
         if condition() { return true }
         try? await Task.sleep(for: .milliseconds(5))
     }
