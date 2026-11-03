@@ -5,7 +5,7 @@ import Metal
 @testable import MiniMixUI
 
 /// Fuente controlable: eventos y posición a mano, sin GPU.
-final class TestFrameSource: FrameSource, @unchecked Sendable {
+class TestFrameSource: FrameSource, @unchecked Sendable {
     let id: InputID
     let nativeSize = PixelSize(width: 16, height: 9)
     let events: AsyncStream<SourceEvent>
@@ -27,6 +27,37 @@ final class TestFrameSource: FrameSource, @unchecked Sendable {
     func seek(to seconds: Double) async {}
     var playbackState: PlaybackState { .idle }
     var currentTime: Double? { position.current }
+}
+
+/// Fuente de playlist «real» controlable (estado de su secuenciador a mano).
+final class TestPlaylistSource: TestFrameSource, PlaylistSourceControlling, @unchecked Sendable {
+    struct Live {
+        var state: SequencerState = .idle
+        var current: ItemID?
+        var upcoming: ItemID?
+        var fit: FitMode = .fit
+        var calls: [String] = []
+        var playlist: Playlist?
+    }
+
+    let live = Locked(Live())
+
+    override func play() { live.withLock { $0.calls.append("play") } }
+    override func pause() { live.withLock { $0.calls.append("pause") } }
+    func next() { live.withLock { $0.calls.append("next") } }
+    func previous() { live.withLock { $0.calls.append("previous") } }
+    func jump(to item: ItemID) { live.withLock { $0.calls.append("jump") } }
+    func restartItem() { live.withLock { $0.calls.append("restart") } }
+    func update(playlist: Playlist) { live.withLock { $0.playlist = playlist } }
+    var sequencerState: SequencerState { live.current.state }
+    var currentItemID: ItemID? { live.current.current }
+    var upcomingItemID: ItemID? { live.current.upcoming }
+    var itemRemainingTime: Double? { nil }
+    var playlistRemainingTime: Double? { nil }
+    var itemFit: FitMode {
+        get { live.current.fit }
+        set { live.withLock { $0.fit = newValue } }
+    }
 }
 
 /// Gestor de entradas que registra altas/bajas/updates y puede sustituir la fuente en `update`.
@@ -56,7 +87,7 @@ final class TestInputManager: InputManaging, @unchecked Sendable {
 
     func add(_ descriptor: InputDescriptor) async throws {
         log.withLock { $0.adds.append(descriptor.id) }
-        let source = TestFrameSource(id: descriptor.id)
+        let source = descriptor.kind == .playlist ? TestPlaylistSource(id: descriptor.id) : TestFrameSource(id: descriptor.id)
         sources.withLock { $0[descriptor.id] = source }
     }
 
@@ -117,8 +148,8 @@ final class FakeOutput: OutputPresenting, ProgramOutputControlling {
 
 /// Espera (sondeo corto) a que se cumpla una condición en el MainActor.
 @MainActor
-func eventually(_ condition: () -> Bool) async -> Bool {
-    for _ in 0..<400 {
+func eventually(timeout: Double = 2, _ condition: () -> Bool) async -> Bool {
+    for _ in 0..<Int(timeout * 200) {
         if condition() { return true }
         try? await Task.sleep(for: .milliseconds(5))
     }

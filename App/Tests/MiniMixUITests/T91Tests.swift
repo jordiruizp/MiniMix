@@ -98,7 +98,7 @@ struct T91Tests {
         #expect(closed)
         #expect(QuitGuard.confirmed)
         #expect(await eventually { terminated.value == 1 })
-        QuitGuard.confirmed = false
+        #expect(await eventually { !QuitGuard.confirmed }, "la salida no se completó: se vuelve a preguntar")
     }
 
     @Test func confirmDiscardAsksOnlyWhenDirty() {
@@ -148,6 +148,24 @@ struct T91Tests {
         #expect(!enabled("Espacio") && !enabled("Intro"))
         h.app.removeInput(h.video) // Programa y Preview vacíos
         #expect(!enabled("Espacio") && !enabled("Intro"))
+    }
+
+    @Test func projectFormatOptionsOfferCurrentNonStandardFormat() {
+        let standard = ProjectFormatOptions(current: CanvasFormat(size: .hd1080, frameRate: .fps60))
+        #expect(standard.sizes.count == 3)
+        #expect(standard.rates == Preferences.frameRates)
+        #expect(standard.isCurrent(standard.initialSize, .fps60), "Aplicar deshabilitado sin cambios")
+        #expect(!standard.isCurrent(.preset(.hd720), .fps60))
+
+        let odd = CanvasFormat(size: PixelSize(width: 1024, height: 768), frameRate: FrameRate(24))
+        let options = ProjectFormatOptions(current: odd)
+        #expect(options.sizes.first == .current(odd.size))
+        #expect(options.label(options.sizes[0]) == "Actual (1024×768)")
+        #expect(options.rates.first == FrameRate(24))
+        #expect(options.label(FrameRate(24)) == "Actual (24 fps)")
+        #expect(options.initialSize == .current(odd.size))
+        #expect(options.isCurrent(options.initialSize, FrameRate(24)))
+        #expect(options.format(.current(odd.size), .fps30) == CanvasFormat(size: odd.size, frameRate: .fps30))
     }
 
     // MARK: 2 · Tema claro/oscuro

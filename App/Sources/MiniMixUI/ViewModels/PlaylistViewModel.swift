@@ -13,6 +13,11 @@ public final class PlaylistViewModel {
     @ObservationIgnored private var clockItems: [InputID: ItemID] = [:]
     @ObservationIgnored private let makeSequencer: @MainActor (Playlist) -> any PlaylistSequencing
     @ObservationIgnored weak var app: AppViewModel?
+    /// Cambia cuando la fuente real cambia de item o de estado (las vistas se reevalúan).
+    var liveRevision = 0
+    /// Última instantánea de cada fuente real y refrescos seguidos en reposo con la entrada en play.
+    @ObservationIgnored var liveSnapshots: [InputID: LivePlaylistSnapshot] = [:]
+    @ObservationIgnored var idleWhilePlaying: [InputID: Int] = [:]
 
     init(makeSequencer: @escaping @MainActor (Playlist) -> any PlaylistSequencing) {
         self.makeSequencer = makeSequencer
@@ -24,6 +29,8 @@ public final class PlaylistViewModel {
         sequencers = [:]
         itemClocks = [:]
         clockItems = [:]
+        liveSnapshots = [:]
+        idleWhilePlaying = [:]
         for input in project.inputs {
             if let playlist = input.content.playlist { register(input.id, playlist: playlist) }
         }
@@ -35,6 +42,8 @@ public final class PlaylistViewModel {
         sequencers[id] = nil
         itemClocks[id] = nil
         clockItems[id] = nil
+        liveSnapshots[id] = nil
+        idleWhilePlaying[id] = nil
     }
 
     /// Asigna la playlist editada al secuenciador (que sigue el item actual por su id) y reajusta
@@ -48,11 +57,21 @@ public final class PlaylistViewModel {
 
     public func playlist(for id: InputID) -> Playlist? { app?.descriptor(id)?.content.playlist }
 
-    public func state(for id: InputID) -> SequencerState { sequencers[id]?.state ?? .idle }
+    public func state(for id: InputID) -> SequencerState {
+        if let live = liveSource(for: id) {
+            _ = liveRevision
+            return live.sequencerState
+        }
+        return sequencers[id]?.state ?? .idle
+    }
 
     /// Índice (en `playlist.items`) del item actual, si lo hay.
     public func currentIndex(for id: InputID) -> Int? {
-        switch state(for: id) {
+        if let live = liveSource(for: id) {
+            _ = liveRevision
+            return index(of: live.currentItemID, in: id)
+        }
+        return switch state(for: id) {
         case .playing(let index), .held(let index, _): index
         case .idle, .ended: nil
         }
@@ -60,6 +79,10 @@ public final class PlaylistViewModel {
 
     /// Índice del item siguiente (precarga), si lo hay.
     public func nextIndex(for id: InputID) -> Int? {
+        if let live = liveSource(for: id) {
+            _ = liveRevision
+            return index(of: live.upcomingItemID, in: id)
+        }
         if case .held(_, let cued) = state(for: id) { return cued }
         return sequencers[id]?.upcomingIndex
     }
@@ -83,6 +106,10 @@ public final class PlaylistViewModel {
 
     /// Tiempo restante del item actual.
     public func itemRemaining(for id: InputID) -> Double? {
+        if let live = liveSource(for: id) {
+            _ = app?.now // se refresca con la interfaz (~4 Hz)
+            return live.itemRemainingTime
+        }
         guard let index = currentIndex(for: id), let item = playlist(for: id)?.items[safe: index],
               let total = duration(of: item) else { return nil }
         return isHeld(id) ? 0 : max(0, total - itemElapsed(for: id))
@@ -90,6 +117,10 @@ public final class PlaylistViewModel {
 
     /// Tiempo restante de la playlist: item actual + items habilitados posteriores (sin bucle).
     public func playlistRemaining(for id: InputID) -> Double? {
+        if let live = liveSource(for: id) {
+            _ = app?.now
+            return live.sequencerState == .ended ? 0 : live.playlistRemainingTime
+        }
         guard let playlist = playlist(for: id) else { return nil }
         if state(for: id) == .ended { return 0 }
         let start: Int
@@ -123,6 +154,10 @@ public final class PlaylistViewModel {
     // MARK: Desde el despachador
 
     func handle(_ event: SequencerEvent, for id: InputID) {
+        if let live = liveSource(for: id) {
+            forward(event, to: live)
+            return
+        }
         guard var sequencer = sequencers[id] else { return }
         let before = sequencer.state
         let after = sequencer.handle(event)
@@ -177,6 +212,10 @@ public final class PlaylistViewModel {
     /// La fuente de la playlist cambió de item (`SourceEvent.itemChanged`). Cuando llegue
     /// `PlaylistInput` (Ola 2) su secuenciador manda: la UI solo refleja el item que suena.
     func sourceItemChanged(_ item: ItemID?, for id: InputID) {
+        if liveSource(for: id) != nil {
+            liveRevision += 1
+            return
+        }
         guard let item, let playlist = playlist(for: id) else { return }
         let current = currentIndex(for: id).flatMap { playlist.items[safe: $0]?.id }
         guard current != item else { return }
