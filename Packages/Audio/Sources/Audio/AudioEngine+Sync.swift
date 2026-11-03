@@ -9,7 +9,8 @@ extension AudioEngine {
     /// presentación de su vídeo, sin contar la latencia del dispositivo.
     ///
     /// **0 presupone el tap alineado de Media** (VideoInput entrega el audio por tiempo de item, C ·
-    /// feat/c-av-start: +3,8 ms desde el primer clic, +1,7…+5,2 ms en régimen, sin transitorio de
+    /// PR #15: residual de 0…+8 ms según el arranque, bimodal (+0,1, +3,8 o +7,7 ms por la
+    /// cuantización del tiempo del tap), estable dentro de cada reproducción y sin transitorio de
     /// arranque). Con el tap sin alinear (versión anterior de Media) el adelanto medido por la
     /// cadena real era de ≈ 72 ms (77,6…92,1 ms en render − 11,3 ms de HAL, ±7 ms entre
     /// reproducciones); si se vuelve a esa vía hay que restaurar ese valor. Así, el perfil
