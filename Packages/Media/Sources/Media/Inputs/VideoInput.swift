@@ -41,6 +41,8 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         /// Carga en curso: `prepare()` concurrentes esperan la misma (un solo AVPlayerItem).
         var loadTask: Task<Void, Error>?
         var item: AVPlayerItem?
+        /// Invalida arranques en curso (preroll) superados por otro play/pause.
+        var startGeneration = 0
         var loadCount = 0
         var loop: Bool
         var inPoint: Double?
@@ -159,6 +161,12 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
 
     var observerCountForTesting: Int { state.withLock { $0.observers.count } }
 
+    /// Tiempo de item que muestra el vídeo en `hostSeconds` (el de `texture(for:)`).
+    func itemTimeForTesting(hostSeconds: Double) -> Double? {
+        let time = output.itemTime(forHostTime: hostSeconds)
+        return time.isValid ? time.seconds : nil
+    }
+
     /// Posición actual en el archivo (s), sin bloquear; nil antes de `prepare`.
     public var currentTime: Double? {
         guard state.withLock({ $0.prepared }) else { return nil }
@@ -198,6 +206,25 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
     }
 
     public func play() {
+        startPlaying(atHostTime: nil)
+    }
+
+    /// Arranca de forma que la posición actual se presente exactamente en `time`
+    /// (p. ej. un tick del `MasterClock`): `preroll(atRate:)` y después
+    /// `setRate(1, time:, atHostTime:)`.
+    /// - La hora solo vale para **este** arranque: si la entrada no puede arrancar
+    ///   ahora (sin preparar, oculta), arrancará después de forma inmediata, no en una
+    ///   hora caducada. Una hora pasada hace más de `staleStartTolerance` se ignora.
+    /// - Si ya está reproduciendo, no hace nada (no re-sincroniza).
+    public func play(atHostTime time: HostTime) {
+        let now = HostClock.hostTime(nanos: HostClock.nowNanos()).seconds
+        startPlaying(atHostTime: time.seconds < now - Self.staleStartTolerance ? nil : time.seconds)
+    }
+
+    /// Antigüedad máxima de una hora de arranque para respetarla.
+    static let staleStartTolerance = 0.1
+
+    private func startPlaying(atHostTime host: Double?) {
         let restart = state.withLock { s -> Bool in
             let ended = s.playback == .ended
             s.wantsPlay = true
@@ -207,10 +234,10 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         if restart {
             Task {
                 await self.seekToStart()
-                self.applyRate()
+                self.applyRate(startAt: host)
             }
         } else {
-            applyRate()
+            applyRate(startAt: host)
         }
     }
 
@@ -229,6 +256,7 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         await player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         state.withLock { s in
             if s.playback == .ended { s.playback = s.wantsPlay ? .playing : .paused }
+            s.audioTap?.ring.resetTimeline()
         }
         applyRate()
     }
@@ -330,6 +358,9 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
         player.replaceCurrentItem(with: item)
         try await waitUntilReady(item)
         try Task.checkCancellation()
+        // El tap marca cada muestra con su tiempo de item y el render la alinea con
+        // la relación host ↔ item de este timebase (el mismo reloj que el vídeo).
+        tap?.ring.setTimebase(item.timebase)
         if let inPoint, inPoint > 0 {
             await player.seek(to: CMTime(seconds: inPoint, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         }
@@ -365,11 +396,15 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
                                         object: item, queue: nil) { [weak self] _ in
             self?.fail("No se pudo reproducir hasta el final")
         }
+        let configuration = center.addObserver(forName: .AVAudioEngineConfigurationChange,
+                                               object: nil, queue: nil) { [weak self] _ in
+            self?.refreshAudioLatency()
+        }
         let status = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             if item.status == .failed { self?.fail(item.error?.localizedDescription ?? "Error de reproducción") }
         }
         state.withLock { s in
-            s.observers.append(contentsOf: [ended, failed])
+            s.observers.append(contentsOf: [ended, failed, configuration])
             s.statusObservation = status
         }
     }
@@ -415,13 +450,56 @@ public final class VideoInput: FrameSource, AudioSource, DecodingControllable {
     }
 
     /// Ajusta la velocidad del reproductor al estado lógico + visibilidad.
-    private func applyRate() {
-        let run = state.withLock { $0.prepared && $0.wantsPlay && $0.decodingEnabled && $0.playback == .playing }
-        if run, player.rate == 0 {
-            player.play()
-        } else if !run, player.rate != 0 {
-            player.pause()
+    /// `startAt` (host, s) solo se usa si este mismo ajuste arranca la reproducción.
+    private func applyRate(startAt host: Double? = nil) {
+        let (run, generation) = state.withLock { s -> (Bool, Int) in
+            s.startGeneration += 1
+            return (s.prepared && s.wantsPlay && s.decodingEnabled && s.playback == .playing, s.startGeneration)
         }
+        if run, player.rate == 0 {
+            start(generation: generation, atHostTime: host)
+        } else if !run {
+            // Pausa del transporte: el render del nodo emite silencio sin consumir.
+            audioRing?.transportPaused.store(true, ordering: .relaxed)
+            if player.rate != 0 { player.pause() }
+        }
+    }
+
+    private var audioRing: AudioRingBuffer? { state.withLock { $0.audioTap?.ring } }
+
+    /// Preroll (llena las tuberías de audio y vídeo) y arranque, inmediato o en `host`.
+    private func start(generation: Int, atHostTime host: Double?) {
+        refreshAudioLatency()
+        let begin: @Sendable () -> Void = { [weak self] in
+            guard let self else { return }
+            let current = self.state.withLock { s in
+                s.startGeneration == generation && s.prepared && s.wantsPlay && s.decodingEnabled && s.playback == .playing
+            }
+            guard current else { return }
+            if let ring = self.audioRing {
+                ring.resetTimeline()
+                ring.transportPaused.store(false, ordering: .relaxed)
+            }
+            if let host {
+                self.player.setRate(1, time: .invalid, atHostTime: CMTime(seconds: host, preferredTimescale: 1_000_000_000))
+            } else {
+                self.player.play()
+            }
+        }
+        guard player.status == .readyToPlay else { return begin() }
+        player.preroll(atRate: 1) { _ in begin() }
+    }
+
+    /// Avisa de que la salida de audio cambió (p. ej. tras `AudioEngine.attach` del
+    /// nodo o un cambio de dispositivo): vuelve a leer su latencia de presentación.
+    /// También se lee en cada arranque y con `AVAudioEngineConfigurationChange`.
+    public func audioOutputDidChange() { refreshAudioLatency() }
+
+    /// Latencia de presentación de la salida del motor de E (para alinear el audio
+    /// con lo que se ve en ese instante).
+    private func refreshAudioLatency() {
+        guard let tap = state.withLock({ $0.audioTap }), let engine = tap.node.engine else { return }
+        tap.ring.outputLatency = engine.outputNode.presentationLatency
     }
 
     private static func count(frameAt pts: Double, in stats: inout Stats) {
