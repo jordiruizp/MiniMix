@@ -119,7 +119,9 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 
 - `AudioEngine.attach(PlaylistInput)` con el motor arrancado lanza NSException de AVFAudio
   («!srcNodeMixerConns.empty() && !isSrcNodeConnectedToIONode»): mezclador de la playlist sin entradas al conectarse.
-  La App no conecta el audio de playlists (TODO en LiveInputs) hasta el arreglo de D (`feat/d-playlist-audio`).
+  Causa (D): con el motor arrancado AVAudioEngine exige un generador aguas arriba al conectar. Arreglo en Audio (E,
+  `feat/e-attach-running`): nodo silencioso en el bus 0 de cada canal. Después la App quita el TODO de LiveInputs.
+- C: `AudioInput.currentTime` debe comprobar `nodeTime.isSampleTimeValid` antes de `playerTime(forNodeTime:)` (NSException posible).
 
 ## Pendiente tras integrar D
 
