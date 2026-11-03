@@ -32,6 +32,14 @@ extension AppViewModel {
         switch event {
         case .durationKnown(let effective):
             // Media informa la duración útil (con recortes); la UI guarda la del archivo.
+            if let playlist = input.content.playlist {
+                // Playlist real: la duración es la del item que empieza (el actual de la fuente).
+                guard let itemID = playlists.liveSource(for: id)?.currentItemID,
+                      let item = playlist.items.first(where: { $0.id == itemID }), item.outPoint == nil,
+                      let path = item.source.mediaReference?.path else { return }
+                setMediaDuration(effective + (item.inPoint ?? 0), forPath: path)
+                return
+            }
             guard input.outPoint == nil, let path = input.content.mediaReference?.path else { return }
             setMediaDuration(effective + (input.inPoint ?? 0), forPath: path)
         case .ended:

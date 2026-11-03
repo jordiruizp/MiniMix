@@ -154,8 +154,10 @@ extension AppViewModel {
             // porque la App no le pide más `update` para playlists).
             if let playlist = current.content.playlist,
                let live = app.services.inputs.frameSource(for: id) as? PlaylistSourceControlling {
+                // TODO(C, PR #18): con `InputManager.update` aplicando `update(playlist:)` en sitio y
+                // reenviando el encaje, volver a `inputs.update(current)` (y quitar este atajo).
                 live.update(playlist: playlist)
-                app.playlists.liveRevision += 1
+                live.itemFit = current.fit
                 return
             }
             do {

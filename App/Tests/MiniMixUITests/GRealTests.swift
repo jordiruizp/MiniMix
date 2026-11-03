@@ -87,8 +87,16 @@ struct GRealTests {
         await h.app.registerAllInputs()
         h.app.send(.play(h.playlist))
         let items = try #require(h.app.playlists.playlist(for: h.playlist)?.items)
-        manager.testSource(h.playlist)?.emit(.itemChanged(items[2].id))
-        #expect(await eventually { h.app.playlists.currentIndex(for: h.playlist) == 2 })
+        // La fuente real (doble) manda: cambia de item y lo notifica; la UI lo refleja.
+        let source = try #require(manager.testSource(h.playlist) as? TestPlaylistSource)
+        source.live.withLock {
+            $0.state = .playing(index: 2)
+            $0.current = items[2].id
+        }
+        let revision = h.app.playlists.liveRevision
+        source.emit(.itemChanged(items[2].id))
+        #expect(await eventually { h.app.playlists.liveRevision > revision })
+        #expect(h.app.playlists.currentIndex(for: h.playlist) == 2)
     }
 
     // MARK: 3 · Persistencia
