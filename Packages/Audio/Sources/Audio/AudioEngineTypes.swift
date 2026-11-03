@@ -92,11 +92,14 @@ struct Channel {
     let source: AVAudioNode
     let ownsSourceNode: Bool
     let input: AVAudioMixerNode
+    /// Generador silencioso en el bus 0 de `input` (la fuente va al bus 1): permite conectar con el
+    /// motor en marcha fuentes que no son generadores.
+    let keepAlive: AVAudioSourceNode
     let fader: GainStage
     let programGate: GainStage
     let soloGate: GainStage
 
-    var nodes: [AVAudioNode] { [input, fader.node, programGate.node, soloGate.node] }
+    var nodes: [AVAudioNode] { [keepAlive, input, fader.node, programGate.node, soloGate.node] }
 }
 
 /// Canal dado de baja que espera a que termine su rampa a 0 para desmontarse.
