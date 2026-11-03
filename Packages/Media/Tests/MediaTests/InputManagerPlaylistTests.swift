@@ -9,12 +9,12 @@ import Testing
 final class MultiDecoderSource: FrameSource, DecodingControllable, VideoDecoderCounting {
     let id: InputID
     let events = AsyncStream<SourceEvent> { _ in }
-    let activeVideoDecoderCount: Int
+    let videoDecoderCost: Int
     private let enabled = LockedState(false)
 
     init(id: InputID, decoders: Int) {
         self.id = id
-        activeVideoDecoderCount = decoders
+        videoDecoderCost = decoders
     }
 
     var usesVideoDecoder: Bool { true }
@@ -126,7 +126,7 @@ extension MediaSerialTests {
             #expect(created.current.allSatisfy { $0.playbackState != .playing && !$0.isEnabled })
         }
 
-        /// Punto 4: una fuente que ocupa 2 decodificadores cuenta 2 para el límite de 4.
+        /// Punto 4: una fuente que reserva 2 decodificadores cuenta 2 para el límite de 4.
         @Test func multiDecoderSourcesCountTowardsTheCap() async throws {
             let sources = LockedState([InputID: MultiDecoderSource]())
             let costs = LockedState([InputID: Int]())
@@ -146,23 +146,62 @@ extension MediaSerialTests {
             #expect(sources.current[ids[3]]?.isEnabled == false)
         }
 
-        /// `PlaylistInput` informa de 2 decodificadores mientras precarga el siguiente vídeo.
-        @Test func playlistReportsTwoDecodersWhilePreloading() async throws {
-            let base = Kit.environment(preloadLead: 3)
-            let environment = base.with(itemFactory: { _, _ in FakeDecoderSource(id: InputID()) })
-            let items = ["/a.mov", "/b.mov", "/c.mov"].map {
-                PlaylistItem(source: .video(MediaReference(path: $0)), duration: 2)
+        /// Coste fijo (M3): 2 con items de vídeo, 0 sin vídeo; solo API pública.
+        @Test func playlistDecoderCostIsFixed() throws {
+            let environment = Kit.environment().with(itemFactory: { _, _ in FakeDecoderSource(id: InputID()) })
+            let videos = ["/a.mov", "/b.mov"].map { PlaylistItem(source: .video(MediaReference(path: $0)), duration: 2) }
+            let withVideo = try PlaylistInput(playlist: Playlist(items: videos), environment: environment, drivenByClock: false)
+            let colors = try PlaylistInput(playlist: Playlist(items: Kit.colors([Kit.red])), environment: environment,
+                                           drivenByClock: false)
+            #expect(withVideo.videoDecoderCost == 2)
+            #expect(colors.videoDecoderCost == 0)
+            withVideo.teardown()
+            colors.teardown()
+        }
+
+        /// B1: una playlist sin vídeo que pasa a tenerlo al editarla se recalcula: reserva 2
+        /// y el límite de 4 se mantiene (la última fuente de vídeo deja de decodificar).
+        @Test func editAddingVideoRecomputesDecoderCap() async throws {
+            let fakes = LockedState([InputID: MultiDecoderSource]())
+            let environment = Kit.environment().with(itemFactory: { _, _ in FakeDecoderSource(id: InputID()) })
+            let manager = InputManager(context: GPU.context!, playlistFactory: { d in
+                if d.name.hasPrefix("fake") {
+                    let source = MultiDecoderSource(id: d.id, decoders: 1)
+                    fakes.withLock { $0[d.id] = source }
+                    return source
+                }
+                guard case .playlist(let playlist) = d.content else { throw MediaError.unsupported("no es playlist") }
+                return try PlaylistInput(id: d.id, playlist: playlist, environment: environment, drivenByClock: false)
+            })
+            var playlist = InputDescriptor(name: "p", content: .playlist(Playlist(items: Kit.colors([Kit.red]))))
+            try await manager.add(playlist)
+            let fakeIDs = (0..<3).map { _ in InputID() }
+            for (i, id) in fakeIDs.enumerated() {
+                try await manager.add(InputDescriptor(id: id, name: "fake\(i)", content: .playlist(Playlist())))
             }
-            let input = try PlaylistInput(playlist: Playlist(items: items), environment: environment, drivenByClock: false)
-            try await input.prepare()
-            #expect(input.activeVideoDecoderCount >= 1)
-            var driver = ManualDriver(input)
-            input.play()
+            await manager.visibilityApplied()
+            #expect(manager.activeDecoderIDs == Set(fakeIDs)) // la playlist de colores no cuenta
+            let video = PlaylistItem(source: .video(MediaReference(path: "/v.mov")), duration: 2)
+            playlist.content = .playlist(Playlist(items: Kit.colors([Kit.red]) + [video]))
+            try await manager.update(playlist)
+            await manager.visibilityApplied()
+            #expect(manager.activeDecoderIDs == [playlist.id, fakeIDs[0], fakeIDs[1]]) // 2 + 1 + 1
+            #expect(fakes.current[fakeIDs[2]]?.isEnabled == false)
+        }
+
+        /// B2: dos ediciones seguidas sin esperar (A y deshacer) terminan en la última.
+        @Test func consecutiveEditsEndInTheLastOne() async throws {
+            let original = Playlist(items: Kit.colors([Kit.red, Kit.green]))
+            let edited = Playlist(items: Kit.colors([Kit.red, Kit.green, Kit.blue]))
+            let descriptor = InputDescriptor(name: "p", content: .playlist(original))
+            let manager = manager()
+            try await manager.add(descriptor)
+            let input = try #require(manager.frameSource(for: descriptor.id) as? PlaylistInput)
+            input.update(playlist: edited)   // edición A, aún sin procesar
+            try await manager.update(descriptor) // deshacer: vuelve al original
             await input.settle()
-            var maxCount = input.activeVideoDecoderCount
-            await driver.run(30) { _, _ in maxCount = max(maxCount, input.activeVideoDecoderCount) }
-            #expect(maxCount == 2) // actual + siguiente precargado
-            input.teardown()
+            #expect(input.playlist == original)
+            #expect(manager.descriptor(for: descriptor.id)?.content == .playlist(original))
         }
     }
 }

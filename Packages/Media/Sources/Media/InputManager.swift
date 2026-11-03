@@ -121,7 +121,8 @@ public final class InputManager: InputManaging {
         } catch is CancellationError {
             throw MediaError.cancelled(id.description)
         }
-        // El encaje de los items de una playlist sigue al `fit` del descriptor.
+        // El encaje de los items de una playlist sigue al `fit` del descriptor. Necesario
+        // para fábricas que no lo pasan al crear la `PlaylistInput` (la de D sí lo pasa).
         (source as? PlaylistInput)?.itemFit = descriptor.fit
         let decision = state.withLock { s -> Decision? in
             guard s.pending[id]?.token == token else { return nil }
@@ -176,11 +177,16 @@ public final class InputManager: InputManaging {
             try await replace(entry, with: descriptor)
         } else {
             try Self.applyInPlace(descriptor, to: entry.source)
-            state.withLock { s in
+            // La edición de una playlist se aplica en su cola: esperar a que la procese para
+            // recalcular con su `usesVideoDecoder` nuevo (p. ej. pasa a tener vídeo).
+            if let playlist = entry.source as? PlaylistInput { await playlist.settle() }
+            let decision = state.withLock { s -> Decision in
                 if let index = s.entries.firstIndex(where: { $0.id == id && $0.source === entry.source }) {
                     s.entries[index].descriptor = descriptor
                 }
+                return decideLocked(&s)
             }
+            apply(decision)
         }
     }
 
@@ -306,7 +312,9 @@ extension InputManager {
         case let (color as ColorInput, .color(newColor)):
             if color.currentColor != newColor { try color.setColor(newColor) }
         case let (playlist as PlaylistInput, .playlist(newPlaylist)):
-            if playlist.playlist != newPlaylist { playlist.update(playlist: newPlaylist) }
+            // Siempre: el estado vivo (`playlist.playlist`) va con retraso respecto a la cola
+            // de la playlist; `applyEdit` ya ignora las ediciones sin cambios.
+            playlist.update(playlist: newPlaylist)
             playlist.itemFit = descriptor.fit
         default:
             break
@@ -333,8 +341,8 @@ extension InputManager {
             guard let control = entry.source as? DecodingControllable else { continue }
             var enabled = s.visible?.contains(entry.id) ?? true
             if enabled, control.usesVideoDecoder {
-                // Una playlist que precarga o funde vídeo ocupa 2 decodificadores.
-                let cost = max(1, (control as? VideoDecoderCounting)?.activeVideoDecoderCount ?? 1)
+                // Coste fijo: una playlist con vídeo reserva 2 (precarga o fundido, peor caso).
+                let cost = max(1, (control as? VideoDecoderCounting)?.videoDecoderCost ?? 1)
                 enabled = decoders + cost <= maxActiveVideoDecoders
                 if enabled {
                     decoders += cost
