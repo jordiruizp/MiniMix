@@ -18,6 +18,7 @@ struct LiveReportInputs {
 }
 
 extension LiveScenarioRunner {
+    // swiftlint:disable:next function_body_length
     func makeReport(_ inputs: LiveReportInputs) -> LiveReport {
         let probe = renderer.probe.withLock { $0 }
         let samples = inputs.samples
@@ -73,10 +74,13 @@ extension LiveScenarioRunner {
                       maxLoadedItems: $0.maxLoadedItems, createdItems: $0.createdItems,
                       lastStartLatencyMs: $0.lastStartLatency.map { $0 * 1000 })
             },
+            skipsByClip: [:], skipEvents: [],
             maxActiveDecoders: samples.map(\.activeDecoders).max() ?? 0,
             avOffset: "no medido (informativo; la compensación A/V de vídeo está pendiente, PR #15)",
             targets: [], samples: samples)
         var withTargets = report
+        withTargets.skipsByClip = Dictionary(uniqueKeysWithValues: probe.skipsByClip.map { ("\($0.key)", $0.value) })
+        withTargets.skipEvents = probe.skipEvents
         withTargets.targets = Self.targets(report)
         return withTargets
     }

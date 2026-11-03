@@ -58,6 +58,11 @@ final class LiveFrameRenderer: @unchecked Sendable {
         var cutLatencyFrames = Histogram(binWidth: 1, upperBound: 120)
         var cutLatencyMs = Histogram(binWidth: 1, upperBound: 2000)
         var unmatchedCuts = 0
+        /// Último código leído fuera de transición (para registrar dónde están los saltos).
+        var lastCode: FrameCode?
+        var lastCodeFrame = -1
+        var skipEvents: [LiveReport.SkipEvent] = []
+        var skipsByClip: [Int: Int] = [:]
     }
 
     let context: MetalContext
@@ -189,6 +194,18 @@ final class LiveFrameRenderer: @unchecked Sendable {
         }
         if let expected, let clip = reading.code?.clipID, !expected.contains(clip) { state.foreignClipFrames += 1 }
         // Sin código, uniforme y no negro: entrada/item de color (relleno esperado).
+        if let code = reading.code {
+            if let last = state.lastCode, last.clipID == code.clipID, code.frameIndex > last.frameIndex + 1 {
+                let missing = code.frameIndex - last.frameIndex - 1
+                state.skipsByClip[code.clipID, default: 0] += missing
+                if state.skipEvents.count < 500 {
+                    state.skipEvents.append(.init(programFrame: frameIndex, clipID: code.clipID, fromFrame: last.frameIndex,
+                                                  toFrame: code.frameIndex, programFramesSinceLast: frameIndex - state.lastCodeFrame))
+                }
+            }
+            state.lastCode = code
+            state.lastCodeFrame = frameIndex
+        }
         let filler = reading.code == nil && !reading.isBlack && abs(reading.contrast) < 0.05
         state.analysis.append(reading, isFiller: filler)
     }

@@ -114,6 +114,17 @@ public struct LiveReport: Codable, Sendable {
         public var foreignClipFrames: Int
     }
 
+    /// Salto dentro de un clip en Programa (diagnóstico; se guardan los 500 primeros).
+    public struct SkipEvent: Codable, Sendable {
+        /// Índice de fotograma de Programa (rejilla del reloj) donde se vio el salto.
+        public var programFrame: Int
+        public var clipID: Int
+        public var fromFrame: Int
+        public var toFrame: Int
+        /// Fotogramas de Programa desde la lectura anterior (>1 = hubo fotogramas perdidos o en transición).
+        public var programFramesSinceLast: Int
+    }
+
     public struct PlaylistStats: Codable, Sendable {
         public var items: Int
         public var switches: Int
@@ -150,6 +161,8 @@ public struct LiveReport: Codable, Sendable {
     public var cuts: Cuts
     public var program: ProgramFeed
     public var playlist: PlaylistStats?
+    public var skipsByClip: [String: Int]
+    public var skipEvents: [SkipEvent]
     public var maxActiveDecoders: Int
     public var avOffset: String
     public var targets: [Target]
