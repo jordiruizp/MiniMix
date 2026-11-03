@@ -9,7 +9,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | ✅ todos integrados |
 | 2 · D, F, G-real, ORQ T80 | ✅ completa |
-| 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado ✅ (PR #15) · C ediciones de playlist en vivo (feat/c-playlist-live) · G T91 ✅ · Playlist en la App (PR #17, en revisión; sin audio hasta arreglo de D) · H espera a D |
+| 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado ✅ (PR #15) · C ediciones de playlist en vivo (PR #18, ⛔ devuelto: coste de decodificadores y carrera de ediciones) · G T91 ✅ · Playlist en la App (PR #17, en revisión; sin audio hasta arreglo de D) · H espera a D |
 | 4 · T99 release | ⬜ |
 
 ## Tareas
@@ -101,6 +101,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 
 - ~~2026-10-23: jobs no arrancados por límite de facturación~~ → resuelto: el usuario hizo público el repo.
 - **D15** · Preferencias = valores por defecto para proyectos nuevos y el inicial; cambiar el formato del proyecto actual es una acción explícita con confirmación si hay salida activa.
+- **D17** · Límite de decodificadores: una PlaylistInput con vídeo reserva siempre 2 (peor caso), sin depender del instante.
 - **D16** · Tolerancia temporal de repeticiones en cambios de playlist (`lost + 6`) hasta usar `VideoInput.play(atHostTime:)` (PR #15).
 - **D14** · `ProjectDecoder` sigue rechazando `schemaVersion < 1` (v1 es el primer esquema); las migraciones se prueban con el registro.
 - **D13** · Tests de rendimiento: miden siempre y exigen objetivos solo fuera de CI (runners macOS = VM con GPU paravirtualizada).
