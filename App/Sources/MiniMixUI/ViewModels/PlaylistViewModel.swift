@@ -15,6 +15,9 @@ public final class PlaylistViewModel {
     @ObservationIgnored weak var app: AppViewModel?
     /// Cambia cuando la fuente real cambia de item o de estado (las vistas se reevalúan).
     var liveRevision = 0
+    /// Última instantánea de cada fuente real y refrescos seguidos en reposo con la entrada en play.
+    @ObservationIgnored var liveSnapshots: [InputID: LivePlaylistSnapshot] = [:]
+    @ObservationIgnored var idleWhilePlaying: [InputID: Int] = [:]
 
     init(makeSequencer: @escaping @MainActor (Playlist) -> any PlaylistSequencing) {
         self.makeSequencer = makeSequencer
@@ -26,6 +29,8 @@ public final class PlaylistViewModel {
         sequencers = [:]
         itemClocks = [:]
         clockItems = [:]
+        liveSnapshots = [:]
+        idleWhilePlaying = [:]
         for input in project.inputs {
             if let playlist = input.content.playlist { register(input.id, playlist: playlist) }
         }
@@ -37,6 +42,8 @@ public final class PlaylistViewModel {
         sequencers[id] = nil
         itemClocks[id] = nil
         clockItems[id] = nil
+        liveSnapshots[id] = nil
+        idleWhilePlaying[id] = nil
     }
 
     /// Asigna la playlist editada al secuenciador (que sigue el item actual por su id) y reajusta

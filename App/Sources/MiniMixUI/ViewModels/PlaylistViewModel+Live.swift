@@ -18,6 +18,15 @@ public protocol PlaylistSourceControlling: AnyObject {
     var upcomingItemID: ItemID? { get }
     var itemRemainingTime: Double? { get }
     var playlistRemainingTime: Double? { get }
+    /// Encaje de los items (fundidos entre items).
+    var itemFit: FitMode { get set }
+}
+
+/// Lo que la UI refleja de una fuente de playlist; si cambia, las vistas se reevalúan.
+struct LivePlaylistSnapshot: Equatable {
+    var state: SequencerState
+    var current: ItemID?
+    var upcoming: ItemID?
 }
 
 extension PlaylistInput: PlaylistSourceControlling {}
@@ -38,7 +47,8 @@ extension PlaylistViewModel {
         case .restartItem: source.restartItem()
         case .play, .itemEnded: break
         }
-        liveRevision += 1
+        // La fuente aplica el comando en su cola: la UI se actualiza cuando `syncLiveStates`
+        // (o `itemChanged`) vea el cambio, no ahora con valores viejos.
     }
 
     /// Índice en la playlist de la UI de un item de la fuente.
@@ -47,25 +57,51 @@ extension PlaylistViewModel {
         return playlist(for: id)?.items.firstIndex { $0.id == item }
     }
 
-    /// Refresco (~4 Hz): refleja held/ended de la fuente en el estado de reproducción de la entrada.
+    /// Refresco (~4 Hz). Compara cada fuente con su instantánea anterior y:
+    /// - sube `liveRevision` si cambió estado, item actual o siguiente (el panel se reevalúa con
+    ///   los valores ya aplicados por la cola de la fuente);
+    /// - refleja en la entrada solo las **transiciones** de la fuente (a espera, fin o reproducción),
+    ///   así un refresco que llega antes de que la cola procese `play` no la rebaja (sin parpadeo);
+    /// - si la entrada debería sonar pero la fuente sigue en reposo dos refrescos seguidos (un
+    ///   `play` que llegó mientras se preparaba), le reenvía `play()`.
     func syncLiveStates() {
         guard let app else { return }
         for input in app.project.inputs where input.kind == .playlist {
-            guard let source = liveSource(for: input.id), let info = app.playback[input.id] else { continue }
-            switch source.sequencerState {
-            case .held where info.state == .playing:
-                app.playback[input.id]?.pause(at: app.now)
-                app.playback[input.id]?.state = .held
+            guard let source = liveSource(for: input.id) else { continue }
+            let id = input.id
+            let snapshot = LivePlaylistSnapshot(state: source.sequencerState, current: source.currentItemID,
+                                                upcoming: source.upcomingItemID)
+            let previous = liveSnapshots[id]
+            if previous != snapshot {
+                liveSnapshots[id] = snapshot
                 liveRevision += 1
-            case .ended where info.state != .ended:
-                app.playback[input.id]?.end(at: app.now)
-                liveRevision += 1
-            case .playing where info.state == .held || info.state == .ended:
-                app.playback[input.id]?.play(at: app.now)
-                liveRevision += 1
-            default:
-                break
             }
+            let playback = app.playback[id]?.state
+            if previous?.state != snapshot.state { reflectTransition(to: snapshot.state, for: id) }
+            if snapshot.state == .idle, playback == .playing {
+                idleWhilePlaying[id, default: 0] += 1
+                if idleWhilePlaying[id, default: 0] >= 2 {
+                    idleWhilePlaying[id] = 0
+                    source.play()
+                }
+            } else {
+                idleWhilePlaying[id] = nil
+            }
+        }
+    }
+
+    private func reflectTransition(to state: SequencerState, for id: InputID) {
+        guard let app, let info = app.playback[id] else { return }
+        switch state {
+        case .held where info.state == .playing:
+            app.playback[id]?.pause(at: app.now)
+            app.playback[id]?.state = .held
+        case .ended where info.state != .ended:
+            app.playback[id]?.end(at: app.now)
+        case .playing where info.state == .held || info.state == .ended:
+            app.playback[id]?.play(at: app.now)
+        default:
+            break
         }
     }
 }
