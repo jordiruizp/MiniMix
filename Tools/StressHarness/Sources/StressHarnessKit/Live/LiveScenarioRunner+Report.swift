@@ -49,7 +49,9 @@ extension LiveScenarioRunner {
                           droppedDuringWarmup: warmupDropped(samples),
                           maxDroppedIn30Minutes: Self.maxInWindow(samples.filter { $0.t > config.warmupSeconds },
                                                                   baseline: warmupDropped(samples), seconds: 1800),
-                          outOfOrderCompletions: probe.outOfOrder),
+                          outOfOrderCompletions: probe.outOfOrder,
+                          droppedWhileSystemBusy: dropAttribution(samples).busy,
+                          droppedWhileSystemQuiet: dropAttribution(samples).quiet),
             deliveryIntervalMs: loop.delivery.stats, cpuFrameTimeMs: loop.cpuFrame.stats,
             gpuFrameTimeMs: probe.gpuMs.stats,
             usage: Self.usage(samples), memory: memory(samples, start: inputs.memoryStart),
@@ -82,6 +84,17 @@ extension LiveScenarioRunner {
     /// Perdidos acumulados al terminar el calentamiento (arranque de decodificadores).
     private func warmupDropped(_ samples: [LiveReport.Sample]) -> Int {
         samples.last { $0.t <= config.warmupSeconds }?.droppedFrames ?? 0
+    }
+
+    /// Reparte los perdidos tras el calentamiento según la CPU del sistema en cada intervalo.
+    private func dropAttribution(_ samples: [LiveReport.Sample]) -> (busy: Int, quiet: Int) {
+        var busy = 0
+        var quiet = 0
+        for (previous, sample) in zip(samples, samples.dropFirst()) where sample.t > config.warmupSeconds {
+            let delta = sample.droppedFrames - previous.droppedFrames
+            if (sample.systemCPUPercent ?? 0) >= 70 { busy += delta } else { quiet += delta }
+        }
+        return (busy, quiet)
     }
 
     /// Máximo de perdidos en cualquier ventana de `seconds` (contadores acumulados de las muestras).
@@ -129,7 +142,8 @@ extension LiveScenarioRunner {
         return [
             .init(name: "Fotogramas perdidos (tras el calentamiento)", target: "0 en 30 min",
                   measured: "\(f.maxDroppedIn30Minutes) (máx. en 30 min); total \(f.dropped) de \(f.expected), "
-                    + "\(f.droppedDuringWarmup) en el arranque" + (longEnough ? "" : " — ejecución < 30 min"),
+                    + "\(f.droppedDuringWarmup) en el arranque; \(f.droppedWhileSystemQuiet) con la máquina tranquila / "
+                    + "\(f.droppedWhileSystemBusy) con CPU del sistema ≥ 70 %" + (longEnough ? "" : " — ejecución < 30 min"),
                   pass: f.maxDroppedIn30Minutes == 0),
             .init(name: "RAM (phys_footprint pico)", target: "< 1,5 GB",
                   measured: "\(fmt(report.memory.peakMB, 0)) MB; deriva \(fmt(report.memory.footprintDriftMBPerHour)) MB/h",

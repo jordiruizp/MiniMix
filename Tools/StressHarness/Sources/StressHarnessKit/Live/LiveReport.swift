@@ -53,6 +53,10 @@ public struct LiveReport: Codable, Sendable {
         /// Máximo de perdidos (reloj + contrapresión) en cualquier ventana de 30 min tras el calentamiento.
         public var maxDroppedIn30Minutes: Int
         public var outOfOrderCompletions: Int
+        /// Perdidos tras el calentamiento en intervalos de muestreo con la máquina cargada (CPU del sistema
+        /// ≥ 70 %: otros procesos) y con la máquina tranquila. La máquina de desarrollo es compartida.
+        public var droppedWhileSystemBusy: Int
+        public var droppedWhileSystemQuiet: Int
     }
 
     public struct Usage: Codable, Sendable {
