@@ -121,6 +121,9 @@ public final class InputManager: InputManaging {
         } catch is CancellationError {
             throw MediaError.cancelled(id.description)
         }
+        // El encaje de los items de una playlist sigue al `fit` del descriptor. Necesario
+        // para fábricas que no lo pasan al crear la `PlaylistInput` (la de D sí lo pasa).
+        (source as? PlaylistInput)?.itemFit = descriptor.fit
         let decision = state.withLock { s -> Decision? in
             guard s.pending[id]?.token == token else { return nil }
             s.pending[id] = nil
@@ -170,15 +173,20 @@ public final class InputManager: InputManaging {
         guard let entry = state.withLock({ s in s.entries.first { $0.id == id } }) else {
             throw MediaError.notFound(id.description)
         }
-        if Self.needsReplacement(entry.descriptor.content, descriptor.content) {
+        if Self.needsReplacement(entry.descriptor.content, descriptor.content, source: entry.source) {
             try await replace(entry, with: descriptor)
         } else {
             try Self.applyInPlace(descriptor, to: entry.source)
-            state.withLock { s in
+            // La edición de una playlist se aplica en su cola: esperar a que la procese para
+            // recalcular con su `usesVideoDecoder` nuevo (p. ej. pasa a tener vídeo).
+            if let playlist = entry.source as? PlaylistInput { await playlist.settle() }
+            let decision = state.withLock { s -> Decision in
                 if let index = s.entries.firstIndex(where: { $0.id == id && $0.source === entry.source }) {
                     s.entries[index].descriptor = descriptor
                 }
+                return decideLocked(&s)
             }
+            apply(decision)
         }
     }
 
@@ -275,8 +283,11 @@ extension InputManager {
         Self.discard(entry.source)
     }
 
-    static func needsReplacement(_ old: InputContent, _ new: InputContent) -> Bool {
-        switch (old, new) {
+    /// Con `source`: una `PlaylistInput` editada se actualiza en su sitio
+    /// (`update(playlist:)`, conserva el item en curso); solo se sustituye si es otra fuente.
+    static func needsReplacement(_ old: InputContent, _ new: InputContent, source: FrameSource? = nil) -> Bool {
+        if case .playlist = old, case .playlist = new, source is PlaylistInput { return false }
+        return switch (old, new) {
         case let (.video(a), .video(b)), let (.image(a), .image(b)):
             a.path != b.path
         case let (.audio(a, va), .audio(b, vb)):
@@ -300,14 +311,23 @@ extension InputManager {
             audio.setInOut(inPoint: descriptor.inPoint, outPoint: descriptor.outPoint)
         case let (color as ColorInput, .color(newColor)):
             if color.currentColor != newColor { try color.setColor(newColor) }
+        case let (playlist as PlaylistInput, .playlist(newPlaylist)):
+            // Siempre: el estado vivo (`playlist.playlist`) va con retraso respecto a la cola
+            // de la playlist; `applyEdit` ya ignora las ediciones sin cambios.
+            playlist.update(playlist: newPlaylist)
+            playlist.itemFit = descriptor.fit
         default:
             break
         }
     }
 
+    /// Se llama siempre fuera del cerrojo y desde `add`/`remove`/`update` (nunca desde el
+    /// hilo de render). Una `PlaylistInput` se desmonta explícitamente (items, reloj y nodos
+    /// de audio de los items), además de su `deinit` diferido.
     private static func discard(_ source: FrameSource) {
         source.pause()
         (source as? DecodingControllable)?.setDecodingEnabled(false)
+        (source as? PlaylistInput)?.teardown()
     }
 
     /// Calcula (bajo el cerrojo, sin llamar a las fuentes) qué fuentes decodifican:
@@ -321,9 +341,11 @@ extension InputManager {
             guard let control = entry.source as? DecodingControllable else { continue }
             var enabled = s.visible?.contains(entry.id) ?? true
             if enabled, control.usesVideoDecoder {
-                enabled = decoders < maxActiveVideoDecoders
+                // Coste fijo: una playlist con vídeo reserva 2 (precarga o fundido, peor caso).
+                let cost = max(1, (control as? VideoDecoderCounting)?.videoDecoderCost ?? 1)
+                enabled = decoders + cost <= maxActiveVideoDecoders
                 if enabled {
-                    decoders += 1
+                    decoders += cost
                     active.insert(entry.id)
                 }
             }
