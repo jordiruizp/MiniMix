@@ -145,7 +145,10 @@ public struct LiveReport: Codable, Sendable {
     public var schemaVersion = currentSchemaVersion
     public var scenario: LiveScenarioConfig
     public var startedAt: Date
+    /// Duración con el Mac despierto (`SuspendingClock`).
     public var durationSeconds: Double
+    /// Tiempo que el Mac estuvo dormido durante la ejecución (debería ser 0; si no, la ejecución no es válida).
+    public var sleptSeconds: Double
     public var machine: MachineInfo
     public var gpu: String
     public var inputs: [LiveRig.Input]

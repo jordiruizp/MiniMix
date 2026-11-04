@@ -56,6 +56,7 @@ public final class LiveScenarioRunner {
             if loop.firstTick == nil {
                 loop.firstTick = tick
                 loop.firstArrival = arrival
+                loop.firstAwake = SuspendingClock.now
             }
             let frameIndex = Int(((tick - first) / frameDuration).rounded())
             if let lastIndex = loop.lastIndex { loop.droppedByClock += max(0, frameIndex - lastIndex - 1) }
@@ -63,6 +64,7 @@ public final class LiveScenarioRunner {
             let elapsed = tick - first
             if elapsed + frameDuration / 2 >= config.durationSeconds {
                 loop.endArrival = arrival
+                loop.endAwake = SuspendingClock.now
                 break
             }
             scenarioAction(at: tick, elapsed: elapsed, frameIndex: frameIndex)
@@ -178,6 +180,9 @@ struct LoopCounters {
     var firstTick: HostTime?
     var firstArrival: ContinuousClock.Instant?
     var endArrival: ContinuousClock.Instant?
+    /// Igual con `SuspendingClock` (no avanza con el Mac dormido): la diferencia es el tiempo dormido.
+    var firstAwake: SuspendingClock.Instant?
+    var endAwake: SuspendingClock.Instant?
     var lastArrival: ContinuousClock.Instant?
     var lastIndex: Int?
     var lastProgress = 0.0

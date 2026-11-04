@@ -23,7 +23,9 @@ extension LiveScenarioRunner {
         let probe = renderer.probe.withLock { $0 }
         let samples = inputs.samples
         let loop = inputs.loop
-        let duration = loop.firstArrival.map { $0.duration(to: loop.endArrival ?? .now).seconds } ?? 0
+        let wall = loop.firstArrival.map { $0.duration(to: loop.endArrival ?? .now).seconds } ?? 0
+        // Duración despierto: si el Mac se duerme (tapa cerrada en batería) el reloj de host se detiene.
+        let duration = loop.firstAwake.map { $0.duration(to: loop.endAwake ?? .now).seconds } ?? wall
         let expected = Int((config.durationSeconds / config.canvas.frameRate.frameDuration).rounded())
         let loopDropped = loop.droppedByClock + loop.droppedByBackpressure
         let compositorDropped = renderer.program.stats.droppedFrames
@@ -36,7 +38,8 @@ extension LiveScenarioRunner {
         }
         let analysis = probe.analysis
         let report = LiveReport(
-            scenario: config, startedAt: inputs.startedAt, durationSeconds: duration, machine: MachineInfo.current(),
+            scenario: config, startedAt: inputs.startedAt, durationSeconds: duration,
+            sleptSeconds: max(0, wall - duration), machine: MachineInfo.current(),
             gpu: rig.context.device.name, inputs: rig.inputs,
             audio: rig.audio.map { "AudioEngine en marcha (\($0.attachedInputs.count) canales)" }
                 ?? "sin AudioEngine: \(rig.audioError ?? "?")",
@@ -76,7 +79,7 @@ extension LiveScenarioRunner {
             },
             skipsByClip: [:], skipEvents: [],
             maxActiveDecoders: samples.map(\.activeDecoders).max() ?? 0,
-            avOffset: "no medido (informativo; la compensación A/V de vídeo está pendiente, PR #15)",
+            avOffset: "no medido en T90 (informativo según el encargo; requiere capturar la salida de audio y casar el pitido con el parche de la claqueta)",
             targets: [], samples: samples)
         var withTargets = report
         withTargets.skipsByClip = Dictionary(uniqueKeysWithValues: probe.skipsByClip.map { ("\($0.key)", $0.value) })
@@ -141,13 +144,15 @@ extension LiveScenarioRunner {
     static func targets(_ report: LiveReport) -> [LiveReport.Target] {
         let f = report.frames
         let longEnough = report.durationSeconds >= 1800
+        let slept = report.sleptSeconds > 1
+            ? String(format: " — ⚠ el Mac durmió %.0f s durante la ejecución", report.sleptSeconds) : ""
         let latency = report.cuts
         func fmt(_ value: Double, _ digits: Int = 1) -> String { String(format: "%.\(digits)f", value) }
         return [
             .init(name: "Fotogramas perdidos (tras el calentamiento)", target: "0 en 30 min",
                   measured: "\(f.maxDroppedIn30Minutes) (máx. en 30 min); total \(f.dropped) de \(f.expected), "
                     + "\(f.droppedDuringWarmup) en el arranque; \(f.droppedWhileSystemQuiet) con la máquina tranquila / "
-                    + "\(f.droppedWhileSystemBusy) con CPU del sistema ≥ 70 %" + (longEnough ? "" : " — ejecución < 30 min"),
+                    + "\(f.droppedWhileSystemBusy) con CPU del sistema ≥ 70 %" + (longEnough ? "" : " — ejecución < 30 min") + slept,
                   pass: f.maxDroppedIn30Minutes == 0),
             .init(name: "RAM (phys_footprint pico)", target: "< 1,5 GB",
                   measured: "\(fmt(report.memory.peakMB, 0)) MB; deriva \(fmt(report.memory.footprintDriftMBPerHour)) MB/h",
