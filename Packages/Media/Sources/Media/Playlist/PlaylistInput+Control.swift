@@ -15,7 +15,7 @@ extension PlaylistInput {
         let prepared = state.withLock { s -> Bool in
             s.lastTick = time
             s.frameDuration = frame
-            return s.prepared
+            return s.prepared && !s.tornDown
         }
         guard prepared else { return }
         connectAudio()

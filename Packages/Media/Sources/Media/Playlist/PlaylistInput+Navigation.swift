@@ -7,6 +7,7 @@ extension PlaylistInput {
     // MARK: Transporte
 
     func handlePlay() {
+        guard !state.withLock({ $0.tornDown }) else { return }
         let (seqState, paused) = state.withLock { ($0.sequencer.state, $0.userPaused) }
         switch seqState {
         case .playing:
@@ -73,6 +74,7 @@ extension PlaylistInput {
     // MARK: Navegación
 
     func navigate(_ event: SequencerEvent) {
+        guard !state.withLock({ $0.tornDown }) else { return }
         let time = referenceTime
         let outcome = state.withLock { s -> (index: Int, restart: Bool)? in
             let before = s.sequencer.currentIndex
@@ -229,6 +231,7 @@ extension PlaylistInput {
 
     @discardableResult
     func loadStandby(_ index: Int) -> Bool {
+        guard !state.withLock({ $0.tornDown }) else { return false }
         guard let source = createSlot(index: index, asActive: false) else { return false }
         let key = ObjectIdentifier(source)
         let task = Task {
@@ -275,6 +278,12 @@ extension PlaylistInput {
 
     func loadFinished(source: FrameSource) {
         let frame = environment.clock.frameRate.frameDuration
+        if state.withLock({ $0.tornDown }) {
+            state.withLock { $0.loading -= 1 }
+            source.pause()
+            (source as? DecodingControllable)?.setDecodingEnabled(false)
+            return
+        }
         let slot = state.withLock { s -> Slot? in
             s.loading -= 1
             let isActive = s.active?.source === source
@@ -406,9 +415,42 @@ extension PlaylistInput {
         }
     }
 
+    func performTeardown() {
+        let sources = state.withLock { s -> [FrameSource] in
+            s.tornDown = true
+            s.pending = nil
+            s.armed = nil
+            s.scheduledSource = nil
+            s.scheduledAt = nil
+            return [s.active, s.standby, s.outgoing].compactMap { $0?.source }
+        }
+        let tasks = loadTasks.withLock { t -> [Task<Void, Never>] in
+            defer { t.removeAll() }
+            return Array(t.values)
+        }
+        tasks.forEach { $0.cancel() }
+        let ramp = 0.02
+        let nodes = sources.compactMap { ($0 as? AudioSource)?.node }.map(SendableAudioNode.init)
+        let starts = nodes.map { ($0.node as? AVAudioMixing)?.volume ?? 1 }
+        for step in 1...4 {
+            queue.asyncAfter(deadline: .now() + ramp * Double(step) / 4) { [weak self] in
+                for (ref, start) in zip(nodes, starts) {
+                    self?.mixer.setGain(start * Float(1 - Double(step) / 4), for: ref.node)
+                }
+            }
+        }
+        queue.asyncAfter(deadline: .now() + ramp + 0.005) { [weak self] in
+            sources.forEach {
+                $0.pause()
+                ($0 as? DecodingControllable)?.setDecodingEnabled(false)
+            }
+            self?.mixer.teardown()
+        }
+    }
+
     /// Conecta al mezclador los nodos de audio de las ranuras listas (cuando E ya adjuntó `node`).
     func connectAudio() {
-        guard mixer.node.engine != nil else { return }
+        guard mixer.node.engine != nil, !state.withLock({ $0.tornDown }) else { return }
         let slots = state.withLock { s -> [(FrameSource, Float)] in
             var list: [(FrameSource, Float)] = []
             if let active = s.active, active.ready { list.append((active.source, s.fade == nil || s.fadeEnd != nil ? 1 : 0)) }

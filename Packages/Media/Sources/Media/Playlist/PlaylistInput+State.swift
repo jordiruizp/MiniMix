@@ -51,6 +51,8 @@ extension PlaylistInput {
         var fit: FitMode
         var frameDuration: Double
         var prepared = false
+        /// `teardown()` ya se ejecutó: nada vuelve a cargar, conectar ni reproducir.
+        var tornDown = false
         var active: Slot?
         var standby: Slot?
         /// Saliente durante un fundido.

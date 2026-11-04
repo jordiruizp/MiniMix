@@ -89,14 +89,14 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
     /// Desmontaje explícito (opcional; `deinit` hace lo mismo): para los items, deja de
     /// seguir el reloj y separa del motor de audio los nodos de los items. El nodo propio
     /// (`node`) lo separa E (`AudioEngine.detach`).
+    ///
+    /// Se ejecuta en la cola de la playlist (ordenado con lo que ya estuviera encolado): marca la
+    /// playlist como desmontada (ningún tick, carga o arranque posterior conecta ni reproduce
+    /// nada), cancela las cargas en curso y los cambios programados, baja el audio de los items
+    /// en una rampa de 20 ms y después los pausa y separa del motor.
     public func teardown() {
         tickTask.withLock { $0?.cancel() }
-        let sources = state.withLock { s -> [FrameSource] in [s.active, s.standby, s.outgoing].compactMap { $0?.source } }
-        sources.forEach {
-            $0.pause()
-            ($0 as? DecodingControllable)?.setDecodingEnabled(false)
-        }
-        mixer.teardown()
+        enqueue { $0.performTeardown() }
     }
 
     /// Fábrica para `InputManager(playlistFactory:)`.
