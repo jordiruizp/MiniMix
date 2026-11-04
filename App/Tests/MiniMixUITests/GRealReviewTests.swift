@@ -1,4 +1,5 @@
 import AVFAudio
+import Audio
 import Core
 import CoreMocks
 import Foundation
@@ -100,6 +101,9 @@ struct GRealReviewTests {
         func setAudioFollowsProgram(_ follows: Bool, for input: InputID) {
             calls.withLock { $0.append("follows \(follows)") }
         }
+        func setSyncProfile(_ profile: InputSyncProfile, for input: InputID) {
+            calls.withLock { $0.append("sync \(profile)") }
+        }
     }
 
     final class AudioInputs: InputManaging, @unchecked Sendable {
@@ -118,10 +122,10 @@ struct GRealReviewTests {
         let descriptor = InputDescriptor(name: "Música", content: .audio(MediaReference(path: "/tmp/m.wav"), visual: .black),
                                          volume: 0.5)
         try await inputs.add(descriptor)
-        #expect(host.calls.current == ["attach", "volume 0.5", "mute false", "follows true"])
+        #expect(host.calls.current == ["attach", "sync direct", "volume 0.5", "mute false", "follows true"])
         host.calls.withLock { $0.removeAll() }
         try await inputs.update(descriptor) // descriptor capturado antes de un cambio de volumen en la UI
-        #expect(host.calls.current == ["attach"])
+        #expect(host.calls.current == ["attach", "sync direct"])
     }
 
     // MARK: 8 · Reenlace sin cortar el directo

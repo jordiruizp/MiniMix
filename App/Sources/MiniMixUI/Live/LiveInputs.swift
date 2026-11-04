@@ -1,5 +1,6 @@
 import Audio
 import Core
+import Media
 
 /// Lo que `LiveInputs` necesita del motor de audio (lo cumple `AudioEngine`; los tests usan un doble).
 public protocol AudioChannelHosting: AnyObject, Sendable {
@@ -8,9 +9,17 @@ public protocol AudioChannelHosting: AnyObject, Sendable {
     func setVolume(_ volume: Float, for input: InputID)
     func setMute(_ muted: Bool, for input: InputID)
     func setAudioFollowsProgram(_ follows: Bool, for input: InputID)
+    func setSyncProfile(_ profile: InputSyncProfile, for input: InputID)
 }
 
 extension AudioEngine: AudioChannelHosting {}
+
+/// Fuente cuyo audio sale por el tap alineado de Media y necesita saber cuándo cambia la salida.
+public protocol AudioOutputAware: AnyObject {
+    func audioOutputDidChange()
+}
+
+extension VideoInput: AudioOutputAware {}
 
 /// `InputManaging` de la integración (T80): delega en el `InputManager` de Media y además
 /// conecta/desconecta el audio de cada entrada en el `AudioEngine` (Media no lo hace).
@@ -53,24 +62,32 @@ public final class LiveInputs: InputManaging {
     public func audioSource(for id: InputID) -> AudioSource? { inputs.audioSource(for: id) }
     public func setVisible(_ ids: Set<InputID>) { inputs.setVisible(ids) }
 
+    /// `.playerTap` para el audio que sale por el tap alineado de Media (VideoInput y PlaylistInput,
+    /// cuyos items de vídeo usan el mismo tap); `.direct` para el resto (audio, color, imagen).
+    static func syncProfile(for source: FrameSource?) -> InputSyncProfile {
+        source is AudioOutputAware || source is PlaylistSourceControlling ? .playerTap : .direct
+    }
+
     private func attachAudio(_ descriptor: InputDescriptor, applySettings: Bool = true) {
         guard let source = inputs.audioSource(for: descriptor.id) else {
             // Sin audio (o sustituida por contenido sin audio): no dejar un canal huérfano.
             audio.detach(descriptor.id)
             return
         }
-        // TODO(D/E): conectar el `AVAudioMixerNode` de `PlaylistInput` con `AudioEngine.attach`
-        // lanza una NSException de AVFAudio («required condition is false: !srcNodeMixerConns.empty()
-        // && !isSrcNodeConnectedToIONode»): el mezclador aún no tiene entradas cuando se conecta.
-        // Hasta que D/E lo resuelvan, las playlists reales van sin audio (no se puede capturar en Swift).
-        if source is PlaylistSourceControlling {
-            LiveLog.app.error("Audio de playlist «\(descriptor.name, privacy: .public)» desactivado (pendiente D/E)")
-            return
-        }
         do {
             try audio.attach(source)
             // Si un `remove` se coló entre la consulta y el attach, deshacerlo.
-            if inputs.audioSource(for: descriptor.id) !== source { audio.detach(descriptor.id) }
+            if inputs.audioSource(for: descriptor.id) !== source {
+                audio.detach(descriptor.id)
+                return
+            }
+            // Sincronía A/V (plan 10.2): el perfil persiste por id, pero se reaplica en cada attach
+            // porque la fuente puede haber cambiado de tipo (`update` con contenido nuevo).
+            let frameSource = inputs.frameSource(for: descriptor.id)
+            audio.setSyncProfile(Self.syncProfile(for: frameSource), for: descriptor.id)
+            // VideoInput vuelve a leer la latencia de salida del motor tras conectarse.
+            // TODO(D): PlaylistInput no expone un equivalente; sus VideoInput internos la leen al arrancar.
+            (frameSource as? AudioOutputAware)?.audioOutputDidChange()
         } catch {
             LiveLog.app.error("No se pudo conectar el audio de \(descriptor.name, privacy: .public): \(error)")
             report("No se pudo conectar el audio de «\(descriptor.name)»: \(error.localizedDescription)")
