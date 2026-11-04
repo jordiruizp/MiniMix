@@ -9,7 +9,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | ✅ todos integrados |
 | 2 · D, F, G-real, ORQ T80 | ✅ completa |
-| 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado ✅ (PR #15) · C ediciones de playlist en vivo ✅ (PR #18) · menores A/V ✅ (PR #20) · G T91 ✅ · Playlist en la App ✅ (PR #17) · attach con motor en marcha ✅ (PR #19) · G: audio de playlists + perfil A/V en la App · H espera a D |
+| 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado ✅ (PR #15) · C ediciones de playlist en vivo ✅ (PR #18) · menores A/V ✅ (PR #20) · G T91 ✅ · Playlist en la App ✅ (PR #17) · attach con motor en marcha ✅ (PR #19) · G: audio de playlists + perfil A/V en la App (PR #22, aprobado con menores) · H espera a D |
 | 4 · T99 release | ⬜ |
 
 ## Tareas
@@ -150,6 +150,9 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 - Medido (altavoces internos): desfase estable −10,1…+1,9 ms (media −3,1) con compensación; sin ella ≈ −92 ms.
 
 ## Deuda menor (no bloqueante, para Ola 3)
+
+- ⚠ Concurrencia (D/E): `PlaylistAudioMixer.connect` modifica el grafo de AVAudioEngine desde la cola de la playlist sin el cerrojo de `AudioEngine`; puede coincidir con attach/detach de otro canal. Propuesta: API en Audio para que la playlist conecte/desconecte nodos de items bajo el cerrojo del motor.
+- `videoPresentationLatency` = 1 fotograma es aproximado; validar con claqueta (H).
 
 - Media (opcional): en el reanclaje tras resetTimeline con diferencia < 20 ms, conservar la continuación en vez de adoptar el tiempo informado (evita un microajuste ≤ 4 ms en reanudaciones).
 
