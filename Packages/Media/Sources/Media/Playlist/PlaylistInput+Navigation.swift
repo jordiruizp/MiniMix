@@ -173,9 +173,7 @@ extension PlaylistInput {
                 source.play()
             }
         } else {
-            let wasPaused = source.playbackState == .paused
             source.play()
-            if wasPaused { measureStartLatency(of: source) }
         }
         emitStarted(slot)
     }
@@ -189,8 +187,8 @@ extension PlaylistInput {
                 s.fade = nil
             }
             s.pending = nil
-            s.scheduledPlay = nil
             s.scheduledSource = nil
+            s.scheduledAt = nil
             return ([armed, s.fadeEnd != nil], s.standby)
         }
         let (wasArmed, fading) = (flags[0], flags[1])

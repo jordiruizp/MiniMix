@@ -58,12 +58,9 @@ extension PlaylistInput {
         var pending: Pending?
         var fadeEnd: HostTime?
         /// Arranque preciso programado del entrante (se invalida al cancelar).
-        var armID = 0
-        var scheduledPlay: Int?
         var scheduledSource: ObjectIdentifier?
-        /// Latencia estimada de arranque de AVPlayer (s) de un vídeo precargado y en pausa:
-        /// 0,19–0,31 s medidos en MacBook Neo; se corrige con cada arranque programado.
-        var startLatency = 0.24
+        /// Tick en el que se pidió que el vídeo entrante presente su In (`play(atHostTime:)`).
+        var scheduledAt: HostTime?
         var userPaused = false
         var decodingEnabled = true
         var lastTick: HostTime?

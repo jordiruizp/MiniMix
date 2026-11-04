@@ -46,8 +46,6 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
         public var switches = 0
         /// Cambios que esperaron a una precarga no lista a tiempo (se mantuvo el último fotograma).
         public var lateSwitches = 0
-        /// Última latencia de arranque medida de un vídeo entrante (s).
-        public var lastStartLatency: Double?
     }
 
     public let id: InputID
@@ -60,8 +58,6 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
     let queue: DispatchQueue
     let logger = Logger(subsystem: "MiniMix", category: "Playlist")
     private let tickTask = LockedState<Task<Void, Never>?>(nil)
-    /// Temporizadores de arranque anticipado pendientes (por id de programación).
-    let timers = LockedState<[Int: DispatchSourceTimer]>([:])
     /// Cargas en curso por fuente (se cancelan si la ranura se descarta antes de estar lista).
     let loadTasks = LockedState<[ObjectIdentifier: Task<Void, Never>]>([:])
 
