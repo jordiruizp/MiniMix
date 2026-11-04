@@ -9,7 +9,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | ✅ todos integrados |
 | 2 · D, F, G-real, ORQ T80 | ✅ completa |
-| 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado ✅ (PR #15) · C ediciones de playlist en vivo (PR #18, ⛔ devuelto: coste de decodificadores y carrera de ediciones) · G T91 ✅ · Playlist en la App (PR #17, en revisión; sin audio hasta arreglo de D) · H espera a D |
+| 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado ✅ (PR #15) · C ediciones de playlist en vivo (PR #18, ⛔ devuelto: coste de decodificadores y carrera de ediciones) · G T91 ✅ · Playlist en la App ✅ (PR #17) · attach con motor en marcha ✅ (PR #19) · G: audio de playlists + perfil A/V en la App · H espera a D |
 | 4 · T99 release | ⬜ |
 
 ## Tareas
@@ -115,7 +115,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
   crear el AUv3 propio `RampGainUnit`). Sin sandbox funciona; `swift test` no corre en sandbox. Asignado a E
   (`feat/e-audio-sandbox`). Nueva prueba de humo `scripts/smoke-app.sh` en el CI para que no vuelva a pasar.
 
-## Bloqueo: audio de playlists
+## ~~Bloqueo: audio de playlists~~ (resuelto en Audio, PR #19; falta conectarlo en la App — G)
 
 - `AudioEngine.attach(PlaylistInput)` con el motor arrancado lanza NSException de AVFAudio
   («!srcNodeMixerConns.empty() && !isSrcNodeConnectedToIONode»): mezclador de la playlist sin entradas al conectarse.
