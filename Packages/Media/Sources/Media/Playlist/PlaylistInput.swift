@@ -94,8 +94,19 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
     /// playlist como desmontada (ningún tick, carga o arranque posterior conecta ni reproduce
     /// nada), cancela las cargas en curso y los cambios programados, baja el audio de los items
     /// en una rampa de 20 ms y después los pausa y separa del motor.
+    ///
+    /// Lo inmediato (en el hilo que llama): la marca de desmontada y la pausa de los items sin
+    /// audio, que no necesitan rampa. El resto, en la cola.
     public func teardown() {
         tickTask.withLock { $0?.cancel() }
+        let silent = state.withLock { s -> [FrameSource] in
+            s.tornDown = true
+            return [s.active, s.standby, s.outgoing].compactMap { $0?.source }.filter { ($0 as? AudioSource)?.node == nil }
+        }
+        silent.forEach {
+            $0.pause()
+            ($0 as? DecodingControllable)?.setDecodingEnabled(false)
+        }
         enqueue { $0.performTeardown() }
     }
 
