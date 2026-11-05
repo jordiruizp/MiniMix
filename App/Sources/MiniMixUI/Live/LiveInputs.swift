@@ -64,7 +64,7 @@ public final class LiveInputs: InputManaging {
 
     /// `.playerTap` para el audio que sale por el tap alineado de Media (VideoInput y PlaylistInput,
     /// cuyos items de vídeo usan el mismo tap); `.direct` para el resto (audio, color, imagen).
-    static func syncProfile(for source: FrameSource?) -> InputSyncProfile {
+    static func syncProfile(for source: AnyObject?) -> InputSyncProfile {
         source is AudioOutputAware || source is PlaylistSourceControlling ? .playerTap : .direct
     }
 
@@ -74,6 +74,10 @@ public final class LiveInputs: InputManaging {
             audio.detach(descriptor.id)
             return
         }
+        // Sincronía A/V (plan 10.2): el perfil va ANTES del attach (los ajustes persisten por id aunque
+        // no haya canal), así el canal nace con el retardo correcto y sin fundido inicial. Se reaplica
+        // en cada attach porque la fuente puede haber cambiado de tipo (`update` con contenido nuevo).
+        audio.setSyncProfile(Self.syncProfile(for: source), for: descriptor.id)
         do {
             try audio.attach(source)
             // Si un `remove` se coló entre la consulta y el attach, deshacerlo.
@@ -81,13 +85,9 @@ public final class LiveInputs: InputManaging {
                 audio.detach(descriptor.id)
                 return
             }
-            // Sincronía A/V (plan 10.2): el perfil persiste por id, pero se reaplica en cada attach
-            // porque la fuente puede haber cambiado de tipo (`update` con contenido nuevo).
-            let frameSource = inputs.frameSource(for: descriptor.id)
-            audio.setSyncProfile(Self.syncProfile(for: frameSource), for: descriptor.id)
             // VideoInput vuelve a leer la latencia de salida del motor tras conectarse.
             // TODO(D): PlaylistInput no expone un equivalente; sus VideoInput internos la leen al arrancar.
-            (frameSource as? AudioOutputAware)?.audioOutputDidChange()
+            (source as? AudioOutputAware)?.audioOutputDidChange()
         } catch {
             LiveLog.app.error("No se pudo conectar el audio de \(descriptor.name, privacy: .public): \(error)")
             report("No se pudo conectar el audio de «\(descriptor.name)»: \(error.localizedDescription)")
