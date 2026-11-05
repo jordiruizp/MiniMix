@@ -172,6 +172,8 @@ extension PlaylistInput {
                 } else if let audio = source as? AudioInput {
                     await audio.restart()
                 }
+                // Un teardown mientras volvía al In no debe dejar un play tardío.
+                guard !self.state.withLock({ $0.tornDown }) else { return }
                 source.play()
             }
         } else {
@@ -189,17 +191,33 @@ extension PlaylistInput {
                 s.fade = nil
             }
             s.pending = nil
-            s.scheduledSource = nil
-            s.scheduledAt = nil
-            return ([armed, s.fadeEnd != nil], s.standby)
+            let standby = s.standby
+            // El arranque a hora fija se anula; si el entrante ya corría, vuelve a su In y no se
+            // reprograma hasta que el seek termine (`rewinding`).
+            if var slot = s.standby {
+                let running = slot.startAt != nil || slot.source.playbackState == .playing
+                slot.startAt = nil
+                slot.rewinding = running
+                s.standby = slot
+            }
+            return ([armed, s.fadeEnd != nil], standby)
         }
         let (wasArmed, fading) = (flags[0], flags[1])
         if wasArmed { renderer.endComposite() }
-        // El entrante pudo arrancar ya (arranque anticipado): volver a su In.
-        if let standby, standby.source.playbackState == .playing {
+        if let standby, state.withLock({ $0.standby?.rewinding == true && $0.standby?.source === standby.source }) {
             let source = standby.source
             source.pause()
-            Task { await source.seek(to: standby.item.inPoint ?? 0) }
+            Task {
+                await source.seek(to: standby.item.inPoint ?? 0)
+                self.enqueue { input in
+                    input.state.withLock { s in
+                        if var slot = s.standby, slot.source === source {
+                            slot.rewinding = false
+                            s.standby = slot
+                        }
+                    }
+                }
+            }
         }
         if fading { finishFade() }
     }
@@ -322,8 +340,12 @@ extension PlaylistInput {
             if s.standby?.source === source { defer { s.standby = nil }; return s.standby }
             return nil
         }
-        // Ranura ya descartada (carga cancelada): no es un fallo del item.
+        // Ranura ya descartada (carga cancelada) o playlist desmontada: no es un fallo del item.
         guard let slot else { return }
+        guard !state.withLock({ $0.tornDown }) else {
+            release(slot, delayed: false)
+            return
+        }
         continuation.yield(.error("Item \(index + 1): \(error)"))
         release(slot, delayed: false)
         disableFailedItem(id: slot.item.id)
@@ -416,14 +438,15 @@ extension PlaylistInput {
     }
 
     func performTeardown() {
-        let sources = state.withLock { s -> [FrameSource] in
+        let sources = state.withLock { s -> [FrameSource]? in
+            guard !s.teardownStarted else { return nil }
+            s.teardownStarted = true
             s.tornDown = true
             s.pending = nil
             s.armed = nil
-            s.scheduledSource = nil
-            s.scheduledAt = nil
             return [s.active, s.standby, s.outgoing].compactMap { $0?.source }
         }
+        guard let sources else { return }
         let tasks = loadTasks.withLock { t -> [Task<Void, Never>] in
             defer { t.removeAll() }
             return Array(t.values)
@@ -445,6 +468,7 @@ extension PlaylistInput {
                 ($0 as? DecodingControllable)?.setDecodingEnabled(false)
             }
             self?.mixer.teardown()
+            self?.state.withLock { $0.teardownFinished = true }
         }
     }
 

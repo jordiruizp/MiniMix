@@ -2,6 +2,7 @@ import AVFAudio
 import Core
 import CoreMocks
 import Foundation
+import Metal
 import Testing
 @testable import Media
 
@@ -64,14 +65,56 @@ extension MediaSerialTests {
             #expect(item.engine === second)
             #expect(input.mixer.isConnected(item))
             input.teardown()
-            await input.settle()
-            try await Task.sleep(for: .milliseconds(60))
+            await input.waitForTeardown()
             #expect(item.engine == nil)
             #expect(input.mixer.ownedCount == 0)
         }
 
         /// Revisión M2 (#18): desmontar una playlist sonando hace rampa, cancela cargas y no deja
         /// nada tardío (ni carga, ni conexión, ni play).
+        /// Fuente cuya carga tarda y falla (ignora la cancelación, como un decodificador lento).
+        final class SlowFailingSource: FrameSource, @unchecked Sendable {
+            let id = InputID()
+            let nativeSize = PixelSize(width: 16, height: 9)
+            let playbackState = PlaybackState.idle
+            let events = AsyncStream<SourceEvent> { $0.finish() }
+            func prepare() async throws {
+                try? await Task.sleep(for: .milliseconds(80))
+                throw MediaError.unreadable("lenta")
+            }
+            func texture(for time: HostTime) -> MTLTexture? { nil }
+            func play() {}
+            func pause() {}
+            func seek(to seconds: Double) async {}
+        }
+
+        /// m1: una carga que falla después del teardown no avisa ni deshabilita el item.
+        @Test func loadFailureAfterTeardownIsSilent() async throws {
+            let bad = PlaylistItem(source: .video(MediaReference(path: "/lenta.mp4")))
+            let base = Kit.environment()
+            let environment = base.with(itemFactory: { item, playlist in
+                item.id == bad.id ? SlowFailingSource() : try base.makeItemSource(item, in: playlist)
+            })
+            let input = try PlaylistInput(playlist: Playlist(items: Kit.colors([Kit.red], seconds: 0.5) + [bad]),
+                                          environment: environment, drivenByClock: false)
+            let events = input.events
+            try await input.prepare()
+            var driver = ManualDriver(input)
+            await driver.run(1)
+            input.play()
+            await input.settle()
+            input.tick(driver.time + 1 / 60.0) // lanza la precarga (lenta) del item que fallará
+            await input.settle()
+            #expect(input.state.withLock { $0.loading } == 1)
+            input.teardown()
+            await input.waitForTeardown()
+            try await Task.sleep(for: .milliseconds(150))
+            await input.settle()
+            #expect(input.playlist.items[1].enabled)
+            let error = await firstEvent(events, timeout: 0.3) { if case .error = $0 { true } else { false } }
+            #expect(error == nil)
+        }
+
         @Test func teardownRampsCancelsAndStaysDown() async throws {
             let engine = AVAudioEngine()
             let input = try PlaylistInput(playlist: try await audioPlaylist(),
@@ -95,7 +138,9 @@ extension MediaSerialTests {
                 samples.append(item.volume)
                 try await Task.sleep(for: .milliseconds(1))
             }
-            try await Task.sleep(for: .milliseconds(40))
+            input.teardown() // idempotente
+            await input.waitForTeardown()
+            #expect(input.state.withLock { $0.teardownFinished })
             #expect(samples.contains { $0 > 0 && $0 < 1 }, "rampa \(samples)")
             #expect((item as? AVAudioNode)?.engine == nil)
             #expect(input.loadTasks.withLock { $0.isEmpty })

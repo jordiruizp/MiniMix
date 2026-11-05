@@ -79,7 +79,9 @@ extension PlaylistInput {
                 if endHost <= time.seconds + frame / 2 { markLate(itemIndex: next) }
                 return
             }
-            let at = start.seconds <= time.seconds + frame / 2 ? time + frame : start
+            // Con arranque a hora fija, el cambio va exactamente a ese tick (el vídeo ya corre
+            // hacia él); sin él, al siguiente tick si ya se pasó.
+            let at = standby.startAt ?? (start.seconds <= time.seconds + frame / 2 ? time + frame : start)
             arm(standby, at: at, fade: fade)
         case .held, .ended:
             scheduleStop(endHost: endHost, ended: after == .ended, at: time, frame: frame)
@@ -139,20 +141,25 @@ extension PlaylistInput {
     /// `preroll` (llenar las tuberías) antes de `setRate(_:time:atHostTime:)`, y el preroll
     /// tarda ~0,1–0,3 s.
     static let startLead = 1.0
+    /// Antelación mínima: con menos, el preroll no acaba a tiempo y AVPlayer saltaría el inicio
+    /// del clip; se deja el `play()` inmediato del commit.
+    static let minimumStartLead = 0.3
 
     /// Pide a `VideoInput` que su posición actual (el In) se presente exactamente en el tick
-    /// `at` del cambio o del inicio del fundido (`play(atHostTime:)`), en cuanto falte menos de
-    /// `startLead`. Devuelve el tick ya programado para este entrante (fijo desde que se pidió),
-    /// o nil si aún no toca o no es vídeo.
+    /// `at` del cambio o del inicio del fundido (`play(atHostTime:)`), cuando falten entre
+    /// `minimumStartLead` y `startLead`. La hora se guarda en la propia ranura (`Slot.startAt`):
+    /// si la ranura se descarta, se descarta con ella. Devuelve el tick ya programado (fijo desde
+    /// que se pidió), o nil si no toca, no es vídeo o el entrante aún vuelve a su In.
     @discardableResult
     private func scheduleStart(of incoming: Slot, at: HostTime, now: HostTime) -> HostTime? {
         guard let video = incoming.source as? VideoInput else { return nil }
-        let key = ObjectIdentifier(video)
         let decision = state.withLock { s -> (start: HostTime, request: Bool)? in
-            if s.scheduledSource == key, let scheduled = s.scheduledAt { return (scheduled, false) }
-            guard at.seconds - now.seconds <= Self.startLead else { return nil }
-            s.scheduledSource = key
-            s.scheduledAt = at
+            guard var standby = s.standby, standby.source === video, !standby.rewinding else { return nil }
+            if let scheduled = standby.startAt { return (scheduled, false) }
+            let lead = at.seconds - now.seconds
+            guard lead <= Self.startLead, lead >= Self.minimumStartLead else { return nil }
+            standby.startAt = at
+            s.standby = standby
             return (at, true)
         }
         guard let decision else { return nil }
@@ -215,9 +222,8 @@ extension PlaylistInput {
             guard after == .playing(index: incoming.index) else { return .mismatch(after) }
             s.sequencer = probe
             // Sin arranque a hora fija (precarga tardía) se arranca ya.
-            let play = s.scheduledSource != ObjectIdentifier(incoming.source)
-            s.scheduledSource = nil
-            s.scheduledAt = nil
+            // Sin arranque a hora fija (precarga tardía) se arranca ya.
+            let play = incoming.startAt == nil
             var slot = incoming
             slot.started = true
             slot.elapsedBase = 0

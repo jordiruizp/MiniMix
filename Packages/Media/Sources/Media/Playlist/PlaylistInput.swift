@@ -86,17 +86,17 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
         continuation.finish()
     }
 
-    /// Desmontaje explícito (opcional; `deinit` hace lo mismo): para los items, deja de
-    /// seguir el reloj y separa del motor de audio los nodos de los items. El nodo propio
-    /// (`node`) lo separa E (`AudioEngine.detach`).
+    /// Desmontaje explícito: hace **todo** lo necesario por sí mismo (quien lo llame no debe
+    /// pausar ni desactivar los items antes, o la rampa no sonaría). Si nadie lo llama, al
+    /// soltarse la última referencia `deinit` solo hace `teardownLater` (rampa y separación de
+    /// los nodos de los items). El nodo propio (`node`) lo separa E (`AudioEngine.detach`).
     ///
-    /// Se ejecuta en la cola de la playlist (ordenado con lo que ya estuviera encolado): marca la
-    /// playlist como desmontada (ningún tick, carga o arranque posterior conecta ni reproduce
-    /// nada), cancela las cargas en curso y los cambios programados, baja el audio de los items
-    /// en una rampa de 20 ms y después los pausa y separa del motor.
-    ///
-    /// Lo inmediato (en el hilo que llama): la marca de desmontada y la pausa de los items sin
-    /// audio, que no necesitan rampa. El resto, en la cola.
+    /// - En el hilo que llama: deja de seguir el reloj, marca la playlist como desmontada (ningún
+    ///   tick, carga, `play` o navegación posterior conecta ni reproduce nada) y pausa ya los
+    ///   items sin audio (no necesitan rampa).
+    /// - En la cola de la playlist: cancela cargas y arranques programados, baja el audio de los
+    ///   items en una rampa de 20 ms y después los pausa, desactiva su decodificación y separa
+    ///   sus nodos. Idempotente. `waitForTeardown()` espera a que termine.
     public func teardown() {
         tickTask.withLock { $0?.cancel() }
         let silent = state.withLock { s -> [FrameSource] in
@@ -108,6 +108,17 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
             ($0 as? DecodingControllable)?.setDecodingEnabled(false)
         }
         enqueue { $0.performTeardown() }
+    }
+
+    /// Espera (hasta `timeout` s) a que termine un `teardown()` ya pedido: rampa, pausa y
+    /// separación de los nodos de los items hechas.
+    public func waitForTeardown(timeout: Double = 1) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            await settle()
+            if state.withLock({ $0.teardownFinished }) { return }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
     }
 
     /// Fábrica para `InputManager(playlistFactory:)`.
@@ -145,7 +156,7 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
         var lastError: Error?
         while true {
             let next = await onQueue { () -> (FrameSource, Int)? in
-                guard !self.state.withLock({ $0.prepared }) else { return nil }
+                guard !self.state.withLock({ $0.prepared || $0.tornDown }) else { return nil }
                 guard let index = self.state.withLock({ $0.sequencer.upcomingIndex }) else { return nil }
                 return self.createSlot(index: index, asActive: true).map { ($0, index) }
             }

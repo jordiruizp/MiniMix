@@ -5,8 +5,8 @@ import Metal
 extension PlaylistInput {
     /// Una ranura (A/B): un item cargado.
     struct Slot {
-        let index: Int
-        let item: PlaylistItem
+        var index: Int
+        var item: PlaylistItem
         let source: FrameSource
         var ready = false
         var started = false
@@ -15,6 +15,10 @@ extension PlaylistInput {
         /// Reloj de items sin posición propia (imagen, color, audio).
         var elapsedBase: Double = 0
         var runningSince: HostTime?
+        /// Tick pedido a `VideoInput.play(atHostTime:)` para presentar su In (solo la ranura de espera).
+        var startAt: HostTime?
+        /// Volviendo al In tras anular un arranque: no se reprograma hasta terminar.
+        var rewinding = false
 
         var isVideo: Bool { source is VideoInput }
     }
@@ -53,16 +57,14 @@ extension PlaylistInput {
         var prepared = false
         /// `teardown()` ya se ejecutó: nada vuelve a cargar, conectar ni reproducir.
         var tornDown = false
+        var teardownStarted = false
+        var teardownFinished = false
         var active: Slot?
         var standby: Slot?
         /// Saliente durante un fundido.
         var outgoing: Slot?
         var pending: Pending?
         var fadeEnd: HostTime?
-        /// Arranque preciso programado del entrante (se invalida al cancelar).
-        var scheduledSource: ObjectIdentifier?
-        /// Tick en el que se pidió que el vídeo entrante presente su In (`play(atHostTime:)`).
-        var scheduledAt: HostTime?
         var userPaused = false
         var decodingEnabled = true
         var lastTick: HostTime?
