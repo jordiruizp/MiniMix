@@ -21,13 +21,19 @@ public struct PlaylistEnvironment: Sendable {
     public var preloadLead: Double
     /// Margen entre dejar de mostrar un item y liberarlo (command buffers en vuelo).
     public var releaseDelay: Double
+    /// Ejecuta un cambio del grafo de audio (attach/connect/disconnect/detach de los nodos de
+    /// los items) bajo el cerrojo del motor de E; nil = directamente. La App lo cablea como
+    /// `{ change in audio.performGraphChange { _ in change() } }`. Debe ejecutar `change` antes
+    /// de volver; `change` nunca llama a `AudioEngine` ni espera a la cola de la playlist.
+    public var graphChange: (@Sendable (@escaping () -> Void) -> Void)?
     var itemFactory: ItemFactory?
     var durationProbe: DurationProbe?
 
     public init(context: MetalContext, clock: any MasterClockProtocol, canvasSize: PixelSize = .hd1080,
                 textureCache: VideoTextureCache? = nil, imageLoader: ImageInput.Loader? = nil,
                 urlResolver: @escaping InputManager.URLResolver = { URL(fileURLWithPath: $0.path) },
-                preloadLead: Double = 3, releaseDelay: Double = 0.25) {
+                preloadLead: Double = 3, releaseDelay: Double = 0.25,
+                graphChange: (@Sendable (@escaping () -> Void) -> Void)? = nil) {
         self.context = context
         self.clock = clock
         self.canvasSize = canvasSize
@@ -37,6 +43,7 @@ public struct PlaylistEnvironment: Sendable {
         self.urlResolver = urlResolver
         self.preloadLead = preloadLead
         self.releaseDelay = releaseDelay
+        self.graphChange = graphChange
     }
 
     /// Sustituye la creación de fuentes y el sondeo de duraciones (tests).

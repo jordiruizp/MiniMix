@@ -483,7 +483,7 @@ extension PlaylistInput {
             return list
         }
         for (source, gain) in slots {
-            guard let node = (source as? AudioSource)?.node, !mixer.isConnected(node) else { continue }
+            guard let node = (source as? AudioSource)?.node, mixer.needsConnect(node) else { continue }
             mixer.connect(node, gain: gain)
         }
     }
