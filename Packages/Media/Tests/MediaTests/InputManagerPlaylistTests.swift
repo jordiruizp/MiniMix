@@ -112,6 +112,8 @@ extension MediaSerialTests {
             replaced.content = .color(.black)
             try await manager.update(replaced)
             #expect(manager.frameSource(for: first.id) is ColorInput)
+            // El desmontaje es asíncrono (rampa de audio); justo después los items aún suenan.
+            await input.waitForTeardown()
             #expect(created.current.allSatisfy { $0.playbackState != .playing && !$0.isEnabled })
 
             // Quitar otra playlist: también se desmonta.
@@ -123,6 +125,7 @@ extension MediaSerialTests {
             await other.settle()
             await otherDriver.run(5)
             await manager.remove(second.id)
+            await other.waitForTeardown()
             #expect(created.current.allSatisfy { $0.playbackState != .playing && !$0.isEnabled })
         }
 
