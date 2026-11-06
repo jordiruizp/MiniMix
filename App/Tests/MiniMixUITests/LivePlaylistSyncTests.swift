@@ -118,6 +118,8 @@ struct LivePlaylistSyncTests {
         h.app.send(.setFit(h.playlist, .fill))
         #expect(await eventually { source.itemFit == .fill })
         #expect(source.live.current.playlist?.items[0].stopAfter == true)
-        #expect(manager.log.current.updates.isEmpty, "la playlist real no se sustituye")
+        #expect(manager.log.current.updates.contains { $0.id == h.playlist && $0.fit == .fill },
+                "las ediciones pasan por InputManaging.update")
+        #expect(manager.testSource(h.playlist) === source, "la playlist real no se sustituye")
     }
 }

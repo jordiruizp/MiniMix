@@ -149,6 +149,13 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 - L8 (D): `usesVideoDecoder` es Bool; contar 2 decodificadores de playlist requiere cambio de contrato o lógica en InputManager.
 - Medido (altavoces internos): desfase estable −10,1…+1,9 ms (media −3,1) con compensación; sin ella ≈ −92 ms.
 
+## PRs abiertos (Ola 3, 2026-11-05)
+
+- #21 guardia AudioInput.currentTime — CI local verde; relanzar CI en el runner propio.
+- #22 audio de playlists + perfil A/V en la App — menores hechos (0bb8a6c); espera CI.
+- #23 Playlist play(atHostTime:) + teardown — ⛔ devuelto (B1 cruza con C: discard; M1–M3 arranque fijado). D corrige; C hará `discard` sobre la rama de D.
+- #24 AudioEngine.performGraphChange (E) — espera CI; D hará el hook en PlaylistEnvironment tras #23.
+
 ## Deuda menor (no bloqueante, para Ola 3)
 
 - ⚠ Concurrencia (D/E): `PlaylistAudioMixer.connect` modifica el grafo de AVAudioEngine desde la cola de la playlist sin el cerrojo de `AudioEngine`; puede coincidir con attach/detach de otro canal. Propuesta: API en Audio para que la playlist conecte/desconecte nodos de items bajo el cerrojo del motor.

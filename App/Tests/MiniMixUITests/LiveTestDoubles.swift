@@ -102,6 +102,11 @@ final class TestInputManager: InputManaging, @unchecked Sendable {
         if let updateError { throw updateError }
         calls.withLock { $0.append("update") }
         log.withLock { $0.updates.append(descriptor) }
+        // Como `InputManager` (C · PR #18): la playlist se edita en sitio y recibe el encaje.
+        if let playlist = descriptor.content.playlist, let live = testSource(descriptor.id) as? TestPlaylistSource {
+            live.update(playlist: playlist)
+            live.itemFit = descriptor.fit
+        }
         if replaceOnUpdate {
             let source = TestFrameSource(id: descriptor.id)
             sources.withLock { $0[descriptor.id] = source }

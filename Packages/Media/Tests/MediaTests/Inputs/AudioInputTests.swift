@@ -115,7 +115,22 @@ extension MediaSerialTests {
             try await input.prepare()
             let engine = try OfflineEngine(attach: input.node!)
             input.play()
-            let peaks = try engine.render(seconds: 2)
+            // El render offline va mucho más rápido que el tiempo real; la siguiente vuelta se
+            // programa de forma asíncrona al consumirse la anterior (en tiempo real hay una
+            // vuelta entera, 0,5 s, de margen). Antes de cada bloque se espera a que lo
+            // programado cubra lo renderizado más una vuelta: así se comprueba el bucle sin
+            // huecos en el audio renderizado, sin depender de la planificación del hilo del test
+            // (que con la máquina saturada puede retrasar la reprogramación unos ms).
+            var peaks: [Float] = []
+            var rendered = 0.0
+            for _ in 0..<20 {
+                let deadline = Date().addingTimeInterval(5)
+                while input.scheduledSecondsForTesting < rendered + 0.1 + 0.45, Date() < deadline { // ~1 vuelta (−ε)
+                    try await Task.sleep(for: .milliseconds(1))
+                }
+                peaks += try engine.render(seconds: 0.1)
+                rendered += 0.1
+            }
             #expect(peaks.dropFirst().allSatisfy { $0 > 0.3 })
             let ended = await firstEvent(events, timeout: 0.5) { $0 == .ended }
             #expect(ended == nil)
@@ -135,6 +150,20 @@ extension MediaSerialTests {
             #expect(abs((input.currentTime ?? 0) - 1.0) < 0.05)
             await input.seek(to: 1.5)
             #expect(input.currentTime == 1.5)
+        }
+
+        /// Motor en marcha que aún no ha renderizado: `currentTime`, `pause` y `setLoop` no
+        /// deben llamar a `playerTime(forNodeTime:)` con un tiempo sin muestra válida.
+        @Test func currentTimeBeforeAnyRenderUsesLastKnownPosition() async throws {
+            let input = makeInput(try await TestMediaFactory.shared.audio(.wav, seconds: 2), loop: true, inPoint: 0.25)
+            try await input.prepare()
+            let engine = try OfflineEngine(attach: input.node!) // arrancado, sin renderOffline
+            input.play()
+            #expect(input.currentTime == 0.25)
+            input.setLoop(false)
+            input.pause()
+            #expect(input.currentTime == 0.25)
+            _ = engine
         }
 
         /// Desactivar el bucle con la vuelta siguiente en cola no reproduce una vuelta de más.
