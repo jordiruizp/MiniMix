@@ -29,14 +29,14 @@ public struct Histogram: Sendable {
 
     public var mean: Double { sampleCount == 0 ? 0 : sum / Double(sampleCount) }
 
-    /// Percentil `p` (0…1): borde superior del intervalo que lo contiene.
+    /// Percentil `p` (0…1): centro del intervalo que lo contiene (sin pasar del máximo).
     public func percentile(_ p: Double) -> Double {
         guard sampleCount > 0 else { return 0 }
         let rank = Int((Double(sampleCount) * p).rounded(.up))
         var seen = 0
         for (index, n) in bins.enumerated() {
             seen += n
-            if seen >= rank { return Swift.min(Double(index + 1) * binWidth, max) }
+            if seen >= rank { return Swift.min((Double(index) + 0.5) * binWidth, max) }
         }
         let sorted = overflow.sorted()
         let rest = rank - seen

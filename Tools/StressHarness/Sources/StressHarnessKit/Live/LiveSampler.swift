@@ -46,7 +46,8 @@ final class LiveSampler: Sendable {
                     gpuSystemPercent: GPUUtilization.systemPercent(),
                     gpuFramePercent: wall > 0 ? (probe.0 - lastGPU) / wall * 100 : 0,
                     thermal: ProcessMetrics.thermalState, renderedFrames: probe.1,
-                    droppedFrames: dropped.withLock { $0 }, activeDecoders: manager.activeDecoderIDs.count)
+                    droppedFrames: dropped.withLock { $0 }, activeDecoders: manager.activeDecoderIDs.count,
+                    ciRunnerActive: CIRunner.isActive())
                 lastGPU = probe.0
                 lastWall = now
                 collected.withLock { $0.append(sample) }

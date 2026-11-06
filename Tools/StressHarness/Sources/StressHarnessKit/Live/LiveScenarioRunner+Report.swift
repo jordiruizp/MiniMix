@@ -39,7 +39,9 @@ extension LiveScenarioRunner {
         let analysis = probe.analysis
         let report = LiveReport(
             scenario: config, startedAt: inputs.startedAt, durationSeconds: duration,
-            sleptSeconds: max(0, wall - duration), machine: MachineInfo.current(),
+            sleptSeconds: max(0, wall - duration),
+            ciRunnerActiveSeconds: Double(samples.filter(\.ciRunnerActive).count) * config.sampleIntervalSeconds,
+            machine: MachineInfo.current(),
             gpu: rig.context.device.name, inputs: rig.inputs,
             audio: rig.audio.map { "AudioEngine en marcha (\($0.attachedInputs.count) canales)" }
                 ?? "sin AudioEngine: \(rig.audioError ?? "?")",
@@ -63,8 +65,9 @@ extension LiveScenarioRunner {
                            worst: (samples.map(\.thermal) + [inputs.thermalStart]).max() ?? inputs.thermalStart,
                            secondsByState: thermalSeconds,
                            firstAboveFairAt: samples.first { $0.thermal > .fair }?.t),
-            cuts: .init(cuts: inputs.cuts, fades: inputs.fades, latencyFrames: probe.cutLatencyFrames.stats,
-                        latencyMs: probe.cutLatencyMs.stats, measured: probe.cutLatencyFrames.sampleCount,
+            cuts: .init(cuts: inputs.cuts, fades: inputs.fades, latencyFrames: .init(probe.cutLatencyFrames),
+                        latencyMs: .init(probe.cutLatencyMs), measured: probe.cutLatencyFrames.count,
+                        lateCuts: probe.lateCuts,
                         unmatched: probe.unmatchedCuts),
             program: .init(analyzedFrames: analysis.total, transitionFramesExcluded: probe.transitionFrames,
                            black: analysis.black, unreadable: analysis.unreadable, filler: analysis.filler,
@@ -79,7 +82,8 @@ extension LiveScenarioRunner {
             },
             skipsByClip: [:], skipEvents: [],
             maxActiveDecoders: samples.map(\.activeDecoders).max() ?? 0,
-            avOffset: "no medido en T90 (informativo según el encargo; requiere capturar la salida de audio y casar el pitido con el parche de la claqueta)",
+            avOffset: "no medido en T90 (informativo según el encargo; requiere capturar la salida de audio "
+                + "y casar el pitido con el parche de la claqueta)",
             targets: [], samples: samples)
         var withTargets = report
         withTargets.skipsByClip = Dictionary(uniqueKeysWithValues: probe.skipsByClip.map { ("\($0.key)", $0.value) })
@@ -144,11 +148,13 @@ extension LiveScenarioRunner {
     static func targets(_ report: LiveReport) -> [LiveReport.Target] {
         let f = report.frames
         let longEnough = report.durationSeconds >= 1800
-        let slept = report.sleptSeconds > 1
-            ? String(format: " — ⚠ el Mac durmió %.0f s durante la ejecución", report.sleptSeconds) : ""
+        let slept = (report.sleptSeconds > 1
+            ? String(format: " — ⚠ el Mac durmió %.0f s durante la ejecución", report.sleptSeconds) : "")
+            + (report.ciRunnerActiveSeconds > 0
+               ? String(format: " — ⚠ CI activo %.0f s", report.ciRunnerActiveSeconds) : "")
         let latency = report.cuts
         func fmt(_ value: Double, _ digits: Int = 1) -> String { String(format: "%.\(digits)f", value) }
-        return [
+        let list: [LiveReport.Target] = [
             .init(name: "Fotogramas perdidos (tras el calentamiento)", target: "0 en 30 min",
                   measured: "\(f.maxDroppedIn30Minutes) (máx. en 30 min); total \(f.dropped) de \(f.expected), "
                     + "\(f.droppedDuringWarmup) en el arranque; \(f.droppedWhileSystemQuiet) con la máquina tranquila / "
@@ -178,5 +184,11 @@ extension LiveScenarioRunner {
                   measured: report.coldStart.firstProgramFrameSeconds.map { "\(fmt($0, 2)) s" } ?? "sin fotograma",
                   pass: report.coldStart.firstProgramFrameSeconds.map { $0 < 2 })
         ]
+        // CPU, GPU y térmica dependen de que el Mac esté despierto y libre de CI.
+        return list.map { target in
+            var target = target
+            if ["CPU", "GPU", "Térmica"].contains(where: { target.name.hasPrefix($0) }) { target.measured += slept }
+            return target
+        }
     }
 }

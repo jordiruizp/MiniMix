@@ -55,8 +55,11 @@ final class LiveFrameRenderer: @unchecked Sendable {
         var foreignClipFrames = 0
         var firstCodedFrameAt: ContinuousClock.Instant?
         var pendingCut: PendingCut?
-        var cutLatencyFrames = Histogram(binWidth: 1, upperBound: 120)
-        var cutLatencyMs = Histogram(binWidth: 1, upperBound: 2000)
+        /// Valores exactos (un Cut cada 6 s: ~1200 en 2 h).
+        var cutLatencyFrames: [Double] = []
+        var cutLatencyMs: [Double] = []
+        /// Cortes con latencia > 1 fotograma (diagnóstico; los 200 primeros).
+        var lateCuts: [LiveReport.LateCut] = []
         var unmatchedCuts = 0
         /// Último código leído fuera de transición (para registrar dónde están los saltos).
         var lastCode: FrameCode?
@@ -166,6 +169,26 @@ final class LiveFrameRenderer: @unchecked Sendable {
         var gpuSeconds: Double
     }
 
+    /// Casa la lectura con el Cut pendiente (latencia hasta el primer fotograma con la nueva entrada).
+    private static func matchCut(_ reading: FrameCodeReading, frameIndex: Int, into state: inout Probe) {
+        if let pending = state.pendingCut, frameIndex >= pending.frameIndex {
+            if reading.code?.clipID == pending.clipID {
+                let frames = frameIndex - pending.frameIndex
+                let ms = pending.issuedAt.duration(to: .now).seconds * 1000
+                state.cutLatencyFrames.append(Double(frames))
+                state.cutLatencyMs.append(ms)
+                if frames > 1, state.lateCuts.count < 200 {
+                    state.lateCuts.append(.init(commandFrame: pending.frameIndex, clipID: pending.clipID,
+                                                latencyFrames: frames, latencyMs: ms))
+                }
+                state.pendingCut = nil
+            } else if frameIndex - pending.frameIndex > 30 {
+                state.unmatchedCuts += 1
+                state.pendingCut = nil
+            }
+        }
+    }
+
     private static func record(_ reading: FrameCodeReading, _ frame: CompletedFrame, expected: Set<Int>?,
                                into state: inout Probe) {
         let frameIndex = frame.index
@@ -177,16 +200,7 @@ final class LiveFrameRenderer: @unchecked Sendable {
         if frameIndex < state.lastCompletedIndex { state.outOfOrder += 1 }
         state.lastCompletedIndex = max(state.lastCompletedIndex, frameIndex)
         if reading.code != nil, state.firstCodedFrameAt == nil { state.firstCodedFrameAt = .now }
-        if let pending = state.pendingCut, frameIndex >= pending.frameIndex {
-            if reading.code?.clipID == pending.clipID {
-                state.cutLatencyFrames.add(Double(frameIndex - pending.frameIndex))
-                state.cutLatencyMs.add(pending.issuedAt.duration(to: .now).seconds * 1000)
-                state.pendingCut = nil
-            } else if frameIndex - pending.frameIndex > 30 {
-                state.unmatchedCuts += 1
-                state.pendingCut = nil
-            }
-        }
+        matchCut(reading, frameIndex: frameIndex, into: &state)
         // Las mezclas de una transición no llevan código legible (por diseño): fuera del análisis.
         guard !frame.inTransition else {
             state.transitionFrames += 1

@@ -50,3 +50,19 @@ enum Regression {
         return sxx > 0 ? sxy / sxx : 0
     }
 }
+
+/// El runner del CI de GitHub corre en este mismo Mac: si está activo falsea CPU, GPU y térmica.
+enum CIRunner {
+    static func isActive() -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        process.arguments = ["-q", "-f", "Runner.Worker"]
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
+    }
+}

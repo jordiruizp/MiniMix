@@ -22,6 +22,8 @@ public struct LiveReport: Codable, Sendable {
         /// Perdidos acumulados (reloj + contrapresión).
         public var droppedFrames: Int
         public var activeDecoders: Int
+        /// El runner del CI (`Runner.Worker`) estaba ejecutando un trabajo en este Mac.
+        public var ciRunnerActive: Bool
     }
 
     public struct ColdStart: Codable, Sendable {
@@ -94,7 +96,16 @@ public struct LiveReport: Codable, Sendable {
         /// Del comando a la GPU completando ese fotograma (ms).
         public var latencyMs: StressReport.Stats
         public var measured: Int
+        public var lateCuts: [LateCut]
         public var unmatched: Int
+    }
+
+    /// Cut cuya entrada tardó más de 1 fotograma en verse en Programa.
+    public struct LateCut: Codable, Sendable {
+        public var commandFrame: Int
+        public var clipID: Int
+        public var latencyFrames: Int
+        public var latencyMs: Double
     }
 
     public struct ProgramFeed: Codable, Sendable {
@@ -149,6 +160,8 @@ public struct LiveReport: Codable, Sendable {
     public var durationSeconds: Double
     /// Tiempo que el Mac estuvo dormido durante la ejecución (debería ser 0; si no, la ejecución no es válida).
     public var sleptSeconds: Double
+    /// Segundos (según las muestras) con el runner del CI activo en este Mac.
+    public var ciRunnerActiveSeconds: Double
     public var machine: MachineInfo
     public var gpu: String
     public var inputs: [LiveRig.Input]
