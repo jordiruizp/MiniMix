@@ -152,6 +152,20 @@ extension MediaSerialTests {
             #expect(input.currentTime == 1.5)
         }
 
+        /// Motor en marcha que aún no ha renderizado: `currentTime`, `pause` y `setLoop` no
+        /// deben llamar a `playerTime(forNodeTime:)` con un tiempo sin muestra válida.
+        @Test func currentTimeBeforeAnyRenderUsesLastKnownPosition() async throws {
+            let input = makeInput(try await TestMediaFactory.shared.audio(.wav, seconds: 2), loop: true, inPoint: 0.25)
+            try await input.prepare()
+            let engine = try OfflineEngine(attach: input.node!) // arrancado, sin renderOffline
+            input.play()
+            #expect(input.currentTime == 0.25)
+            input.setLoop(false)
+            input.pause()
+            #expect(input.currentTime == 0.25)
+            _ = engine
+        }
+
         /// Desactivar el bucle con la vuelta siguiente en cola no reproduce una vuelta de más.
         @Test func disablingLoopDropsQueuedLap() async throws {
             let input = makeInput(try await TestMediaFactory.shared.audio(.wav, seconds: 0.5), loop: true)

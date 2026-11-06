@@ -97,9 +97,13 @@ public final class AudioInput: FrameSource, AudioSource {
                             playing: s.playback == .playing)
         }
         guard let snapshot else { return nil }
+        // `playerTime(forNodeTime:)` lanza una NSException si `nodeTime` no tiene tiempo de
+        // muestra válido (motor en marcha que aún no ha renderizado, p. ej. manual u
+        // offline sin `renderOffline`): se comprueba antes y, si no, última posición conocida.
         guard snapshot.playing, let front = snapshot.front, player.engine != nil,
-              let nodeTime = player.lastRenderTime, let playerTime = player.playerTime(forNodeTime: nodeTime),
-              playerTime.sampleRate > 0 else { return snapshot.fallback }
+              let nodeTime = player.lastRenderTime, nodeTime.isSampleTimeValid,
+              let playerTime = player.playerTime(forNodeTime: nodeTime),
+              playerTime.isSampleTimeValid, playerTime.sampleRate > 0 else { return snapshot.fallback }
         let elapsed = Double(playerTime.sampleTime) / playerTime.sampleRate
         let position = front.start + min(max(0, elapsed - snapshot.finished), front.duration)
         state.withLock { $0.lastPosition = position }
