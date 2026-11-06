@@ -80,8 +80,8 @@ enum SystemLoad {
         return getloadavg(&loads, 3) > 0 ? loads[0] : 0
     }
 
-    /// Más procesos ejecutables que núcleos: las medidas de tiempo real no son fiables.
-    static var isOverloaded: Bool { oneMinute > Double(ProcessInfo.processInfo.activeProcessorCount) }
+    /// Tantos o más procesos ejecutables que núcleos: las medidas de tiempo real no son fiables.
+    static var isOverloaded: Bool { oneMinute >= Double(ProcessInfo.processInfo.activeProcessorCount) }
 
     static var description: String {
         String(format: "%.1f (núcleos %d)", oneMinute, ProcessInfo.processInfo.activeProcessorCount)

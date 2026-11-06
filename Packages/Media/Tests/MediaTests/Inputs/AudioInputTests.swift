@@ -115,7 +115,22 @@ extension MediaSerialTests {
             try await input.prepare()
             let engine = try OfflineEngine(attach: input.node!)
             input.play()
-            let peaks = try engine.render(seconds: 2)
+            // El render offline va mucho más rápido que el tiempo real; la siguiente vuelta se
+            // programa de forma asíncrona al consumirse la anterior (en tiempo real hay una
+            // vuelta entera, 0,5 s, de margen). Antes de cada bloque se espera a que lo
+            // programado cubra lo renderizado más una vuelta: así se comprueba el bucle sin
+            // huecos en el audio renderizado, sin depender de la planificación del hilo del test
+            // (que con la máquina saturada puede retrasar la reprogramación unos ms).
+            var peaks: [Float] = []
+            var rendered = 0.0
+            for _ in 0..<20 {
+                let deadline = Date().addingTimeInterval(5)
+                while input.scheduledSecondsForTesting < rendered + 0.1 + 0.45, Date() < deadline { // ~1 vuelta (−ε)
+                    try await Task.sleep(for: .milliseconds(1))
+                }
+                peaks += try engine.render(seconds: 0.1)
+                rendered += 0.1
+            }
             #expect(peaks.dropFirst().allSatisfy { $0 > 0.3 })
             let ended = await firstEvent(events, timeout: 0.5) { $0 == .ended }
             #expect(ended == nil)
