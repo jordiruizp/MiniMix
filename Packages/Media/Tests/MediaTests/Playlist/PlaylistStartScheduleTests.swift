@@ -50,6 +50,13 @@ extension MediaSerialTests {
         private func rescheduled(_ input: PlaylistInput, _ driver: inout ManualDriver) async throws -> HostTime {
             await input.settle()
             #expect(startAt(input) == nil)
+            // El entrante vuelve a su In con un seek real: esperar en tiempo real (con límite)
+            // antes de avanzar ticks, que el driver manual consume en pocos milisegundos.
+            for _ in 0..<400 where input.state.withLock({ $0.standby?.rewinding == true }) {
+                try await Task.sleep(for: .milliseconds(5))
+                await input.settle()
+            }
+            #expect(input.state.withLock { $0.standby?.rewinding } == false)
             var at: HostTime?
             for _ in 0..<300 where at == nil {
                 await driver.run(1)
@@ -90,6 +97,16 @@ extension MediaSerialTests {
             input.update(playlist: Playlist(items: items))
             let second = try await rescheduled(input, &driver)
             #expect(abs((second - first) - 0.5) < 0.001, "\(second - first)")
+        }
+
+        /// N2: una actualización con la misma playlist (p. ej. al cambiar el nombre o el fit de la
+        /// entrada) no anula la hora fija ya pedida.
+        @Test func identicalUpdateKeepsTheFixedStart() async throws {
+            let items = [PlaylistItem(source: .color(Kit.red), duration: 2), try await video()]
+            let run = try await scheduled(Playlist(items: items))
+            run.input.update(playlist: Playlist(items: items))
+            await run.input.settle()
+            #expect(startAt(run.input) == run.at)
         }
 
         /// M3: sin margen para el preroll (precarga tardía) no se pide hora fija.

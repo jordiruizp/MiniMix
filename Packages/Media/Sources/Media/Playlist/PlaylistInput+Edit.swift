@@ -5,6 +5,9 @@ import Foundation
 extension PlaylistInput {
     func applyEdit(_ playlist: Playlist) {
         let frame = environment.clock.frameRate.frameDuration
+        // Una actualización sin cambios (InputManager la aplica en cada edición del descriptor:
+        // nombre, fit…) no toca nada, tampoco la hora fija ya pedida.
+        guard state.withLock({ $0.sequencer.playlist != playlist }) else { return }
         // Un cambio ya programado se basa en la playlist anterior: se cancela y `checkEnd` lo
         // vuelve a programar en el siguiente tick con la nueva.
         // También un arranque a hora fija ya pedido (ventana de 1 s antes del cambio): la hora

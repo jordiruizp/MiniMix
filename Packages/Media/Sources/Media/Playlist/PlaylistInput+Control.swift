@@ -222,7 +222,6 @@ extension PlaylistInput {
             guard after == .playing(index: incoming.index) else { return .mismatch(after) }
             s.sequencer = probe
             // Sin arranque a hora fija (precarga tardía) se arranca ya.
-            // Sin arranque a hora fija (precarga tardía) se arranca ya.
             let play = incoming.startAt == nil
             var slot = incoming
             slot.started = true
