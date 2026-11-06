@@ -44,7 +44,7 @@ import Testing
         return ring
     }
 
-    private func append(_ ring: AudioRingBuffer, itemTime: Double, frames: Int = 4_800) {
+    private func append(_ ring: AudioRingBuffer, itemTime: Double?, frames: Int = 4_800) {
         withList(frames: frames) { ring.write($0, frames: frames, itemTime: itemTime) }
     }
 
@@ -133,6 +133,31 @@ import Testing
 
     /// N1: en pausa/preroll el tap re-entrega bloques (mismo tiempo): solo cuenta el
     /// último, la cola no se llena y al reproducir suena desde su tiempo.
+    /// `resetTimeline` reancla al primer tiempo informado; una búsqueda atrás corta
+    /// durante la reproducción descarta el audio viejo aunque el reset llegue antes del bloque.
+    @Test func resetReanchorsAndDiscardsOldAudio() {
+        let ring = makeRing()
+        append(ring, itemTime: 1.0, frames: 4_800)  // 1,0…1,1 s
+        readAt(ring, .playing(desiredItemTime: 1.0))
+        ring.resetTimeline()
+        append(ring, itemTime: nil, frames: 480)     // sin tiempo: sigue la continuación
+        append(ring, itemTime: 0.8, frames: 4_800)  // búsqueda atrás de 0,3 s
+        let (got, silence) = readAt(ring, .playing(desiredItemTime: 0.8))
+        #expect(got == 480 && silence == 0)
+        #expect(ring.availableFrames == 4_800 - 480) // lo anterior al salto, descartado
+    }
+
+    /// Tras el reset, un tiempo informado cercano (< 20 ms) fija el ancla sin descartar.
+    @Test func resetReanchorsWithinThresholdWithoutDiscarding() {
+        let ring = makeRing()
+        append(ring, itemTime: 1.0, frames: 4_800)
+        ring.resetTimeline()
+        append(ring, itemTime: 1.105, frames: 480)  // continuación 1,1 + 5 ms
+        #expect(ring.availableFrames == 4_800 + 480)
+        let (_, _) = readAt(ring, .playing(desiredItemTime: 1.105), frames: 480)
+        #expect(dropped(ring) == 4_800)              // alinea al nuevo ancla
+    }
+
     @Test func repeatedBlocksWhilePausedDoNotOverflow() {
         let ring = makeRing()
         for _ in 0..<12 {

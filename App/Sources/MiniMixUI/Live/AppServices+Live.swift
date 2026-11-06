@@ -68,6 +68,7 @@ public final class LiveRuntime {
     public func reconfigure(_ canvas: CanvasFormat) {
         let format = canvas.normalized()
         clock.setFrameRate(format.frameRate)
+        audio.videoPresentationLatency = format.frameRate.frameDuration
         do {
             try renderer.reconfigure(canvas: format.size, frameRate: format.frameRate)
         } catch {
@@ -93,6 +94,8 @@ extension AppServices {
         let canvas = project.canvas.size
         let clock = MasterClock(frameRate: project.canvas.frameRate)
         let audio = try AudioEngine()
+        // Del tick al vsync: un fotograma del proyecto (solo retrasa las entradas `.playerTap`).
+        audio.videoPresentationLatency = project.canvas.normalized().frameRate.frameDuration
         let store = ProjectStore()
         let urlResolver = store.urlResolver
         let playlistFactory = playlists
