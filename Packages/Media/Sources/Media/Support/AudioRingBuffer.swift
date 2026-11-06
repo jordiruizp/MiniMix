@@ -85,6 +85,8 @@ final class AudioRingBuffer: @unchecked Sendable {
     /// Tiempo de item que continúa lo último escrito (solo productor).
     private var producerNextTime = Double.nan
     private var producerResetGeneration = 0
+    /// Tras `resetTimeline`: el siguiente tiempo informado fija el ancla (solo productor).
+    private var producerReanchorPending = false
     private let timelineResetGeneration = Atomic<Int>(0)
     /// Índice de escritura antes del cual todo es obsoleto (lo publica el productor en
     /// un salto; el consumidor avanza hasta él antes de leer, también en pausa).
@@ -214,13 +216,22 @@ final class AudioRingBuffer: @unchecked Sendable {
         // El `timeRangeOut` del tap tiene jitter de varios ms por bloque (p. ej. ±4 ms con
         // AAC) aunque las muestras sean contiguas: se mantiene la línea de tiempo
         // continua y solo se acepta el tiempo informado en un salto real (búsqueda, bucle).
-        // Tras arrancar o buscar (`resetTimeline`) se vuelve a anclar con el primer
-        // tiempo informado. Los bloques sin tiempo y sin ancla quedan sin tiempo (NaN):
-        // el consumidor no los puede situar y los salta al alinear.
+        // Tras arrancar o buscar (`resetTimeline`) se reancla al tiempo informado del
+        // primer bloque que lo traiga; si difiere > 20 ms de la continuación, lo anterior
+        // es obsoleto y se descarta (p. ej. búsqueda atrás corta en reproducción). Hasta
+        // entonces se sigue la continuación. Sin ancla alguna, los bloques quedan sin
+        // tiempo (NaN) y el consumidor los salta al alinear.
         let resetGeneration = timelineResetGeneration.load(ordering: .acquiring)
         if resetGeneration != producerResetGeneration {
             producerResetGeneration = resetGeneration
-            producerNextTime = .nan
+            producerReanchorPending = true
+        }
+        if producerReanchorPending, let reported = itemTime {
+            producerReanchorPending = false
+            if !producerNextTime.isNaN, abs(reported - producerNextTime) >= Self.producerJumpThreshold {
+                discardBefore.store(write, ordering: .releasing)
+            }
+            return reported
         }
         let start = itemTime ?? producerNextTime
         guard !start.isNaN, !producerNextTime.isNaN else { return start }

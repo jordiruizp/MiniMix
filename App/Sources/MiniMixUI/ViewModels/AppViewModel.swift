@@ -187,6 +187,7 @@ public final class AppViewModel {
     public func refresh(now: Double? = nil) {
         self.now = now ?? services.uptime()
         if services.simulatesPlayback { simulatePlaybackEnds() }
+        playlists.syncLiveStates()
         services.demoTick?(self)
         if self.now - lastStatusRefresh >= 1 {
             lastStatusRefresh = self.now

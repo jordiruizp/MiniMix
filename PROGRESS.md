@@ -9,7 +9,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | ✅ todos integrados |
 | 2 · D, F, G-real, ORQ T80 | ✅ completa |
-| 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado ✅ (PR #15) · C ediciones de playlist en vivo (PR #18, ⛔ devuelto: coste de decodificadores y carrera de ediciones) · G T91 ✅ · Playlist en la App (PR #17, en revisión; sin audio hasta arreglo de D) · H espera a D |
+| 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado ✅ (PR #15) · C ediciones de playlist en vivo ✅ (PR #18) · menores A/V ✅ (PR #20) · G T91 ✅ · Playlist en la App ✅ (PR #17) · attach con motor en marcha ✅ (PR #19) · G: audio de playlists + perfil A/V en la App (PR #22, aprobado con menores) · H espera a D |
 | 4 · T99 release | ⬜ |
 
 ## Tareas
@@ -115,7 +115,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
   crear el AUv3 propio `RampGainUnit`). Sin sandbox funciona; `swift test` no corre en sandbox. Asignado a E
   (`feat/e-audio-sandbox`). Nueva prueba de humo `scripts/smoke-app.sh` en el CI para que no vuelva a pasar.
 
-## Bloqueo: audio de playlists
+## ~~Bloqueo: audio de playlists~~ (resuelto en Audio, PR #19; falta conectarlo en la App — G)
 
 - `AudioEngine.attach(PlaylistInput)` con el motor arrancado lanza NSException de AVFAudio
   («!srcNodeMixerConns.empty() && !isSrcNodeConnectedToIONode»): mezclador de la playlist sin entradas al conectarse.
@@ -149,7 +149,19 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 - L8 (D): `usesVideoDecoder` es Bool; contar 2 decodificadores de playlist requiere cambio de contrato o lógica en InputManager.
 - Medido (altavoces internos): desfase estable −10,1…+1,9 ms (media −3,1) con compensación; sin ella ≈ −92 ms.
 
+## PRs abiertos (Ola 3, 2026-11-05)
+
+- #21 guardia AudioInput.currentTime — CI local verde; relanzar CI en el runner propio.
+- #22 audio de playlists + perfil A/V en la App — menores hechos (0bb8a6c); espera CI.
+- #23 Playlist play(atHostTime:) + teardown — ⛔ devuelto (B1 cruza con C: discard; M1–M3 arranque fijado). D corrige; C hará `discard` sobre la rama de D.
+- #24 AudioEngine.performGraphChange (E) — espera CI; D hará el hook en PlaylistEnvironment tras #23.
+
 ## Deuda menor (no bloqueante, para Ola 3)
+
+- ⚠ Concurrencia (D/E): `PlaylistAudioMixer.connect` modifica el grafo de AVAudioEngine desde la cola de la playlist sin el cerrojo de `AudioEngine`; puede coincidir con attach/detach de otro canal. Propuesta: API en Audio para que la playlist conecte/desconecte nodos de items bajo el cerrojo del motor.
+- `videoPresentationLatency` = 1 fotograma es aproximado; validar con claqueta (H).
+
+- Media (opcional): en el reanclaje tras resetTimeline con diferencia < 20 ms, conservar la continuación en vez de adoptar el tiempo informado (evita un microajuste ≤ 4 ms en reanudaciones).
 
 - Audio: `renderBlockOutlivesUnit` depende de comportamiento no documentado del framework (usar autoreleasepool o deallocate explícito);
   `drainLifecycleQueue()` sin `dispatchPrecondition(.notOnQueue)`; test de retiro por reloj de pared.

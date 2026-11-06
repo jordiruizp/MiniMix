@@ -305,6 +305,7 @@ public final class AudioEngine: AudioMixing, Sendable {
                 source: sourceNode,
                 ownsSourceNode: sourceNode.engine == nil,
                 input: AVAudioMixerNode(),
+                keepAlive: Self.makeSilentSource(format: state.format),
                 // El fader nace a 0 y sube con rampa si el motor ya está sonando.
                 fader: try Self.makeStage(gain: 0, ramp: ramp, metering: true,
                                           maxDelay: max(0, configuration.maxInputDelay)),
@@ -545,7 +546,12 @@ public final class AudioEngine: AudioMixing, Sendable {
         let connectFormat = !channel.ownsSourceNode && sourceFormat.sampleRate > 0 ? sourceFormat : format
         if channel.ownsSourceNode { engine.attach(channel.source) }
         channel.nodes.forEach(engine.attach)
-        engine.connect(channel.source, to: channel.input, format: connectFormat)
+        // Con el motor en marcha, AVAudioEngine exige un generador aguas arriba al conectar
+        // (si no: NSException «!srcNodeMixerConns.empty() && !isSrcNodeConnectedToIONode»). Una
+        // fuente que no genera (AVAudioMixerNode vacío de PlaylistInput, un efecto sin entrada…) no
+        // lo es; el generador silencioso `keepAlive` en el bus 0 de `input` sí, y la fuente va al 1.
+        engine.connect(channel.keepAlive, to: channel.input, fromBus: 0, toBus: 0, format: format)
+        engine.connect(channel.source, to: channel.input, fromBus: 0, toBus: 1, format: connectFormat)
         engine.connect(channel.input, to: channel.fader.node, format: format)
         engine.connect(channel.fader.node, to: [
             AVAudioConnectionPoint(node: channel.programGate.node, bus: 0),
@@ -555,6 +561,18 @@ public final class AudioEngine: AudioMixing, Sendable {
                        toBus: state.masterMixer.nextAvailableInputBus, format: format)
         engine.connect(channel.soloGate.node, to: state.soloMixer, fromBus: 0,
                        toBus: state.soloMixer.nextAvailableInputBus, format: format)
+    }
+
+    /// Generador silencioso (sin estado ni asignaciones: marca silencio y pone el búfer a cero).
+    private static func makeSilentSource(format: AVAudioFormat) -> AVAudioSourceNode {
+        AVAudioSourceNode(format: format) { isSilence, _, frameCount, data in
+            isSilence.pointee = true
+            for buffer in UnsafeMutableAudioBufferListPointer(data) {
+                guard let bytes = buffer.mData else { continue }
+                memset(bytes, 0, min(Int(buffer.mDataByteSize), Int(frameCount) * MemoryLayout<Float>.size))
+            }
+            return noErr
+        }
     }
 
     private static func teardown(_ channel: Channel, in engine: AVAudioEngine) {

@@ -1,6 +1,7 @@
 import Core
 import CoreMocks
 import Foundation
+import Media
 import Metal
 @testable import MiniMixUI
 import Render
@@ -68,6 +69,20 @@ struct LiveRuntimeTests {
             try await waitFrame(renderer.render(at: HostTime(seconds: Double(frame) / 60)))
         }
         #expect(renderer.pooledBytes < oldTexture, "quedan texturas viejas: \(renderer.pooledBytes) B")
+    }
+
+    @Test func liveServicesCreatePlaylistInputs() async throws {
+        let (services, _) = try AppServices.live(project: Project())
+        #expect(services.supportsPlaylists)
+        let app = AppViewModel(services: services)
+        #expect(app.playlistsUnavailableReason == nil)
+        let playlist = InputDescriptor(name: "PL", content: .playlist(Playlist(items: [
+            PlaylistItem(source: .color(RGBAColor(red: 1, green: 0, blue: 0)), duration: 2)
+        ])))
+        app.addInput(playlist)
+        #expect(await eventually { services.inputs.frameSource(for: playlist.id) is PlaylistInput })
+        let (without, _) = try AppServices.live(project: Project(), playlists: false)
+        #expect(!without.supportsPlaylists)
     }
 
     /// M2/M3: stop + start no congela el render (cada arranque se suscribe a ticks nuevos).

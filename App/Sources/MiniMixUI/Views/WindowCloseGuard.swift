@@ -13,7 +13,13 @@ public enum QuitGuard {
     public static func shouldCloseMainWindow(confirm: () -> Bool, terminate: @escaping @MainActor () -> Void) -> Bool {
         guard confirm() else { return false }
         confirmed = true
-        DispatchQueue.main.async { MainActor.assumeIsolated { terminate() } }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                terminate()
+                // Si la salida no se completó (otro delegado la canceló), la próxima vez se vuelve a preguntar.
+                confirmed = false
+            }
+        }
         return true
     }
 }
