@@ -13,13 +13,35 @@ import Foundation
 /// este mezclador adjunta y conecta los nodos de los items cargados (como mucho 2) y los
 /// separa al liberarlos. Todo se llama desde la cola de control de la playlist, nunca desde
 /// un callback de audio.
+///
+/// Cambios de grafo: todo attach/connect/disconnect/detach de nodos de items (y las consultas de
+/// conexión) pasa por `graphChange` (`PlaylistEnvironment.graphChange`, p. ej.
+/// `AudioEngine.performGraphChange`) para hacerse bajo el cerrojo del motor de E. Los cierres que
+/// se le pasan solo tocan AVAudioEngine y un cerrojo corto propio: nunca llaman a `AudioEngine`
+/// ni esperan a la cola de la playlist. El hook debe ejecutar el cierre antes de volver.
 final class PlaylistAudioMixer: Sendable {
+    typealias GraphChange = @Sendable (@escaping () -> Void) -> Void
+
     private let mixerRef = SendableAudioNode(node: AVAudioMixerNode())
+    private let graphChange: GraphChange?
     /// Nodos de item que adjuntó este mezclador (los separa él: al liberar el item, al
     /// moverse el mezclador a otro motor y en `teardown`).
     private let owned = LockedState<[ObjectIdentifier: SendableAudioNode<AVAudioNode>]>([:])
 
+    init(graphChange: GraphChange? = nil) {
+        self.graphChange = graphChange
+    }
+
     var node: AVAudioMixerNode { mixerRef.node }
+
+    /// Ejecuta `body` a través del hook (o directamente sin hook). Si el hook no lo ejecutara
+    /// de forma síncrona, devuelve `fallback`.
+    private func inGraph<R>(_ fallback: R, _ body: @escaping () -> R) -> R {
+        guard let graphChange else { return body() }
+        var result: R?
+        graphChange { result = body() }
+        return result ?? fallback
+    }
 
     /// Conecta `itemNode` al mezclador si este ya está en un motor. Devuelve true si queda conectado.
     ///
@@ -30,8 +52,13 @@ final class PlaylistAudioMixer: Sendable {
     /// justo antes.)
     @discardableResult
     func connect(_ itemNode: AVAudioNode, gain: Float) -> Bool {
+        let ref = SendableAudioNode(node: itemNode)
+        return inGraph(false) { [self] in connectInGraph(ref.node, gain: gain) }
+    }
+
+    private func connectInGraph(_ itemNode: AVAudioNode, gain: Float) -> Bool {
         guard let engine = node.engine else { return false }
-        if isConnected(itemNode) {
+        if isConnectedInGraph(itemNode) {
             setGain(gain, for: itemNode)
             return true
         }
@@ -59,8 +86,21 @@ final class PlaylistAudioMixer: Sendable {
         (itemNode as? AVAudioMixing)?.volume = gain
     }
 
+    /// Comprobación barata por tick (sin pasar por el hook ni tomar el cerrojo del motor): el
+    /// nodo lo adjuntó este mezclador y sigue en el mismo motor que `node`. Si no, hay que
+    /// (re)conectarlo con `connect`, que comprueba la conexión real bajo el hook.
+    func needsConnect(_ itemNode: AVAudioNode) -> Bool {
+        guard owned.withLock({ $0[ObjectIdentifier(itemNode)] != nil }), let engine = node.engine else { return true }
+        return itemNode.engine !== engine
+    }
+
     /// Conectado de verdad a este mezclador en su motor actual (no un mapa local).
     func isConnected(_ itemNode: AVAudioNode) -> Bool {
+        let ref = SendableAudioNode(node: itemNode)
+        return inGraph(false) { [self] in isConnectedInGraph(ref.node) }
+    }
+
+    private func isConnectedInGraph(_ itemNode: AVAudioNode) -> Bool {
         guard let engine = node.engine, itemNode.engine === engine else { return false }
         return engine.outputConnectionPoints(for: itemNode, outputBus: 0).contains { $0.node === node }
     }
@@ -68,21 +108,29 @@ final class PlaylistAudioMixer: Sendable {
     /// Desconecta el nodo del item; si lo adjuntó este mezclador, también lo separa del motor.
     func disconnect(_ itemNode: AVAudioNode) {
         let wasOwned = owned.withLock { $0.removeValue(forKey: ObjectIdentifier(itemNode)) } != nil
-        guard let engine = itemNode.engine else { return }
-        engine.disconnectNodeOutput(itemNode)
-        if wasOwned { engine.detach(itemNode) }
+        let ref = SendableAudioNode(node: itemNode)
+        inGraph(()) {
+            guard let engine = ref.node.engine else { return }
+            engine.disconnectNodeOutput(ref.node)
+            if wasOwned { engine.detach(ref.node) }
+        }
     }
 
     /// Separa todos los nodos de item que adjuntó (al destruir la playlist).
     func teardown() {
-        let nodes = owned.withLock { o -> [AVAudioNode] in
+        let nodes = owned.withLock { o -> [SendableAudioNode<AVAudioNode>] in
             defer { o.removeAll() }
-            return o.values.map(\.node)
+            return Array(o.values)
         }
-        for itemNode in nodes {
-            guard let engine = itemNode.engine else { continue }
-            engine.disconnectNodeOutput(itemNode)
-            engine.detach(itemNode)
+        guard !nodes.isEmpty else { return }
+        inGraph(()) { Self.detachAll(nodes) }
+    }
+
+    private static func detachAll(_ nodes: [SendableAudioNode<AVAudioNode>]) {
+        for ref in nodes {
+            guard let engine = ref.node.engine else { continue }
+            engine.disconnectNodeOutput(ref.node)
+            engine.detach(ref.node)
         }
     }
 
@@ -97,6 +145,7 @@ final class PlaylistAudioMixer: Sendable {
         guard !nodes.isEmpty else { return }
         let queue = DispatchQueue.global(qos: .utility)
         let ramp = 0.02
+        let graphChange = graphChange
         queue.async {
             let starts = nodes.map { ($0.node as? AVAudioMixing)?.volume ?? 1 }
             for step in 1...4 {
@@ -107,10 +156,10 @@ final class PlaylistAudioMixer: Sendable {
                 }
             }
             queue.asyncAfter(deadline: .now() + ramp + 0.005) {
-                for ref in nodes {
-                    guard let engine = ref.node.engine else { continue }
-                    engine.disconnectNodeOutput(ref.node)
-                    engine.detach(ref.node)
+                if let graphChange {
+                    graphChange { Self.detachAll(nodes) }
+                } else {
+                    Self.detachAll(nodes)
                 }
             }
         }

@@ -53,7 +53,7 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
     let continuation: AsyncStream<SourceEvent>.Continuation
     let environment: PlaylistEnvironment
     let renderer: PlaylistRenderer
-    let mixer = PlaylistAudioMixer()
+    let mixer: PlaylistAudioMixer
     let state: LockedState<State>
     let queue: DispatchQueue
     let logger = Logger(subsystem: "MiniMix", category: "Playlist")
@@ -70,6 +70,7 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
         self.id = id
         self.environment = environment
         renderer = try PlaylistRenderer(context: environment.context, canvasSize: environment.canvasSize)
+        mixer = PlaylistAudioMixer(graphChange: environment.graphChange)
         (events, continuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(32))
         state = LockedState(State(sequencer: PlaylistSequencer(playlist: playlist), fit: fit,
                                   frameDuration: environment.clock.frameRate.frameDuration))
