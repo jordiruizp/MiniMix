@@ -5,9 +5,14 @@ import Foundation
 extension PlaylistInput {
     func applyEdit(_ playlist: Playlist) {
         let frame = environment.clock.frameRate.frameDuration
+        // Una actualización sin cambios (InputManager la aplica en cada edición del descriptor:
+        // nombre, fit…) no toca nada, tampoco la hora fija ya pedida.
+        guard state.withLock({ $0.sequencer.playlist != playlist }) else { return }
         // Un cambio ya programado se basa en la playlist anterior: se cancela y `checkEnd` lo
         // vuelve a programar en el siguiente tick con la nueva.
-        if state.withLock({ $0.pending != nil }) { cancelTransition() }
+        // También un arranque a hora fija ya pedido (ventana de 1 s antes del cambio): la hora
+        // dependía de la playlist anterior (duración, fundido).
+        if state.withLock({ $0.pending != nil || $0.standby?.startAt != nil }) { cancelTransition() }
         let edit = state.withLock { s -> (changed: [PlaylistItem], wasEnded: Bool)? in
             let old = s.sequencer.playlist
             guard old != playlist else { return nil }
@@ -63,18 +68,21 @@ extension PlaylistInput {
     /// Ranura con el índice y los datos nuevos de su item. Índice -1 si el item ya no está o
     /// cambió de medio/In/Out: el control lo trata como «no es el actual» y carga el que toque.
     static func remap(_ slot: Slot?, in playlist: Playlist, frame: Double) -> Slot? {
-        guard let slot else { return nil }
-        guard let index = playlist.items.firstIndex(where: { $0.id == slot.item.id }) else {
-            return Slot(index: -1, item: slot.item, source: slot.source, ready: slot.ready, started: slot.started,
-                        duration: slot.duration, elapsedBase: slot.elapsedBase, runningSince: slot.runningSince)
+        guard var updated = slot else { return nil }
+        guard let index = playlist.items.firstIndex(where: { $0.id == updated.item.id }) else {
+            updated.index = -1
+            return updated
         }
         let item = playlist.items[index]
-        let sameMedia = item.source == slot.item.source && item.inPoint == slot.item.inPoint
-            && item.outPoint == slot.item.outPoint
-        var updated = Slot(index: sameMedia ? index : -1, item: sameMedia ? item : slot.item, source: slot.source,
-                           ready: slot.ready, started: slot.started, duration: slot.duration,
-                           elapsedBase: slot.elapsedBase, runningSince: slot.runningSince)
-        if sameMedia, slot.ready { updated.duration = duration(of: updated, frame: frame) ?? slot.duration }
+        let sameMedia = item.source == updated.item.source && item.inPoint == updated.item.inPoint
+            && item.outPoint == updated.item.outPoint
+        guard sameMedia else {
+            updated.index = -1
+            return updated
+        }
+        updated.index = index
+        updated.item = item
+        if updated.ready { updated.duration = duration(of: updated, frame: frame) ?? updated.duration }
         return updated
     }
 }

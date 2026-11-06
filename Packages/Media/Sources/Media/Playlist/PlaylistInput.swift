@@ -46,8 +46,6 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
         public var switches = 0
         /// Cambios que esperaron a una precarga no lista a tiempo (se mantuvo el último fotograma).
         public var lateSwitches = 0
-        /// Última latencia de arranque medida de un vídeo entrante (s).
-        public var lastStartLatency: Double?
     }
 
     public let id: InputID
@@ -60,8 +58,6 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
     let queue: DispatchQueue
     let logger = Logger(subsystem: "MiniMix", category: "Playlist")
     private let tickTask = LockedState<Task<Void, Never>?>(nil)
-    /// Temporizadores de arranque anticipado pendientes (por id de programación).
-    let timers = LockedState<[Int: DispatchSourceTimer]>([:])
     /// Cargas en curso por fuente (se cancelan si la ranura se descarta antes de estar lista).
     let loadTasks = LockedState<[ObjectIdentifier: Task<Void, Never>]>([:])
 
@@ -90,17 +86,39 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
         continuation.finish()
     }
 
-    /// Desmontaje explícito (opcional; `deinit` hace lo mismo): para los items, deja de
-    /// seguir el reloj y separa del motor de audio los nodos de los items. El nodo propio
-    /// (`node`) lo separa E (`AudioEngine.detach`).
+    /// Desmontaje explícito: hace **todo** lo necesario por sí mismo (quien lo llame no debe
+    /// pausar ni desactivar los items antes, o la rampa no sonaría). Si nadie lo llama, al
+    /// soltarse la última referencia `deinit` solo hace `teardownLater` (rampa y separación de
+    /// los nodos de los items). El nodo propio (`node`) lo separa E (`AudioEngine.detach`).
+    ///
+    /// - En el hilo que llama: deja de seguir el reloj, marca la playlist como desmontada (ningún
+    ///   tick, carga, `play` o navegación posterior conecta ni reproduce nada) y pausa ya los
+    ///   items sin audio (no necesitan rampa).
+    /// - En la cola de la playlist: cancela cargas y arranques programados, baja el audio de los
+    ///   items en una rampa de 20 ms y después los pausa, desactiva su decodificación y separa
+    ///   sus nodos. Idempotente. `waitForTeardown()` espera a que termine.
     public func teardown() {
         tickTask.withLock { $0?.cancel() }
-        let sources = state.withLock { s -> [FrameSource] in [s.active, s.standby, s.outgoing].compactMap { $0?.source } }
-        sources.forEach {
+        let silent = state.withLock { s -> [FrameSource] in
+            s.tornDown = true
+            return [s.active, s.standby, s.outgoing].compactMap { $0?.source }.filter { ($0 as? AudioSource)?.node == nil }
+        }
+        silent.forEach {
             $0.pause()
             ($0 as? DecodingControllable)?.setDecodingEnabled(false)
         }
-        mixer.teardown()
+        enqueue { $0.performTeardown() }
+    }
+
+    /// Espera (hasta `timeout` s) a que termine un `teardown()` ya pedido: rampa, pausa y
+    /// separación de los nodos de los items hechas.
+    public func waitForTeardown(timeout: Double = 1) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            await settle()
+            if state.withLock({ $0.teardownFinished }) { return }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
     }
 
     /// Fábrica para `InputManager(playlistFactory:)`.
@@ -138,7 +156,7 @@ public final class PlaylistInput: FrameSource, AudioSource, DecodingControllable
         var lastError: Error?
         while true {
             let next = await onQueue { () -> (FrameSource, Int)? in
-                guard !self.state.withLock({ $0.prepared }) else { return nil }
+                guard !self.state.withLock({ $0.prepared || $0.tornDown }) else { return nil }
                 guard let index = self.state.withLock({ $0.sequencer.upcomingIndex }) else { return nil }
                 return self.createSlot(index: index, asActive: true).map { ($0, index) }
             }

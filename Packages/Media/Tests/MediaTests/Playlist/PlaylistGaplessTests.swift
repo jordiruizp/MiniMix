@@ -62,10 +62,9 @@ extension MediaSerialTests {
             PerfGate.check(starts, "entrante empieza en el 0 (±\(lost)) \(report.changes)")
             PerfGate.check(abs(report.runLength(clip: 27) - 300) <= lost, "imagen 300 ticks (±\(lost)): \(report.runLength(clip: 27))")
             PerfGate.check(input.stats.lateSwitches == 0, "cambios tardíos \(input.stats.lateSwitches)")
-            // Repeticiones en los cambios (más ticks que la cadencia 25p→3, 30p→2). El arranque de
-            // AVPlayer varía ±40 ms y se compensa por defecto (fotograma 0 algo más largo antes
-            // que saltarlo): hasta 6 ticks (100 ms) mientras VideoInput no arranque a hora fija.
-            PerfGate.check(report.boundaryRepeats <= lost + 6, "repeticiones en los cambios \(report.boundaryRepeats)")
+            // Repeticiones en los cambios (más ticks que la cadencia 25p→3, 30p→2): el vídeo
+            // entrante arranca a hora fija (`VideoInput.play(atHostTime:)`) en el tick del cambio.
+            PerfGate.check(report.boundaryRepeats <= lost, "repeticiones en los cambios \(report.boundaryRepeats)")
             PerfGate.check(report.skippedInside <= lost, "fotogramas saltados dentro de los clips \(report.skippedInside)")
         }
     }

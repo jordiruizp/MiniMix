@@ -188,6 +188,9 @@ extension MediaSerialTests {
             await driver.run(1)
             input.play()
             await driver.run(30)
+            // Las duraciones de los items siguientes se sondean en segundo plano: esperar a ellas
+            // (el tiempo de la playlist solo avanza con los ticks manuales).
+            for _ in 0..<200 where input.playlistRemainingTime == nil { try await Task.sleep(for: .milliseconds(5)) }
             let remaining = try #require(input.playlistRemainingTime)
             #expect(abs(remaining - 5.5) < 0.05)
             await driver.run(60 * 6)

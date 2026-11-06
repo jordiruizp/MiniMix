@@ -5,8 +5,8 @@ import Metal
 extension PlaylistInput {
     /// Una ranura (A/B): un item cargado.
     struct Slot {
-        let index: Int
-        let item: PlaylistItem
+        var index: Int
+        var item: PlaylistItem
         let source: FrameSource
         var ready = false
         var started = false
@@ -15,6 +15,10 @@ extension PlaylistInput {
         /// Reloj de items sin posición propia (imagen, color, audio).
         var elapsedBase: Double = 0
         var runningSince: HostTime?
+        /// Tick pedido a `VideoInput.play(atHostTime:)` para presentar su In (solo la ranura de espera).
+        var startAt: HostTime?
+        /// Volviendo al In tras anular un arranque: no se reprograma hasta terminar.
+        var rewinding = false
 
         var isVideo: Bool { source is VideoInput }
     }
@@ -51,19 +55,16 @@ extension PlaylistInput {
         var fit: FitMode
         var frameDuration: Double
         var prepared = false
+        /// `teardown()` ya se ejecutó: nada vuelve a cargar, conectar ni reproducir.
+        var tornDown = false
+        var teardownStarted = false
+        var teardownFinished = false
         var active: Slot?
         var standby: Slot?
         /// Saliente durante un fundido.
         var outgoing: Slot?
         var pending: Pending?
         var fadeEnd: HostTime?
-        /// Arranque preciso programado del entrante (se invalida al cancelar).
-        var armID = 0
-        var scheduledPlay: Int?
-        var scheduledSource: ObjectIdentifier?
-        /// Latencia estimada de arranque de AVPlayer (s) de un vídeo precargado y en pausa:
-        /// 0,19–0,31 s medidos en MacBook Neo; se corrige con cada arranque programado.
-        var startLatency = 0.24
         var userPaused = false
         var decodingEnabled = true
         var lastTick: HostTime?

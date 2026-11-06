@@ -7,6 +7,7 @@ extension PlaylistInput {
     // MARK: Transporte
 
     func handlePlay() {
+        guard !state.withLock({ $0.tornDown }) else { return }
         let (seqState, paused) = state.withLock { ($0.sequencer.state, $0.userPaused) }
         switch seqState {
         case .playing:
@@ -73,6 +74,7 @@ extension PlaylistInput {
     // MARK: Navegación
 
     func navigate(_ event: SequencerEvent) {
+        guard !state.withLock({ $0.tornDown }) else { return }
         let time = referenceTime
         let outcome = state.withLock { s -> (index: Int, restart: Bool)? in
             let before = s.sequencer.currentIndex
@@ -170,12 +172,12 @@ extension PlaylistInput {
                 } else if let audio = source as? AudioInput {
                     await audio.restart()
                 }
+                // Un teardown mientras volvía al In no debe dejar un play tardío.
+                guard !self.state.withLock({ $0.tornDown }) else { return }
                 source.play()
             }
         } else {
-            let wasPaused = source.playbackState == .paused
             source.play()
-            if wasPaused { measureStartLatency(of: source) }
         }
         emitStarted(slot)
     }
@@ -189,17 +191,33 @@ extension PlaylistInput {
                 s.fade = nil
             }
             s.pending = nil
-            s.scheduledPlay = nil
-            s.scheduledSource = nil
-            return ([armed, s.fadeEnd != nil], s.standby)
+            let standby = s.standby
+            // El arranque a hora fija se anula; si el entrante ya corría, vuelve a su In y no se
+            // reprograma hasta que el seek termine (`rewinding`).
+            if var slot = s.standby {
+                let running = slot.startAt != nil || slot.source.playbackState == .playing
+                slot.startAt = nil
+                slot.rewinding = running
+                s.standby = slot
+            }
+            return ([armed, s.fadeEnd != nil], standby)
         }
         let (wasArmed, fading) = (flags[0], flags[1])
         if wasArmed { renderer.endComposite() }
-        // El entrante pudo arrancar ya (arranque anticipado): volver a su In.
-        if let standby, standby.source.playbackState == .playing {
+        if let standby, state.withLock({ $0.standby?.rewinding == true && $0.standby?.source === standby.source }) {
             let source = standby.source
             source.pause()
-            Task { await source.seek(to: standby.item.inPoint ?? 0) }
+            Task {
+                await source.seek(to: standby.item.inPoint ?? 0)
+                self.enqueue { input in
+                    input.state.withLock { s in
+                        if var slot = s.standby, slot.source === source {
+                            slot.rewinding = false
+                            s.standby = slot
+                        }
+                    }
+                }
+            }
         }
         if fading { finishFade() }
     }
@@ -231,6 +249,7 @@ extension PlaylistInput {
 
     @discardableResult
     func loadStandby(_ index: Int) -> Bool {
+        guard !state.withLock({ $0.tornDown }) else { return false }
         guard let source = createSlot(index: index, asActive: false) else { return false }
         let key = ObjectIdentifier(source)
         let task = Task {
@@ -277,6 +296,12 @@ extension PlaylistInput {
 
     func loadFinished(source: FrameSource) {
         let frame = environment.clock.frameRate.frameDuration
+        if state.withLock({ $0.tornDown }) {
+            state.withLock { $0.loading -= 1 }
+            source.pause()
+            (source as? DecodingControllable)?.setDecodingEnabled(false)
+            return
+        }
         let slot = state.withLock { s -> Slot? in
             s.loading -= 1
             let isActive = s.active?.source === source
@@ -315,8 +340,12 @@ extension PlaylistInput {
             if s.standby?.source === source { defer { s.standby = nil }; return s.standby }
             return nil
         }
-        // Ranura ya descartada (carga cancelada): no es un fallo del item.
+        // Ranura ya descartada (carga cancelada) o playlist desmontada: no es un fallo del item.
         guard let slot else { return }
+        guard !state.withLock({ $0.tornDown }) else {
+            release(slot, delayed: false)
+            return
+        }
         continuation.yield(.error("Item \(index + 1): \(error)"))
         release(slot, delayed: false)
         disableFailedItem(id: slot.item.id)
@@ -408,9 +437,44 @@ extension PlaylistInput {
         }
     }
 
+    func performTeardown() {
+        let sources = state.withLock { s -> [FrameSource]? in
+            guard !s.teardownStarted else { return nil }
+            s.teardownStarted = true
+            s.tornDown = true
+            s.pending = nil
+            s.armed = nil
+            return [s.active, s.standby, s.outgoing].compactMap { $0?.source }
+        }
+        guard let sources else { return }
+        let tasks = loadTasks.withLock { t -> [Task<Void, Never>] in
+            defer { t.removeAll() }
+            return Array(t.values)
+        }
+        tasks.forEach { $0.cancel() }
+        let ramp = 0.02
+        let nodes = sources.compactMap { ($0 as? AudioSource)?.node }.map(SendableAudioNode.init)
+        let starts = nodes.map { ($0.node as? AVAudioMixing)?.volume ?? 1 }
+        for step in 1...4 {
+            queue.asyncAfter(deadline: .now() + ramp * Double(step) / 4) { [weak self] in
+                for (ref, start) in zip(nodes, starts) {
+                    self?.mixer.setGain(start * Float(1 - Double(step) / 4), for: ref.node)
+                }
+            }
+        }
+        queue.asyncAfter(deadline: .now() + ramp + 0.005) { [weak self] in
+            sources.forEach {
+                $0.pause()
+                ($0 as? DecodingControllable)?.setDecodingEnabled(false)
+            }
+            self?.mixer.teardown()
+            self?.state.withLock { $0.teardownFinished = true }
+        }
+    }
+
     /// Conecta al mezclador los nodos de audio de las ranuras listas (cuando E ya adjuntó `node`).
     func connectAudio() {
-        guard mixer.node.engine != nil else { return }
+        guard mixer.node.engine != nil, !state.withLock({ $0.tornDown }) else { return }
         let slots = state.withLock { s -> [(FrameSource, Float)] in
             var list: [(FrameSource, Float)] = []
             if let active = s.active, active.ready { list.append((active.source, s.fade == nil || s.fadeEnd != nil ? 1 : 0)) }
