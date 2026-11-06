@@ -18,16 +18,23 @@ jobs:
       - run: swift test --package-path Packages/Core -Xswiftc -warnings-as-errors
 
   macos:
-    # Un solo job macOS (lint + todos los paquetes + bundle) para minimizar minutos.
-    if: github.event_name == 'push' || github.event.pull_request.draft == false
-    runs-on: macos-26
+    # Runner propio (el Mac de desarrollo, etiqueta `minimix`). Por seguridad, en un repo público
+    # NUNCA se ejecuta código de PRs de forks en él: solo push a main y PRs de ramas de este repo.
+    if: >-
+      github.event_name == 'push' ||
+      (github.event.pull_request.draft == false &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, macOS, ARM64, minimix]
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest
+          clean: true
+      # scripts/env.sh selecciona /Applications/Xcode.app sin sudo.
       - run: swift --version
-      - run: brew install swiftlint
+      - name: SwiftLint disponible
+        run: command -v swiftlint || { echo "Instala SwiftLint en el Mac del runner (brew install swiftlint)"; exit 1; }
       - run: scripts/ci.sh
       - run: scripts/bundle-app.sh release
+      # Abre la app unos segundos en la pantalla del Mac del runner.
       - run: scripts/smoke-app.sh 10

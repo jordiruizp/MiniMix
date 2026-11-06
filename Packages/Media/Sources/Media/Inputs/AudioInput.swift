@@ -25,6 +25,8 @@ public final class AudioInput: FrameSource, AudioSource {
         /// Invalida las finalizaciones de segmentos programados antes de un stop/seek.
         var generation = 0
         var queuedSegments = 0
+        /// Segundos de audio programados en el nodo desde el último `stop` (diagnóstico/tests).
+        var scheduledSeconds: Double = 0
         /// Segmentos programados en el nodo, en orden (segundos del archivo).
         var segments: [Segment] = []
         /// Duración de los segmentos ya reproducidos desde el último `stop` del nodo
@@ -73,6 +75,7 @@ public final class AudioInput: FrameSource, AudioSource {
     public var duration: Double? { state.withLock { $0.duration } }
     /// true si el nodo está sonando (o tiene segmentos y está en play).
     public var isNodePlaying: Bool { player.isPlaying }
+    var scheduledSecondsForTesting: Double { state.withLock { $0.scheduledSeconds } }
     var transportForTesting: TransportSettings {
         state.withLock { TransportSettings(loop: $0.loop, inPoint: $0.inPoint, outPoint: $0.outPoint) }
     }
@@ -94,9 +97,13 @@ public final class AudioInput: FrameSource, AudioSource {
                             playing: s.playback == .playing)
         }
         guard let snapshot else { return nil }
+        // `playerTime(forNodeTime:)` lanza una NSException si `nodeTime` no tiene tiempo de
+        // muestra válido (motor en marcha que aún no ha renderizado, p. ej. manual u
+        // offline sin `renderOffline`): se comprueba antes y, si no, última posición conocida.
         guard snapshot.playing, let front = snapshot.front, player.engine != nil,
-              let nodeTime = player.lastRenderTime, let playerTime = player.playerTime(forNodeTime: nodeTime),
-              playerTime.sampleRate > 0 else { return snapshot.fallback }
+              let nodeTime = player.lastRenderTime, nodeTime.isSampleTimeValid,
+              let playerTime = player.playerTime(forNodeTime: nodeTime),
+              playerTime.isSampleTimeValid, playerTime.sampleRate > 0 else { return snapshot.fallback }
         let elapsed = Double(playerTime.sampleTime) / playerTime.sampleRate
         let position = front.start + min(max(0, elapsed - snapshot.finished), front.duration)
         state.withLock { $0.lastPosition = position }
@@ -193,6 +200,7 @@ public final class AudioInput: FrameSource, AudioSource {
         state.withLock { s in
             s.generation += 1
             s.queuedSegments = 0
+            s.scheduledSeconds = 0
             s.segments = []
             s.finishedSeconds = 0
             s.startPosition = seconds
@@ -218,6 +226,7 @@ public final class AudioInput: FrameSource, AudioSource {
             let end = min(max(upper, start), length)
             guard end > start else { return nil }
             s.queuedSegments += 1
+            s.scheduledSeconds += Double(end - start) / rate
             s.segments.append(Segment(start: Double(start) / rate, duration: Double(end - start) / rate))
             return Scheduled(file: file, start: start, count: AVAudioFrameCount(end - start))
         }
