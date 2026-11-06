@@ -102,7 +102,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 - ~~2026-10-23: jobs no arrancados por límite de facturación~~ → resuelto: el usuario hizo público el repo.
 - **D15** · Preferencias = valores por defecto para proyectos nuevos y el inicial; cambiar el formato del proyecto actual es una acción explícita con confirmación si hay salida activa.
 - **D17** · Límite de decodificadores: una PlaylistInput con vídeo reserva siempre 2 (peor caso), sin depender del instante.
-- **D16** · Tolerancia temporal de repeticiones en cambios de playlist (`lost + 6`) hasta usar `VideoInput.play(atHostTime:)` (PR #15).
+- ~~**D16**~~ · Resuelto en #23: el vídeo entrante usa `VideoInput.play(atHostTime:)`; de nuevo 0 repeticiones exigidas fuera de CI.
 - **D14** · `ProjectDecoder` sigue rechazando `schemaVersion < 1` (v1 es el primer esquema); las migraciones se prueban con el registro.
 - **D13** · Tests de rendimiento: miden siempre y exigen objetivos solo fuera de CI (runners macOS = VM con GPU paravirtualizada).
 - **D12** · CI reducido: un solo job macOS (`scripts/ci.sh` + bundle) en push a main y PRs no borrador, más `core-linux`.
@@ -152,8 +152,8 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 ## PRs (Ola 3) — 2026-11-06
 
 - ✅ integrados con CI en el runner propio: #21 guardia AudioInput, #22 audio de playlists + perfil A/V en la App, #24 AudioEngine.performGraphChange, #25 tests robustos a carga.
-- 🟦 integrando en cadena: #23 Playlist play(atHostTime:) + teardown (aprobado), discard → teardown (C), hook graphChange (D).
-- Siguiente: G cablea `graphChange` en la App; H valida A/V con claqueta y cierra T90.
+- ✅ #23 Playlist play(atHostTime:) + teardown (0 repeticiones en cambios), #26 discard → teardown con rampa, #27 hook graphChange.
+- 🟦 G cablea `graphChange` en la App · C estabiliza VSyncWatchdogTests · H T90 (estrés + validación A/V con claqueta).
 
 ## Deuda menor (no bloqueante, para Ola 3)
 
