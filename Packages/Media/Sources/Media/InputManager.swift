@@ -325,9 +325,14 @@ extension InputManager {
     /// hilo de render). Una `PlaylistInput` se desmonta explícitamente (items, reloj y nodos
     /// de audio de los items), además de su `deinit` diferido.
     private static func discard(_ source: FrameSource) {
+        // Una playlist se desmonta sola en su cola (rampa de 20 ms → pausa → desactivar
+        // decodificación → separar nodos): pausarla o desactivarla antes cortaría en seco.
+        if let playlist = source as? PlaylistInput {
+            playlist.teardown()
+            return
+        }
         source.pause()
         (source as? DecodingControllable)?.setDecodingEnabled(false)
-        (source as? PlaylistInput)?.teardown()
     }
 
     /// Calcula (bajo el cerrojo, sin llamar a las fuentes) qué fuentes decodifican:
