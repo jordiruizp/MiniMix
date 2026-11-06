@@ -151,7 +151,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 
 ## PRs abiertos (Ola 3, 2026-11-05)
 
-- #21 guardia AudioInput.currentTime — CI local verde; GitHub sin runners macOS; merge denegado sin CI → **pendiente decisión del usuario** (esperar runners / permitir merge con CI local / runner self-hosted).
+- #21 guardia AudioInput.currentTime — CI local verde; relanzar CI en el runner propio.
 - #22 audio de playlists + perfil A/V en la App — menores hechos (0bb8a6c); espera CI.
 - #23 Playlist play(atHostTime:) + teardown — ⛔ devuelto (B1 cruza con C: discard; M1–M3 arranque fijado). D corrige; C hará `discard` sobre la rama de D.
 - #24 AudioEngine.performGraphChange (E) — espera CI; D hará el hook en PlaylistEnvironment tras #23.
