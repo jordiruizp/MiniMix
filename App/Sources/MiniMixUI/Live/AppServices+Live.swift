@@ -89,6 +89,16 @@ extension AppServices {
     ///   secuenciador de `PlaylistInput`: la UI le reenvía play/pause/next/previous/jump/restart y
     ///   refleja su estado (`SourceEvent.itemChanged/ended` y sus propiedades). false → la UI
     ///   desactiva «Añadir playlist».
+    /// Entorno de las playlists reales. `graphChange` serializa las conexiones de sus items con
+    /// el grafo del motor de audio (`AudioEngine.performGraphChange`), así una alta/baja de otro
+    /// canal no se cruza con la conexión de un item. El cierre no vuelve a entrar en `AudioEngine`.
+    static func playlistEnvironment(context: MetalContext, clock: MasterClock, canvasSize: PixelSize,
+                                    urlResolver: @escaping InputManager.URLResolver,
+                                    audio: AudioEngine) -> PlaylistEnvironment {
+        PlaylistEnvironment(context: context, clock: clock, canvasSize: canvasSize, urlResolver: urlResolver,
+                            graphChange: { change in audio.performGraphChange { _ in change() } })
+    }
+
     public static func live(project: Project = Project(), playlists: Bool = true) throws -> (AppServices, LiveRuntime) {
         guard let context = MetalContext.shared else { throw LiveSetupError.noMetalDevice }
         let canvas = project.canvas.size
@@ -99,8 +109,8 @@ extension AppServices {
         let store = ProjectStore()
         let urlResolver = store.urlResolver
         let playlistFactory = playlists
-            ? PlaylistInput.factory(environment: PlaylistEnvironment(context: context, clock: clock, canvasSize: canvas,
-                                                                     urlResolver: urlResolver))
+            ? PlaylistInput.factory(environment: Self.playlistEnvironment(
+                context: context, clock: clock, canvasSize: canvas, urlResolver: urlResolver, audio: audio))
             : nil
         let manager = InputManager(context: context, canvasSize: canvas, urlResolver: urlResolver,
                                    playlistFactory: playlistFactory)
