@@ -37,13 +37,19 @@ final class FakeTimerDriver: TickDriver {
     let vsync = FakeVSync()
     let timer = FakeTimerDriver()
     let fires = LockedState(0)
+    /// Propio de cada test: un aviso de cambio de pantalla de otro test (o del sistema) no
+    /// debe llegar a este driver (los tests de la suite corren en paralelo).
+    let notifications: NotificationCenter
     let driver: VSyncTickDriver
     static let frame: Int64 = 16_666_667
 
     init() {
         let time = self.time
+        let center = NotificationCenter()
+        notifications = center
         driver = VSyncTickDriver(vsync: vsync, fallback: timer, initialGraceNanos: 100_000_000,
-                                 recoveryPulses: 3, watchdogInterval: nil, now: { time.current })
+                                 recoveryPulses: 3, watchdogInterval: nil, now: { time.current },
+                                 notificationCenter: center)
     }
 
     private func advance(_ nanos: Int64) { time.withLock { $0 += nanos } }
@@ -104,7 +110,7 @@ final class FakeTimerDriver: TickDriver {
         advance(200_000_000) // sin pulsos tras la gracia inicial: sin pantalla
         driver.checkStall()
         #expect(driver.isUsingFallback)
-        NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        notifications.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
         #expect(vsync.starts.current == 2)
         pulses(3)
         #expect(!driver.isUsingFallback)

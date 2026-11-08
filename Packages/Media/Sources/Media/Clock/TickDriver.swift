@@ -90,6 +90,10 @@ final class VSyncTickDriver: TickDriver {
     private let now: @Sendable () -> Int64
     private let queue = DispatchQueue(label: "minimix.clock.watchdog", qos: .userInteractive)
     private let state = LockedState(State())
+    /// Centro de notificaciones de los cambios de pantalla (inyectable: los tests usan uno
+    /// propio para que el aviso de un test no llegue a los drivers de otros en paralelo).
+    /// En `LockedState` porque `NotificationCenter` no está anotado como `Sendable` en todos los SDK.
+    private let notifications: LockedState<NotificationCenter>
 
     /// - Parameters:
     ///   - watchdogInterval: cada cuánto se vigila; nil = sin temporizador (los tests
@@ -98,7 +102,9 @@ final class VSyncTickDriver: TickDriver {
     init(vsync: any VSyncSource, fallback: any TickDriver = TimerTickDriver(),
          initialGraceNanos: Int64 = 250_000_000, recoveryPulses: Int = 3,
          watchdogInterval: DispatchTimeInterval? = .milliseconds(25),
-         now: @escaping @Sendable () -> Int64 = HostClock.nowNanos) {
+         now: @escaping @Sendable () -> Int64 = HostClock.nowNanos,
+         notificationCenter: NotificationCenter = .default) {
+        notifications = LockedState(notificationCenter)
         self.vsync = vsync
         self.fallback = fallback
         self.initialGraceNanos = initialGraceNanos
@@ -116,7 +122,7 @@ final class VSyncTickDriver: TickDriver {
 
     func start(_ onFire: @escaping @Sendable (Int64) -> Int64) {
         stop()
-        let observer = NotificationCenter.default.addObserver(
+        let observer = notifications.current.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: nil) { [weak self] _ in
             self?.screenParametersChanged()
         }
@@ -151,7 +157,7 @@ final class VSyncTickDriver: TickDriver {
             return (s.watchdog, s.observer)
         }
         watchdog?.cancel()
-        if let observer { NotificationCenter.default.removeObserver(observer) }
+        if let observer { notifications.current.removeObserver(observer) }
         vsync.stop()
         fallback.stop()
     }
