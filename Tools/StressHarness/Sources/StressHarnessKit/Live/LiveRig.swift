@@ -74,7 +74,12 @@ public final class LiveRig: @unchecked Sendable {
         var audio: AudioEngine?
         var audioError: String?
         do {
-            audio = try AudioEngine()
+            let engine = try AudioEngine()
+            // Como `AppServices.live()`: del tick al vsync, un fotograma (retrasa las entradas `.playerTap`).
+            engine.videoPresentationLatency = canvas.frameRate.frameDuration
+            // Como la App: el motor ya suena cuando se añaden las entradas (attach en marcha, #19).
+            try engine.start()
+            audio = engine
         } catch {
             audioError = "\(error)"
         }
@@ -105,17 +110,15 @@ public final class LiveRig: @unchecked Sendable {
         for (descriptor, _) in descriptors {
             try await manager.add(descriptor)
             if let audio, let source = manager.audioSource(for: descriptor.id) {
+                // Igual que LiveInputs: perfil antes del attach, aviso de salida después.
+                let frameSource = manager.frameSource(for: descriptor.id)
+                let tapped = frameSource is VideoInput || frameSource is PlaylistInput
+                audio.setSyncProfile(tapped ? .playerTap : .direct, for: descriptor.id)
                 try? audio.attach(source)
+                (frameSource as? VideoInput)?.audioOutputDidChange()
                 audio.setAudioFollowsProgram(true, for: descriptor.id)
             }
             manager.frameSource(for: descriptor.id)?.play()
-        }
-        // El motor arranca con todos los canales ya conectados (como al abrir un proyecto).
-        do {
-            try audio?.start()
-        } catch {
-            audioError = "\(error)"
-            audio = nil
         }
         return LiveRig(context: context, clock: clock, manager: manager, audio: audio, audioError: audioError,
                        inputs: descriptors.map(\.1), playlistID: playlist.id, playlistClipIDs: clipIDs,

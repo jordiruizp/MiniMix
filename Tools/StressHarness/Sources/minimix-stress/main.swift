@@ -1,7 +1,7 @@
 // minimix-stress — harness de estrés y medición (H · T61/T90).
 //
 // Escenarios T90 sobre los módulos reales (TestMedia generado): stress-5m-cuts, stress-5m-playlist,
-// stress-1h-playlist, stress-2h-cuts (admiten --duration). Ejecuciones largas en segundo plano con
+// stress-1h-playlist, stress-2h-cuts (admiten --duration); av-sync (claqueta, --duration s). Ejecuciones largas en segundo plano con
 // `caffeinate -i`.
 //
 // Uso:
@@ -56,6 +56,13 @@ func runLive(_ base: LiveScenarioConfig, options: StressOptions) async throws {
 
 do {
     let options = try StressOptions.parse(Array(CommandLine.arguments.dropFirst()))
+    if options.scenario == "av-sync" {
+        let (summary, url) = try await AVSyncRun.run(seconds: options.duration ?? 30,
+                                                     to: options.out ?? defaultReportsDirectory)
+        say(summary)
+        say(url.path)
+        exit(0)
+    }
     if let live = LiveScenarioConfig.named(options.scenario) {
         try await runLive(live, options: options)
         exit(0)

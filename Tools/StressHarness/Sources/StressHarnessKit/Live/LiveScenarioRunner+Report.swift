@@ -78,7 +78,7 @@ extension LiveScenarioRunner {
             playlist: inputs.playlistStats.map {
                 .init(items: rig.playlistItemCount, switches: $0.switches, lateSwitches: $0.lateSwitches,
                       maxLoadedItems: $0.maxLoadedItems, createdItems: $0.createdItems,
-                      lastStartLatencyMs: $0.lastStartLatency.map { $0 * 1000 })
+                      lastStartLatencyMs: nil)
             },
             skipsByClip: [:], skipEvents: [],
             maxActiveDecoders: samples.map(\.activeDecoders).max() ?? 0,
