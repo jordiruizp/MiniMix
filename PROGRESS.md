@@ -153,11 +153,12 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 
 - ✅ integrados con CI en el runner propio: #21 guardia AudioInput, #22 audio de playlists + perfil A/V en la App, #24 AudioEngine.performGraphChange, #25 tests robustos a carga.
 - ✅ #23 Playlist play(atHostTime:) + teardown (0 repeticiones en cambios), #26 discard → teardown con rampa, #27 hook graphChange.
-- 🟦 G cablea `graphChange` en la App · C estabiliza VSyncWatchdogTests · H T90 (estrés + validación A/V con claqueta).
+- ✅ #28 graphChange cableado en la App · #29 VSyncWatchdogTests aislado.
+- 🟦 H T90 (estrés + validación A/V con claqueta).
 
 ## Deuda menor (no bloqueante, para Ola 3)
 
-- ⚠ Concurrencia (D/E): `PlaylistAudioMixer.connect` modifica el grafo de AVAudioEngine desde la cola de la playlist sin el cerrojo de `AudioEngine`; puede coincidir con attach/detach de otro canal. Propuesta: API en Audio para que la playlist conecte/desconecte nodos de items bajo el cerrojo del motor.
+- ~~Concurrencia (D/E)~~ (resuelto: #24 + #27 + #28): `PlaylistAudioMixer.connect` modifica el grafo de AVAudioEngine desde la cola de la playlist sin el cerrojo de `AudioEngine`; puede coincidir con attach/detach de otro canal. Propuesta: API en Audio para que la playlist conecte/desconecte nodos de items bajo el cerrojo del motor.
 - `videoPresentationLatency` = 1 fotograma es aproximado; validar con claqueta (H).
 
 - Media (opcional): en el reanclaje tras resetTimeline con diferencia < 20 ms, conservar la continuación en vez de adoptar el tiempo informado (evita un microajuste ≤ 4 ms en reanudaciones).
