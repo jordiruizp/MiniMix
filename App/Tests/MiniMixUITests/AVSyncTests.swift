@@ -163,6 +163,54 @@ struct AVSyncLiveTests {
         #expect(!engine.attachedInputs.contains(playlist.id))
     }
 
+    /// `graphChange` de `live()`: la conexión de los items de la playlist se serializa con el grafo
+    /// del motor, así altas y bajas concurrentes de otros canales no la cruzan (sin NSException).
+    @Test func playlistItemConnectsWhileOtherChannelsComeAndGo() async throws {
+        let context = try #require(MetalContext.shared)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("av-gc-\(UUID().uuidString).wav")
+        try Self.writeWav(url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let engine = try AudioEngine(configuration: AudioEngineConfiguration(
+            renderMode: .offline(sampleRate: 48_000, maximumFrameCount: 512)))
+        try engine.start()
+        defer { engine.stop() }
+        let clock = MasterClock(frameRate: .fps60)
+        clock.start()
+        defer { clock.stop() }
+        let canvas = PixelSize(width: 64, height: 36)
+        let environment = AppServices.playlistEnvironment(context: context, clock: clock, canvasSize: canvas,
+                                                          urlResolver: { URL(fileURLWithPath: $0.path) }, audio: engine)
+        #expect(environment.graphChange != nil)
+        let manager = InputManager(context: context, canvasSize: canvas,
+                                   playlistFactory: PlaylistInput.factory(environment: environment))
+        let inputs = LiveInputs(inputs: manager, audio: engine)
+        let playlist = Self.audioPlaylist(url)
+        try await inputs.add(playlist)
+        let source = try #require(manager.frameSource(for: playlist.id) as? PlaylistInput)
+        let mixer = try #require(source.node as? AVAudioMixerNode)
+        source.play()
+
+        // Altas y bajas de otros canales de audio (archivos reales) mientras el item se conecta.
+        let churn = Task.detached {
+            for round in 0..<6 {
+                let other = InputDescriptor(name: "A\(round)", content: .audio(MediaReference(path: url.path), visual: .black))
+                try? await inputs.add(other)
+                await inputs.remove(other.id)
+            }
+        }
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: engine.format, frameCapacity: 512))
+        var connected = false
+        for _ in 0..<400 where !connected {
+            _ = try engine.renderOffline(512, to: buffer)
+            connected = engine.performGraphChange { $0.inputConnectionPoint(for: mixer, inputBus: 0) != nil }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        await churn.value
+        #expect(connected, "el item de audio se conectó con altas/bajas concurrentes")
+        #expect(engine.attachedInputs == [playlist.id], "las altas temporales se dieron de baja")
+        await inputs.remove(playlist.id)
+    }
+
     /// Hay dispositivo de salida de audio (la variante en tiempo real se omite sin él, p. ej. en CI).
     nonisolated static var hasOutputDevice: Bool {
         var device = AudioObjectID(kAudioObjectUnknown)
