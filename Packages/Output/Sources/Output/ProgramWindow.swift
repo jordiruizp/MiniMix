@@ -90,16 +90,36 @@ public final class ProgramWindowSurface: ProgramSurface {
         window?.orderOut(nil)
     }
 
-    /// Crea (una vez) y configura la ventana para `display` sin mostrarla.
+    /// Crea y configura la ventana para `display` sin mostrarla. Se reutiliza mientras el factor de escala
+    /// de la pantalla no cambie.
+    ///
+    /// **Por qué se crea en su pantalla y se recrea al cambiar de escala:** si la ventana nace en la
+    /// pantalla Retina (2×) y se mueve a una de 1× (p. ej. un DELL 1920×1080), el `CAMetalLayer` del
+    /// `MTKView` alojado en `NSHostingView` se queda con `contentsScale == 0`: `draw(in:)` se sigue
+    /// llamando y presenta drawables, pero la pantalla muestra solo el fondo negro. Verificado en este Mac
+    /// con un DELL S2421HN (ver `ProgramWindowScaleTests`).
     func prepareWindow(for display: DisplayDescriptor) -> ProgramWindow {
-        let window = window ?? makeWindow()
+        if let existing = window, let target = Self.backingScale(of: display),
+           existing.backingScaleFactor != target {
+            existing.orderOut(nil)
+            window = nil
+        }
+        let window = window ?? makeWindow(on: display)
         self.window = window
         window.ignoresMouseEvents = display.info.isBuiltIn
         return window
     }
 
-    private func makeWindow() -> ProgramWindow {
-        let window = ProgramWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
+    /// Factor de escala de la pantalla de `display` (nil si no está conectada, p. ej. en tests).
+    static func backingScale(of display: DisplayDescriptor) -> CGFloat? {
+        ScreenDisplayProvider.screen(for: display.info.id)?.backingScaleFactor
+    }
+
+    private func makeWindow(on display: DisplayDescriptor) -> ProgramWindow {
+        // Se crea ya en su pantalla (y con su tamaño): así nace con el factor de escala de esa pantalla.
+        let screen = ScreenDisplayProvider.screen(for: display.info.id)
+        let window = ProgramWindow(contentRect: NSRect(origin: .zero, size: display.frame.size), styleMask: [.borderless],
+                                   backing: .buffered, defer: false, screen: screen)
         window.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenNone]
         window.isReleasedWhenClosed = false
