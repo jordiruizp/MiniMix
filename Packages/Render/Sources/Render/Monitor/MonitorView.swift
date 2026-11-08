@@ -38,7 +38,7 @@ public struct MonitorView: NSViewRepresentable {
     }
 
     public func makeNSView(context ctx: Context) -> MTKView {
-        let view = MTKView(frame: .zero, device: renderer?.context.device)
+        let view = MonitorMTKView(frame: .zero, device: renderer?.context.device)
         Self.configure(view)
         view.delegate = ctx.coordinator
         ctx.coordinator.attach(view: view)
@@ -168,4 +168,32 @@ public struct MonitorView: NSViewRepresentable {
 private final class WeakViewBox: @unchecked Sendable {
     weak var view: MTKView?
     init(_ view: MTKView) { self.view = view }
+}
+
+/// `MTKView` que mantiene `CAMetalLayer.contentsScale` alineado con la escala de su
+/// ventana. Dentro de un `NSHostingView`, un MTKView creado en una pantalla 2× y
+/// llevado a una 1× puede quedarse con `contentsScale == 0`: `draw(in:)` se ejecuta
+/// con un drawable válido pero no se ve nada. Al cambiar las propiedades de backing
+/// o de ventana se fija la escala y se pide redibujado.
+public final class MonitorMTKView: MTKView {
+    override public func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        syncContentsScale()
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        syncContentsScale()
+    }
+
+    /// Fija `layer.contentsScale` a `window.backingScaleFactor` (si hay ventana) y
+    /// pide maquetado y redibujado para que el drawable se recalcule.
+    func syncContentsScale() {
+        guard let scale = window?.backingScaleFactor, scale > 0, let layer else { return }
+        if layer.contentsScale != scale {
+            layer.contentsScale = scale
+            needsLayout = true
+        }
+        needsDisplay = true
+    }
 }
