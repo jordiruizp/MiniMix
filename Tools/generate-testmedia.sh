@@ -342,6 +342,35 @@ SETS='[{"name": "playlist_mixed",
     {"type": "color", "color": {"red": 0.125, "green": 0.25, "blue": 0.75, "alpha": 1}, "duration": 3}
   ]}]'
 
+# Conjunto playlist_50 (H · T90): 50 items mezclados de la matriz para el estrés de 1 h. Alterna dos
+# patrones de 10 sin repetir archivo en items consecutivos (tampoco al dar la vuelta); ninguno es
+# de las 8 entradas del escenario de estrés, así que su clipID identifica la playlist.
+P50_A=("video:video/h264_1080p23976.mp4" "image:image/jpeg_1920x1080.jpg" "video:video/h264_720p25.mp4"
+       "color:0.8,0.2,0.2" "video:video/hevc_720p2997.mp4" "image:image/tiff_1920x1080.tif"
+       "video:video/h264_1080p50.mp4" "video:playlist_mixed/01_h264_1080p25.mp4" "image:image/heic_1920x1080.heic"
+       "video:playlist_mixed/03_h264_1080p30.mp4")
+P50_B=("video:video/hevc_1080p5994.mp4" "image:playlist_mixed/02_image_1920x1080.png"
+       "video:video/prores422_1080p2997.mov" "color:0.2,0.6,0.3" "video:video/h264_720p5994.mp4"
+       "image:image/tiff_1920x1080.tif" "video:video/h264_1080p50.mp4" "image:image/heic_1920x1080.heic"
+       "video:video/h264_720p25.mp4" "image:image/jpeg_1920x1080.jpg")
+P50_ITEMS=()
+for round in 0 1 2 3 4; do
+  if (( round % 2 == 0 )); then pattern=("${P50_A[@]}"); else pattern=("${P50_B[@]}"); fi
+  for entry in "${pattern[@]}"; do
+    kind="${entry%%:*}"; value="${entry#*:}"
+    case "$kind" in
+      video) P50_ITEMS+=("$(jq -cn --arg f "$value" '{type: "video", file: $f, duration: null}')") ;;
+      image) P50_ITEMS+=("$(jq -cn --arg f "$value" '{type: "image", file: $f, duration: 3}')") ;;
+      color) IFS=, read -r cr cg cb <<< "$value"
+        P50_ITEMS+=("$(jq -cn --argjson r "$cr" --argjson g "$cg" --argjson b "$cb" \
+          '{type: "color", color: {red: $r, green: $g, blue: $b, alpha: 1}, duration: 2}')") ;;
+    esac
+  done
+done
+SETS="$(printf '%s\n' "${P50_ITEMS[@]}" | jq -s --argjson sets "$SETS" '$sets + [{name: "playlist_50",
+  purpose: "Estrés 1 h (T90): 50 items vídeo/imagen/color de la matriz, sin repetir archivo en items consecutivos",
+  items: .}]')"
+
 printf '%s\n' "${ENTRIES[@]}" | jq -s --argjson gen "$GENERATOR_VERSION" --argjson sets "$SETS" '{
   schemaVersion: 1,
   generatorVersion: $gen,

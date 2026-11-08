@@ -1,7 +1,7 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
-// Harness de estrés y medición (H · T61). Ejecutable: `minimix-stress`.
+// Harness de estrés y medición (H · T61/T90). Ejecutable: `minimix-stress`.
 let package = Package(
     name: "StressHarness",
     platforms: [.macOS(.v15)],
@@ -12,6 +12,8 @@ let package = Package(
     dependencies: [
         .package(path: "../../Packages/Core"),
         .package(path: "../../Packages/Render"),
+        .package(path: "../../Packages/Media"),
+        .package(path: "../../Packages/Audio"),
         .package(path: "../../Tests")
     ],
     targets: [
@@ -19,9 +21,13 @@ let package = Package(
             .product(name: "Core", package: "Core"),
             .product(name: "CoreMocks", package: "Core"),
             .product(name: "Render", package: "Render"),
+            .product(name: "Media", package: "Media"),
+            .product(name: "Audio", package: "Audio"),
             .product(name: "TestSupport", package: "Tests")
         ]),
         .executableTarget(name: "minimix-stress", dependencies: ["StressHarnessKit"]),
-        .testTarget(name: "StressHarnessTests", dependencies: ["StressHarnessKit"])
+        .testTarget(name: "StressHarnessTests", dependencies: [
+            "StressHarnessKit", .product(name: "TestSupport", package: "Tests")
+        ])
     ]
 )

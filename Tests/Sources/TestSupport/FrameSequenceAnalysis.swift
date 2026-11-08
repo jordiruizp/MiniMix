@@ -32,48 +32,62 @@ public struct FrameSequenceAnalysis: Equatable, Sendable {
     public private(set) var boundarySkips = 0
     /// Lecturas sin código aceptadas por `isFiller` (items de color/audio esperados).
     public private(set) var filler = 0
+    /// Vuelta al frame 0 del mismo clip (vídeo en bucle); no cuenta como retroceso.
+    public private(set) var loopWraps = 0
     public private(set) var clipChanges: [ClipChange] = []
+    /// Códigos leídos, en orden (vacío si `keepsCodes` es false: análisis largos en memoria constante).
     public private(set) var codes: [FrameCode] = []
+    public let keepsCodes: Bool
+    private var previous: FrameCode?
+    private var run = 0
+
+    /// Análisis vacío para alimentar con `append` (p. ej. fotograma a fotograma durante horas).
+    public init(keepsCodes: Bool = true) { self.keepsCodes = keepsCodes }
 
     public init(_ readings: some Sequence<FrameCodeReading>, isFiller: ((FrameCodeReading) -> Bool)? = nil) {
-        var previous: FrameCode?
-        var run = 0
-        for reading in readings {
-            total += 1
-            guard let code = reading.code else {
-                if isFiller?(reading) == true {
-                    filler += 1
-                } else if reading.isBlack {
-                    black += 1
-                } else {
-                    unreadable += 1
-                }
-                run = 0
-                continue
-            }
-            codes.append(code)
-            defer { previous = code }
-            guard let last = previous else {
-                run = 1
-                longestRun = max(longestRun, run)
-                continue
-            }
-            if code.clipID != last.clipID {
-                clipChanges.append(ClipChange(index: total - 1, from: last, to: code))
-                boundarySkips += code.frameIndex
-                run = 1
-            } else if code == last {
-                repeats += 1
-                run += 1
-            } else if code.frameIndex > last.frameIndex {
-                skippedFrames += code.frameIndex - last.frameIndex - 1
-                run = 1
+        self.init()
+        for reading in readings { append(reading, isFiller: isFiller?(reading) == true) }
+    }
+
+    /// Añade la siguiente lectura. `isFiller`: lectura sin código esperada (item de color/audio).
+    public mutating func append(_ reading: FrameCodeReading, isFiller: Bool = false) {
+        total += 1
+        guard let code = reading.code else {
+            if isFiller {
+                filler += 1
+            } else if reading.isBlack {
+                black += 1
             } else {
-                backwardJumps += 1
-                run = 1
+                unreadable += 1
             }
-            longestRun = max(longestRun, run)
+            run = 0
+            return
         }
+        if keepsCodes { codes.append(code) }
+        defer { previous = code }
+        guard let last = previous else {
+            run = 1
+            longestRun = max(longestRun, run)
+            return
+        }
+        if code.clipID != last.clipID {
+            clipChanges.append(ClipChange(index: total - 1, from: last, to: code))
+            boundarySkips += code.frameIndex
+            run = 1
+        } else if code == last {
+            repeats += 1
+            run += 1
+        } else if code.frameIndex > last.frameIndex {
+            skippedFrames += code.frameIndex - last.frameIndex - 1
+            run = 1
+        } else if code.frameIndex == 0 {
+            loopWraps += 1
+            run = 1
+        } else {
+            backwardJumps += 1
+            run = 1
+        }
+        longestRun = max(longestRun, run)
     }
 
     /// Sin negros, ilegibles, saltos (dentro de un clip o al entrar en otro) ni retrocesos.

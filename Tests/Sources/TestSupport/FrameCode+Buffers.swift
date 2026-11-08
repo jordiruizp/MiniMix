@@ -16,6 +16,27 @@ extension FrameCodeReader {
     }
 }
 
+/// Muestreador de luminancia sobre memoria BGRA8 (p. ej. el `contents()` de un `MTLBuffer` compartido
+/// donde se copió con un blit una región del fotograma). Válido mientras viva la memoria.
+public struct BGRALumaSampler: LumaSampling {
+    public let width: Int
+    public let height: Int
+    private let base: UnsafePointer<UInt8>
+    private let bytesPerRow: Int
+
+    public init(base: UnsafeRawPointer, width: Int, height: Int, bytesPerRow: Int) {
+        self.base = base.assumingMemoryBound(to: UInt8.self)
+        self.width = width
+        self.height = height
+        self.bytesPerRow = bytesPerRow
+    }
+
+    public func luma(x: Int, y: Int) -> Double {
+        let i = y * bytesPerRow + x * 4
+        return (0.2126 * Double(base[i + 2]) + 0.7152 * Double(base[i + 1]) + 0.0722 * Double(base[i])) / 255
+    }
+}
+
 /// Muestreador de luminancia sobre un CVPixelBuffer ya bloqueado (válido solo mientras lo esté).
 struct PixelBufferLumaSampler: LumaSampling {
     let width: Int

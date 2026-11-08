@@ -1,6 +1,6 @@
 # Tools
 
-Herramientas de QA (H · T60/T61).
+Herramientas de QA (H · T60/T61/T90).
 
 ## `generate-testmedia.sh` (T60)
 
@@ -40,10 +40,32 @@ Pipelines (`--pipeline`), todos programados contra los protocolos de `Contracts.
 | `core-render` (defecto) | `WallClock` | `Render.Compositor` | `Core.SwitcherState` | `Core.PlaylistSequencer` | `MockFrameSource` |
 | `mock` | `WallClock` | `BlitCompositor` | `MockSwitcher` | `MockSequencer` | `MockFrameSource` |
 
-**Punto de inyección (T80/T90)**: crear una `RealPipelineFactory` con `Media.MasterClock` y las
-fuentes reales (`InputManager`, playlist de D) y registrarla en `PipelineRegistry.factories`
-(`Sources/StressHarnessKit/Pipeline.swift`), añadiendo la dependencia de Media en
-`StressHarness/Package.swift`. El runner y el formato del informe no cambian.
+| `real` | `Media.MasterClock` | `Render.Compositor` | `Core.SwitcherState` | `Core.PlaylistSequencer` | `VideoInput`/`ImageInput`/`ColorInput` |
+
+### Estrés T90 sobre los módulos reales (sección 10.2 del plan)
+
+Requiere TestMedia generado. Lienzo 1080p60, 8 entradas (5 vídeos de la matriz, PNG con alfa, color y
+`playlist_50`), 2 activas; montaje igual que `AppServices.live()`: `MasterClock`, `InputManager` con
+`PlaylistInput.factory`, `AudioEngine` con el audio de cada entrada, `setVisible` como la app, y una
+réplica de `LiveRenderer` con el `Compositor` real (MiniMixUI no es un producto importable).
+El renderer copia la esquina del código de fotograma de Programa y la lee al completarse la GPU:
+negros, saltos, repeticiones y latencia de Cut sin bloquear el render.
+
+```bash
+Tools/StressHarness/.build/release/minimix-stress --scenario stress-5m-cuts       # 5 min, verificación
+Tools/StressHarness/.build/release/minimix-stress --scenario stress-5m-playlist
+nohup caffeinate -i Tools/StressHarness/.build/release/minimix-stress --scenario stress-1h-playlist \
+    > Tools/reports/stress-1h-playlist.log 2>&1 &
+nohup caffeinate -i Tools/StressHarness/.build/release/minimix-stress --scenario stress-2h-cuts \
+    > Tools/reports/stress-2h-cuts.log 2>&1 &
+```
+
+El informe (`LiveReport`) incluye la tabla `targets` (objetivo/medido/cumple), arranque en frío,
+perdidos (reloj, contrapresión, colector del compositor; separados en calentamiento, máquina
+tranquila y máquina cargada), CPU (proceso y sistema), GPU (nuestros fotogramas y sistema), memoria
+con deriva por hora, térmica en el tiempo, latencia de Cut, análisis del feed de Programa, saltos por
+clip y estadísticas de la playlist (`lateSwitches`, máx. items cargados). El desfase A/V no se mide
+todavía (informativo).
 
 Para tests de integración, `Tests/Sources/TestSupport` ofrece: lector del código de fotograma
 (`FrameCodeReader` sobre `MTLTexture`/`CVPixelBuffer`/`RGBAImage`), `FrameSequenceAnalysis`

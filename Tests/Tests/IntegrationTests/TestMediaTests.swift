@@ -10,6 +10,23 @@ import Testing
     #expect(codecs.contains("mp3"))
 }
 
+/// T90: la playlist de estrés tiene 50 items de la matriz y nunca repite archivo en items consecutivos.
+@Test func playlist50SetIsWellFormed() throws {
+    let manifest = try TestMediaLocator.manifest()
+    let items = try #require(manifest.set("playlist_50")).items
+    #expect(items.count == 50)
+    for (index, item) in items.enumerated() {
+        let next = items[(index + 1) % items.count]
+        if let file = item.file {
+            #expect(manifest.file(file) != nil, "\(file) no está en el manifiesto")
+            #expect(file != next.file, "item \(index) repetido")
+        } else {
+            #expect(item.type == "color" && item.color != nil)
+        }
+    }
+    #expect(Set(items.map(\.type)) == ["video", "image", "color"])
+}
+
 /// Comprueba TestMedia generado (T60) con los lectores de TestSupport (T61).
 /// Se desactiva si no se ha ejecutado `Tools/generate-testmedia.sh`.
 @Suite("TestMedia", .enabled(if: TestMediaLocator.isGenerated, "TestMedia sin generar"))

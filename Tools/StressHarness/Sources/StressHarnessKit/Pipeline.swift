@@ -29,7 +29,8 @@ public enum PipelineRegistry {
     /// Nombre → fábrica. T80/T90: `"real": RealPipelineFactory()`.
     public static let factories: [String: @Sendable () -> PipelineFactory] = [
         "core-render": { CoreRenderPipelineFactory() },
-        "mock": { MockPipelineFactory() }
+        "mock": { MockPipelineFactory() },
+        "real": { RealPipelineFactory() }
     ]
 
     public static let defaultName = "core-render"

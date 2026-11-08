@@ -15,7 +15,13 @@ let package = Package(
         .package(path: "../Packages/Audio")
     ],
     targets: [
-        .target(name: "TestSupport", dependencies: [.product(name: "Core", package: "Core")]),
+        // Media/Audio/Render: sonda de sincronismo A/V con la cadena real (T90).
+        .target(name: "TestSupport", dependencies: [
+            .product(name: "Core", package: "Core"),
+            .product(name: "Render", package: "Render"),
+            .product(name: "Media", package: "Media"),
+            .product(name: "Audio", package: "Audio")
+        ]),
         .testTarget(name: "IntegrationTests", dependencies: [
             "TestSupport",
             .product(name: "Core", package: "Core"),
