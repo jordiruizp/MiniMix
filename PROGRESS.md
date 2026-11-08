@@ -10,7 +10,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | 1 · A, B, C, E, G(mocks), H | ✅ todos integrados |
 | 2 · D, F, G-real, ORQ T80 | ✅ completa |
 | 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado ✅ (PR #15) · C ediciones de playlist en vivo ✅ (PR #18) · menores A/V ✅ (PR #20) · G T91 ✅ · Playlist en la App ✅ (PR #17) · attach con motor en marcha ✅ (PR #19) · G: audio de playlists + perfil A/V en la App (PR #22, aprobado con menores) · H espera a D |
-| 4 · T99 release | ⬜ |
+| 4 · T99 release | ✅ local (sin notarización, D19) |
 
 ## Tareas
 
