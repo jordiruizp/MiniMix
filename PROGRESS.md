@@ -40,7 +40,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | G-real | G | UI con módulos reales | ✅ | feat/g-ui-real → main (PR #12, b5d4252) | |
 | T81 | F | Output externo | ✅ | feat/f-output-persistence → main | |
 | T82 | F | Persistence | ✅ | feat/f-output-persistence → main | |
-| T90 | H | Estrés 1 h / 2 h | 🟦 | feat/h-t90 | |
+| T90 | H | Estrés 1 h / 2 h | 🟨 | #30 → main | todo ✔ salvo 0 drops/30 min → C corrigiendo |
 | T91 | G | Pulido UI | ✅ | feat/g-t91 → main (PR #16, df575ff) | pendiente verificación manual: atajos reales, VoiceOver, texto dinámico, cierre de ventana |
 | T99 | ORQ | Release local: firma (ad-hoc o «MiniMix Local»), DMG, instalación, README | ✅ | main | sin notarización (D19) |
 
@@ -154,7 +154,12 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 - ✅ integrados con CI en el runner propio: #21 guardia AudioInput, #22 audio de playlists + perfil A/V en la App, #24 AudioEngine.performGraphChange, #25 tests robustos a carga.
 - ✅ #23 Playlist play(atHostTime:) + teardown (0 repeticiones en cambios), #26 discard → teardown con rampa, #27 hook graphChange.
 - ✅ #28 graphChange cableado en la App · #29 VSyncWatchdogTests aislado.
-- 🟦 H T90 (estrés + validación A/V con claqueta).
+- ✅ #30 T90 (H): harness real + test A/V con claqueta. Resultado 10.2 (MacBook Neo, 1 h playlist / 2 h cuts):
+  memoria ~210 MB sin fugas ✔ · CPU 18 % ✔ · GPU 7 % ✔ · latencia de Cut 0 fotogramas ✔ · térmico ≤ fair ✔ ·
+  arranque 0,5 s ✔ · A/V |desfase| ≤ 16,7 ms ✔ (poco margen) · **fotogramas perdidos ✘** (131/267 en el peor 30 min).
+- 🟦 C: ticks saltados del MasterClock (~0,1 %) y fotogramas perdidos en clips 50/59,94p (hasta ~23 % en antena).
+- 🟦 F: **bug** salida de Programa en negro en el monitor externo (reportado por el usuario).
+- Pendiente: margen A/V (corrección de ½ fotograma en `.playerTap`, E) tras los arreglos de C.
 
 ## Deuda menor (no bloqueante, para Ola 3)
 

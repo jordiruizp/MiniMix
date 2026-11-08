@@ -5,7 +5,9 @@ let package = Package(
     name: "MiniMixApp",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "MiniMix", targets: ["MiniMix"])
+        .executable(name: "MiniMix", targets: ["MiniMix"]),
+        // Para el harness de estrés (Tools/) y las pruebas de integración: LiveRenderer/LiveInputs reales.
+        .library(name: "MiniMixUI", targets: ["MiniMixUI"])
     ],
     dependencies: [
         .package(path: "../Packages/Core"),
