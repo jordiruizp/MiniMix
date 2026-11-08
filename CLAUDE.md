@@ -24,7 +24,9 @@ scripts/swift-test.sh Packages/Core          # tests de un paquete (usar SIEMPRE
 scripts/swift-test.sh Packages/Render --filter Compositor
 scripts/ci.sh                                # puerta de calidad: swiftlint --strict + todos los paquetes
 scripts/ci.sh Packages/Media App             # solo algunos paquetes
-scripts/bundle-app.sh [debug|release]        # build/MiniMix.app firmada ad-hoc
+scripts/bundle-app.sh [debug|release]        # build/MiniMix.app (firma «MiniMix Local» si existe; si no, ad-hoc)
+scripts/release.sh                           # T99: release + DMG en build/
+scripts/install-local.sh                     # copia la app a /Applications
 ```
 
 `scripts/swift-test.sh` añade `-warnings-as-errors` (y, si solo hubiera CLT, la ruta del plugin de macros de

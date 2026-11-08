@@ -42,7 +42,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T82 | F | Persistence | ✅ | feat/f-output-persistence → main | |
 | T90 | H | Estrés 1 h / 2 h | 🟦 | feat/h-t90 | |
 | T91 | G | Pulido UI | ✅ | feat/g-t91 → main (PR #16, df575ff) | pendiente verificación manual: atajos reales, VoiceOver, texto dinámico, cierre de ventana |
-| T99 | ORQ | Firma, notarización, DMG | ⬜ | | Ola 4 |
+| T99 | ORQ | Release local: firma (ad-hoc o «MiniMix Local»), DMG, instalación, README | ✅ | main | sin notarización (D19) |
 
 ## Contratos
 
