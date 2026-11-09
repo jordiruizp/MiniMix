@@ -1,5 +1,8 @@
+import AppKit
 import CoreGraphics
+import Foundation
 import MetalKit
+import SwiftUI
 import Testing
 @testable import Render
 
@@ -82,5 +85,79 @@ struct MonitorViewTests {
         let target = try #require(GPU.context.device.makeTexture(descriptor: desc))
         GPU.run { renderer.encode(nil, into: target, border: nil, commandBuffer: $0) }
         #expect(renderer.missingPipelineFrames == 0)
+    }
+
+    private func offscreenWindow() -> NSWindow {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 160, height: 90), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        return window
+    }
+
+    @Test func restoresContentsScaleOnBackingChange() throws {
+        let window = offscreenWindow()
+        let view = MonitorMTKView(frame: CGRect(x: 0, y: 0, width: 160, height: 90), device: GPU.context.device)
+        MonitorView.configure(view)
+        window.contentView = view
+        let layer = try #require(view.layer)
+        #expect(layer.contentsScale == window.backingScaleFactor)
+
+        // Estado roto observado al pasar de 2× a 1× dentro de NSHostingView.
+        layer.contentsScale = 0
+        view.viewDidChangeBackingProperties()
+        #expect(layer.contentsScale == window.backingScaleFactor)
+        #expect(view.needsDisplay)
+    }
+
+    @Test func restoresContentsScaleWhenMovedToAnotherWindow() throws {
+        let view = MonitorMTKView(frame: CGRect(x: 0, y: 0, width: 160, height: 90), device: GPU.context.device)
+        MonitorView.configure(view)
+        let first = offscreenWindow()
+        first.contentView = view
+        let layer = try #require(view.layer)
+        layer.contentsScale = 0
+        first.contentView = nil
+        let second = offscreenWindow()
+        second.contentView = view
+        #expect(layer.contentsScale == second.backingScaleFactor)
+    }
+
+    /// Opt-in (MINIMIX_MANUAL_OUTPUT=1): mueve una ventana real entre dos pantallas de
+    /// escala distinta y comprueba que la capa sigue la escala de la pantalla destino.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["MINIMIX_MANUAL_OUTPUT"] == "1"))
+    func movesBetweenScreensOfDifferentScale() async throws {
+        _ = NSApplication.shared
+        let screens = NSScreen.screens
+        guard let from = screens.first,
+              let target = screens.first(where: { $0.backingScaleFactor != from.backingScaleFactor }) else {
+            print("[MonitorMTKView] no hay dos pantallas con escala distinta; se omite")
+            return
+        }
+        let window = NSWindow(contentRect: CGRect(x: from.visibleFrame.minX + 40, y: from.visibleFrame.minY + 40,
+                                                  width: 320, height: 180),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: MonitorView(feed: MonitorFeed(), context: GPU.context))
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer { window.close() }
+        try await Task.sleep(for: .milliseconds(300))
+
+        window.setFrameOrigin(CGPoint(x: target.visibleFrame.minX + 40, y: target.visibleFrame.minY + 40))
+        try await Task.sleep(for: .milliseconds(500))
+        let metalView = try #require(Self.findMTKView(in: host))
+        print("[MonitorMTKView] \(from.localizedName) \(from.backingScaleFactor)x → \(target.localizedName) "
+              + "\(target.backingScaleFactor)x: contentsScale \(metalView.layer?.contentsScale ?? -1)")
+        #expect(window.backingScaleFactor == target.backingScaleFactor)
+        #expect(metalView.layer?.contentsScale == target.backingScaleFactor)
+    }
+
+    private static func findMTKView(in view: NSView) -> MTKView? {
+        if let mtk = view as? MTKView { return mtk }
+        for subview in view.subviews {
+            if let found = findMTKView(in: subview) { return found }
+        }
+        return nil
     }
 }
