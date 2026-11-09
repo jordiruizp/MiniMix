@@ -38,7 +38,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | T71 | D | Fundido entre items + hold | ✅ | feat/d-playlist → main (PR #13) | fundido ΔE 0,23 |
 | T80 | ORQ | Integración switcher | ✅ | feat/orq-t80 → main (PR #9, 91f396b) | sesión completa verificada en píxeles reales; smoke con sandbox en CI (84 MB) |
 | G-real | G | UI con módulos reales | ✅ | feat/g-ui-real → main (PR #12, b5d4252) | |
-| T81 | F | Output externo | ✅ | feat/f-output-persistence → main | |
+| T81 | F | Output externo (verificado con monitor real 2026-11-09) | ✅ | feat/f-output-persistence → main | |
 | T82 | F | Persistence | ✅ | feat/f-output-persistence → main | |
 | T90 | H | Estrés 1 h / 2 h | 🟨 | #30 → main | todo ✔ salvo 0 drops/30 min → C corrigiendo |
 | T91 | G | Pulido UI | ✅ | feat/g-t91 → main (PR #16, df575ff) | pendiente verificación manual: atajos reales, VoiceOver, texto dinámico, cierre de ventana |
@@ -158,7 +158,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
   memoria ~210 MB sin fugas ✔ · CPU 18 % ✔ · GPU 7 % ✔ · latencia de Cut 0 fotogramas ✔ · térmico ≤ fair ✔ ·
   arranque 0,5 s ✔ · A/V |desfase| ≤ 16,7 ms ✔ (poco margen) · **fotogramas perdidos ✘** (131/267 en el peor 30 min).
 - 🟦 C: ticks saltados del MasterClock (~0,1 %) y fotogramas perdidos en clips 50/59,94p (hasta ~23 % en antena).
-- 🟦 F: **bug** salida de Programa en negro en el monitor externo (reportado por el usuario).
+- ✅ #31 (F) **bug** salida de Programa en negro en monitor externo 1×: la ventana nacía en la pantalla Retina y la capa Metal quedaba con contentsScale 0. Verificado por el usuario con un DELL S2421HN (2026-11-09). #32 (B) preventivo para MonitorView en curso.
 - Pendiente: margen A/V (corrección de ½ fotograma en `.playerTap`, E) tras los arreglos de C.
 
 ## Deuda menor (no bloqueante, para Ola 3)
