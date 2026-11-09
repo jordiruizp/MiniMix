@@ -9,9 +9,14 @@ import os
 ///   (`t0 + n · den/num`, aritmética entera), no «ahora». Si el consumidor o el
 ///   sistema llegan tarde se emite solo el fotograma más reciente y se cuenta
 ///   el salto en `stats.skippedTicks`.
-/// - Fuente de despertares: `CADisplayLink` (si hay pantalla) o un temporizador
-///   de alta precisión (headless/tests). Con display link, si el vsync se detiene
-///   más de 3 refrescos el reloj sigue con el temporizador y vuelve al vsync solo.
+/// - Fuente de despertares: por defecto (`.automatic`) un temporizador de alta
+///   precisión que despierta en el instante exacto de cada fotograma de la rejilla.
+///   El `CADisplayLink` (`.displayLink`) queda como opción explícita: atado al
+///   refresco de la pantalla (p. ej. 75 Hz o 59,9x Hz), salta fotogramas de la
+///   rejilla del proyecto cuando el refresco no es múltiplo exacto o hay jitter, y
+///   los ticks llegan tarde respecto a su tiempo, lo que hace saltar fotogramas a los
+///   vídeos de 50/59,94 fps (T90). Con display link, si el vsync se detiene más de 3
+///   refrescos el reloj sigue con el temporizador y vuelve al vsync solo.
 /// - `setFrameRate(_:)` cambia la cadencia en caliente: la rejilla nueva se ancla
 ///   en el siguiente límite de fotograma de la antigua (sin saltos ni retrocesos).
 ///
@@ -23,6 +28,7 @@ import os
 public final class MasterClock: MasterClockProtocol {
     public enum TickSource: Sendable, Equatable {
         /// `CADisplayLink` si hay pantalla; si no, temporizador.
+        /// Temporizador de alta precisión (rejilla exacta del proyecto).
         case automatic
         case displayLink
         case timer
@@ -49,7 +55,7 @@ public final class MasterClock: MasterClockProtocol {
 
     public convenience init(frameRate: FrameRate = .fps60, tickSource: TickSource = .automatic) {
         let resolved: TickSource = switch tickSource {
-        case .automatic: DisplayLinkVSync.hasDisplay ? .displayLink : .timer
+        case .automatic: .timer
         default: tickSource
         }
         let driver: any TickDriver = resolved == .displayLink

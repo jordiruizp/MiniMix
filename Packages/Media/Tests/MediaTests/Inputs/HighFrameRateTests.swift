@@ -30,7 +30,8 @@ extension MediaSerialTests {
             try await input.prepare()
             _ = await waitForTexture(input, timeout: 10)
             input.play()
-            let clock = MasterClock(frameRate: .fps60, tickSource: .timer)
+            let clock = MasterClock(frameRate: .fps60) // fuente por defecto, como la App
+            #expect(clock.tickSource == .timer)
             let ticks = clock.ticks
             clock.start()
             // Además del PTS, se lee el contenido de la textura en la GPU después de usarla
