@@ -27,7 +27,6 @@ import os
 /// (`deinit`) también se terminan, así que ningún `for await` queda colgado.
 public final class MasterClock: MasterClockProtocol {
     public enum TickSource: Sendable, Equatable {
-        /// `CADisplayLink` si hay pantalla; si no, temporizador.
         /// Temporizador de alta precisión (rejilla exacta del proyecto).
         case automatic
         case displayLink
@@ -51,6 +50,9 @@ public final class MasterClock: MasterClockProtocol {
 
     private let state: OSAllocatedUnfairLock<State>
     private let driver: any TickDriver
+    /// Actividad de proceso mientras corre (`.latencyCritical`): sin App Nap ni
+    /// coalescencia de temporizadores aunque el proceso no tenga ventana (tests, harness).
+    private let activity = LockedState<NSObjectProtocol?>(nil)
     public let tickSource: TickSource
 
     public convenience init(frameRate: FrameRate = .fps60, tickSource: TickSource = .automatic) {
@@ -74,6 +76,7 @@ public final class MasterClock: MasterClockProtocol {
 
     deinit {
         driver.stop()
+        if let token = activity.current { ProcessInfo.processInfo.endActivity(token) }
         let subscribers = state.withLock { s -> [AsyncStream<HostTime>.Continuation] in
             defer { s.subscribers.removeAll() }
             return Array(s.subscribers.values)
@@ -108,6 +111,9 @@ public final class MasterClock: MasterClockProtocol {
             return true
         }
         guard shouldStart else { return }
+        let token = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical],
+                                                          reason: "MiniMix: reloj maestro")
+        activity.withLock { $0 = token }
         let offGrid = driver.firesOffGrid
         driver.start { [weak self] nowNanos in
             self?.fire(nowNanos: nowNanos, offGrid: offGrid) ?? nowNanos + 1_000_000_000
@@ -116,6 +122,12 @@ public final class MasterClock: MasterClockProtocol {
 
     public func stop() {
         driver.stop()
+        if let token = activity.withLock({ current -> NSObjectProtocol? in
+            defer { current = nil }
+            return current
+        }) {
+            ProcessInfo.processInfo.endActivity(token)
+        }
         let subscribers = state.withLock { s -> [AsyncStream<HostTime>.Continuation] in
             s.running = false
             defer { s.subscribers.removeAll() }
