@@ -102,38 +102,49 @@ public final class MasterClock: MasterClockProtocol {
         return stream
     }
 
+    /// `start()` y `stop()` se serializan con el cerrojo de ciclo de vida (`activity`):
+    /// desde hilos distintos nunca queda una actividad abierta ni un hilo del driver
+    /// vivo tras el último `stop()`. Ese cerrojo no se toma en `fire` (el del estado sí).
     public func start() {
-        let shouldStart = state.withLock { s -> Bool in
-            guard !s.running else { return false }
-            s.running = true
-            s.grid = nil
-            s.lastIndex = -1
-            return true
-        }
-        guard shouldStart else { return }
-        let token = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical],
-                                                          reason: "MiniMix: reloj maestro")
-        activity.withLock { $0 = token }
-        let offGrid = driver.firesOffGrid
-        driver.start { [weak self] nowNanos in
-            self?.fire(nowNanos: nowNanos, offGrid: offGrid) ?? nowNanos + 1_000_000_000
+        activity.withLock { token in
+            let shouldStart = state.withLock { s -> Bool in
+                guard !s.running else { return false }
+                s.running = true
+                s.grid = nil
+                s.lastIndex = -1
+                return true
+            }
+            guard shouldStart else { return }
+            // Sin `idleSystemSleepDisabled`: con la App abierta y sin salida el Mac puede
+            // dormir por inactividad (OutputController bloquea el reposo con salida al aire).
+            token = ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical], reason: "MiniMix: reloj maestro")
+            driver.setFramePeriod(nanos: Self.frameNanos(frameRate))
+            let offGrid = driver.firesOffGrid
+            driver.start { [weak self] nowNanos in
+                self?.fire(nowNanos: nowNanos, offGrid: offGrid) ?? nowNanos + 1_000_000_000
+            }
         }
     }
 
     public func stop() {
-        driver.stop()
-        if let token = activity.withLock({ current -> NSObjectProtocol? in
-            defer { current = nil }
-            return current
-        }) {
-            ProcessInfo.processInfo.endActivity(token)
-        }
-        let subscribers = state.withLock { s -> [AsyncStream<HostTime>.Continuation] in
-            s.running = false
-            defer { s.subscribers.removeAll() }
-            return Array(s.subscribers.values)
+        let subscribers = activity.withLock { token -> [AsyncStream<HostTime>.Continuation] in
+            driver.stop()
+            if let current = token { ProcessInfo.processInfo.endActivity(current) }
+            token = nil
+            return state.withLock { s -> [AsyncStream<HostTime>.Continuation] in
+                s.running = false
+                defer { s.subscribers.removeAll() }
+                return Array(s.subscribers.values)
+            }
         }
         subscribers.forEach { $0.finish() }
+    }
+
+    var hasActivityForTesting: Bool { activity.withLock { $0 != nil } }
+
+    private static func frameNanos(_ rate: FrameRate) -> Int64 {
+        Int64((Double(rate.denominator) / Double(rate.numerator) * 1e9).rounded())
     }
 
     /// Cambia la frecuencia del proyecto en caliente.
@@ -142,6 +153,7 @@ public final class MasterClock: MasterClockProtocol {
         state.withLock { s in
             guard s.rate != rate else { return }
             s.rate = rate
+            driver.setFramePeriod(nanos: Self.frameNanos(rate))
             guard let grid = s.grid else { return }
             // El fotograma en curso conserva su duración; el nuevo n = 0 empieza
             // en el siguiente límite de la rejilla antigua.

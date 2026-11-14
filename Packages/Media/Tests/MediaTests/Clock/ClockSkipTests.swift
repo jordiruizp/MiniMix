@@ -36,7 +36,8 @@ extension MediaSerialTests {
             clock.stop()
             let maxGap = await consumer.value
             let hostElapsed = Double(HostClock.nowNanos() - hostStart) / 1e9
-            let wallElapsed = Double((ContinuousClock.now - wallStart).components.seconds)
+            let wall = (ContinuousClock.now - wallStart).components
+            let wallElapsed = Double(wall.seconds) + Double(wall.attoseconds) / 1e18
             return SkipReport(seconds: seconds, emitted: clock.stats.emittedTicks, skipped: clock.stats.skippedTicks,
                               maxGapMs: maxGap * 1000, sleptSeconds: max(0, wallElapsed - hostElapsed))
         }

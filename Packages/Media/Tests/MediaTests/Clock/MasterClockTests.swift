@@ -113,6 +113,36 @@ extension MediaSerialTests {
             #expect(extra <= 1)
         }
 
+        /// El periodo de la política de tiempo real sigue a la frecuencia del proyecto.
+        @Test func timerPeriodFollowsFrameRate() {
+            let driver = TimerTickDriver()
+            let clock = MasterClock(frameRate: .fps25, driver: driver, tickSource: .timer)
+            clock.start()
+            #expect(driver.periodNanosForTesting == 40_000_000)
+            clock.setFrameRate(.fps59_94)
+            #expect(driver.periodNanosForTesting == 16_683_333)
+            clock.stop()
+        }
+
+        /// start()/stop() concurrentes: tras el último stop no queda actividad abierta ni
+        /// ticks (ningún hilo del driver sigue vivo).
+        @Test(.timeLimit(.minutes(1)))
+        func concurrentStartStopLeavesNothingRunning() async throws {
+            let clock = MasterClock(frameRate: .fps60, tickSource: .timer)
+            await withTaskGroup(of: Void.self) { group in
+                for i in 0..<200 {
+                    group.addTask { if i % 2 == 0 { clock.start() } else { clock.stop() } }
+                }
+            }
+            clock.stop()
+            #expect(!clock.isRunning)
+            #expect(!clock.hasActivityForTesting)
+            try await Task.sleep(for: .milliseconds(120)) // > tope de espera del hilo (50 ms)
+            let emitted = clock.stats.emittedTicks
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(clock.stats.emittedTicks == emitted)
+        }
+
         @Test func multicastAndRestart() async {
             let clock = MasterClock(frameRate: .fps60, tickSource: .timer)
             let s1 = clock.ticks

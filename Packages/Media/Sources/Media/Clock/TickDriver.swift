@@ -17,6 +17,14 @@ protocol TickDriver: AnyObject, Sendable {
     /// ancla entonces la rejilla medio fotograma antes del primer disparo para
     /// que el jitter no haga saltar/duplicar índices.
     var firesOffGrid: Bool { get }
+    /// Duración de un fotograma del proyecto (ns), para drivers que la usan en su
+    /// planificación (temporizador de tiempo real). Se llama al arrancar y en
+    /// `setFrameRate`.
+    func setFramePeriod(nanos: Int64)
+}
+
+extension TickDriver {
+    func setFramePeriod(nanos: Int64) {}
 }
 
 /// Temporizador de alta precisión: un hilo propio con política de **tiempo real**
@@ -32,6 +40,16 @@ final class TimerTickDriver: TickDriver {
     private let generation = OSAllocatedUnfairLock(initialState: 0)
     /// Tope de cada espera: `stop()` surte efecto sin esperar al siguiente fotograma.
     private static let maxSleepNanos: Int64 = 50_000_000
+    /// Periodo de la política de tiempo real (un fotograma del proyecto); el hilo la
+    /// vuelve a aplicar cuando cambia.
+    private let period = OSAllocatedUnfairLock<Int64>(initialState: 16_666_667)
+    private static let logger = Logger(subsystem: "MiniMix", category: "MasterClock")
+
+    var periodNanosForTesting: Int64 { period.withLock { $0 } }
+
+    func setFramePeriod(nanos: Int64) {
+        period.withLock { $0 = max(nanos, 1_000_000) }
+    }
 
     var firesOffGrid: Bool { false }
 
@@ -41,10 +59,16 @@ final class TimerTickDriver: TickDriver {
             return g
         }
         let generation = self.generation
+        let period = self.period
         let thread = Thread {
-            Self.becomeRealtime(periodNanos: 16_666_667)
+            var applied: Int64 = 0
             var next = HostClock.nowNanos()
             while generation.withLock({ $0 }) == mine {
+                let wanted = period.withLock { $0 }
+                if wanted != applied {
+                    Self.becomeRealtime(periodNanos: wanted)
+                    applied = wanted
+                }
                 let now = HostClock.nowNanos()
                 if now < next {
                     mach_wait_until(Self.machTicks(nanos: min(next, now + Self.maxSleepNanos)))
@@ -83,11 +107,14 @@ final class TimerTickDriver: TickDriver {
             preemptible: 1)
         let count = mach_msg_type_number_t(MemoryLayout<thread_time_constraint_policy_data_t>.size
                                            / MemoryLayout<integer_t>.size)
-        _ = withUnsafeMutablePointer(to: &policy) { pointer in
+        let status = withUnsafeMutablePointer(to: &policy) { pointer in
             pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
                 thread_policy_set(pthread_mach_thread_np(pthread_self()),
                                   thread_policy_flavor_t(THREAD_TIME_CONSTRAINT_POLICY), $0, count)
             }
+        }
+        if status != KERN_SUCCESS {
+            logger.error("thread_policy_set(TIME_CONSTRAINT) falló: \(status, privacy: .public); el reloj sigue sin tiempo real")
         }
     }
 }
@@ -271,6 +298,8 @@ final class DisplayLinkVSync: NSObject, VSyncSource, @unchecked Sendable {
     var frameNanos: Int64 { state.withLock { $0.frameNanos } }
 
     /// true si hay al menos una pantalla activa (consulta segura fuera del main actor).
+    /// Desde que `.automatic` usa el temporizador, solo lo usan los tests para omitir
+    /// las pruebas de `.displayLink` en máquinas sin pantalla.
     static var hasDisplay: Bool {
         var count: UInt32 = 0
         return CGGetActiveDisplayList(0, nil, &count) == .success && count > 0
