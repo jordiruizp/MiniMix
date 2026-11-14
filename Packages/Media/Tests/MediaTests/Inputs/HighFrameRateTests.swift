@@ -43,7 +43,10 @@ extension MediaSerialTests {
             let render = Task {
                 var calls = 0
                 var lastPTS: Double?
+                // Diagnóstico: MINIMIX_HFR_LATE_MS simula un render que llega tarde al tick.
+                let lateMs = Int(ProcessInfo.processInfo.environment["MINIMIX_HFR_LATE_MS"] ?? "0") ?? 0
                 for await tick in ticks {
+                    if lateMs > 0 { try? await Task.sleep(for: .milliseconds(Int.random(in: 0...lateMs))) }
                     let texture = input.texture(for: tick)
                     calls += 1
                     guard checkContent, let texture, let pts = input.stats.lastPresentationTime, pts != lastPTS,
