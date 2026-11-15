@@ -100,6 +100,7 @@ struct MonitorPane: View {
                 .accessibilityElement()
                 .accessibilityLabel(bus == .preview ? "Monitor de Preview" : "Monitor de Programa")
                 .accessibilityValue(input?.name ?? "Sin señal")
+            MonitorTransportBar(app: app, input: input)
         }
     }
 
@@ -114,5 +115,46 @@ struct MonitorPane: View {
         }
         let incoming = app.project.preview.flatMap(app.descriptor)
         return MonitorContent(bus: bus, input: input, incoming: incoming, mix: TransitionCurve.videoMix(progress))
+    }
+}
+
+/// Transporte bajo cada monitor: ir al inicio, reproducir/pausar y parar; en playlists,
+/// además item anterior/siguiente. Reserva su altura aunque la entrada no tenga transporte
+/// (imagen, color o sin señal) para que los monitores no salten al cambiar de fuente.
+struct MonitorTransportBar: View {
+    let app: AppViewModel
+    let input: InputDescriptor?
+
+    var body: some View {
+        HStack(spacing: 2) {
+            if let input, app.hasTransport(input.id) {
+                let playing = app.isPlaying(input.id)
+                let isPlaylist = input.kind == .playlist
+                if isPlaylist {
+                    button("backward.end.fill", "Item anterior") { app.send(.playlistPrevious(input.id)) }
+                }
+                button("arrow.counterclockwise", isPlaylist ? "Ir al inicio del item" : "Ir al inicio") {
+                    app.goToStart(input.id)
+                }
+                button(playing ? "pause.fill" : "play.fill", playing ? "Pausar" : "Reproducir") {
+                    app.togglePlayback(input.id)
+                }
+                button("stop.fill", "Parar") { app.stopPlayback(input.id) }
+                if isPlaylist {
+                    button("forward.end.fill", "Item siguiente") { app.send(.playlistNext(input.id)) }
+                }
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .frame(maxWidth: .infinity, minHeight: 26)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Transporte de \(input?.name ?? "sin señal")")
+    }
+
+    private func button(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: symbol) }
+            .help(label)
+            .accessibilityLabel(label)
     }
 }

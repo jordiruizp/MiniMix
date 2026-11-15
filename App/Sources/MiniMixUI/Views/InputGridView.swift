@@ -158,7 +158,7 @@ struct InputCard: View {
     }
 
     private func togglePlay() {
-        app.send(app.isPlaying(input.id) ? .pause(input.id) : .play(input.id))
+        app.togglePlayback(input.id)
     }
 }
 
@@ -174,7 +174,7 @@ struct InputContextMenu: View {
         Button("Poner en Preview") { app.selectInput(input.id) }
         if input.kind != .color && input.kind != .image {
             Button(app.isPlaying(input.id) ? "Pausar" : "Reproducir") {
-                app.send(app.isPlaying(input.id) ? .pause(input.id) : .play(input.id))
+                app.togglePlayback(input.id)
             }
             Button("Reiniciar") { app.send(.restart(input.id)) }
         }
