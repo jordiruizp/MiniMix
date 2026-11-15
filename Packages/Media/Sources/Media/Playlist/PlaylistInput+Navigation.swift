@@ -455,20 +455,24 @@ extension PlaylistInput {
         let ramp = 0.02
         let nodes = sources.compactMap { ($0 as? AudioSource)?.node }.map(SendableAudioNode.init)
         let starts = nodes.map { ($0.node as? AVAudioMixing)?.volume ?? 1 }
+        // `self` fuerte: tras `InputManager.remove` nadie más retiene la playlist, y con `weak`
+        // moriría antes de estos cierres: la rampa y `mixer.teardown()` se saltarían y los nodos
+        // los separaría el `deinit` (`teardownLater`, cola utility) en carrera con la pausa de
+        // esta cola y con la baja del canal en el motor de E (grafo corrupto → crash).
         for step in 1...4 {
-            queue.asyncAfter(deadline: .now() + ramp * Double(step) / 4) { [weak self] in
+            queue.asyncAfter(deadline: .now() + ramp * Double(step) / 4) { [self] in
                 for (ref, start) in zip(nodes, starts) {
-                    self?.mixer.setGain(start * Float(1 - Double(step) / 4), for: ref.node)
+                    mixer.setGain(start * Float(1 - Double(step) / 4), for: ref.node)
                 }
             }
         }
-        queue.asyncAfter(deadline: .now() + ramp + 0.005) { [weak self] in
+        queue.asyncAfter(deadline: .now() + ramp + 0.005) { [self] in
             sources.forEach {
                 $0.pause()
                 ($0 as? DecodingControllable)?.setDecodingEnabled(false)
             }
-            self?.mixer.teardown()
-            self?.state.withLock { $0.teardownFinished = true }
+            mixer.teardown()
+            state.withLock { $0.teardownFinished = true }
         }
     }
 

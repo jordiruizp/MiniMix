@@ -44,6 +44,39 @@ extension MediaSerialTests {
             #expect(playerNodes(engine) == 0)
         }
 
+        /// El flujo de la app al quitar una entrada (`InputManager.remove`): `teardown()` y soltar
+        /// la última referencia al instante. El desmontaje diferido debe completarse igualmente en
+        /// la cola de la playlist (pausa, nodos separados, `teardownFinished`), sin quedar a merced
+        /// del `deinit`, cuyo `teardownLater` corría en otra cola contra la pausa y contra la baja
+        /// del canal en el motor de E (grafo de AVAudioEngine corrupto → crash al quitar una
+        /// playlist en directo).
+        @Test func teardownFinishesWhenLastReferenceIsDroppedImmediately() async throws {
+            let engine = AVAudioEngine()
+            var input: PlaylistInput? = try PlaylistInput(playlist: try await audioPlaylist(),
+                                                          environment: Kit.environment(), drivenByClock: false)
+            let node = try #require(input?.node)
+            engine.attach(node)
+            engine.connect(node, to: engine.mainMixerNode, format: nil)
+            try await input?.prepare()
+            var driver = ManualDriver(input!)
+            await driver.run(1)
+            input!.play()
+            await driver.run(5)
+            #expect(playerNodes(engine) >= 1)
+            let state = input!.state
+            let mixer = input!.mixer
+            // Soltar todas las referencias (la del driver incluida) nada más pedir el teardown.
+            driver = ManualDriver(try PlaylistInput(playlist: Playlist(), environment: Kit.environment(), drivenByClock: false))
+            input!.teardown()
+            input = nil
+            for _ in 0..<100 where !state.withLock({ $0.teardownFinished }) {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            #expect(state.withLock { $0.teardownFinished })
+            #expect(mixer.ownedCount == 0)
+            #expect(playerNodes(engine) == 0)
+        }
+
         @Test func itemNodesFollowMixerToAnotherEngine() async throws {
             let first = AVAudioEngine()
             let input = try PlaylistInput(playlist: try await audioPlaylist(), environment: Kit.environment(),
