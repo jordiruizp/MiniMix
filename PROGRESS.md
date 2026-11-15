@@ -9,7 +9,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | 0 · Andamiaje + contratos + CI + CLAUDE.md | ✅ |
 | 1 · A, B, C, E, G(mocks), H | ✅ todos integrados |
 | 2 · D, F, G-real, ORQ T80 | ✅ completa |
-| 3 · H rendimiento, E sync, G pulido | 🟦 E sync ✅ (PR #14, cb2b1ae) · C tap alineado ✅ (PR #15) · C ediciones de playlist en vivo ✅ (PR #18) · menores A/V ✅ (PR #20) · G T91 ✅ · Playlist en la App ✅ (PR #17) · attach con motor en marcha ✅ (PR #19) · G: audio de playlists + perfil A/V en la App (PR #22, aprobado con menores) · H espera a D |
+| 3 · H rendimiento, E sync, G pulido | ✅ T90 cerrada con #34 (2026-11-15) · E sync ✅ (PR #14, cb2b1ae) · C tap alineado ✅ (PR #15) · C ediciones de playlist en vivo ✅ (PR #18) · menores A/V ✅ (PR #20) · G T91 ✅ · Playlist en la App ✅ (PR #17) · attach con motor en marcha ✅ (PR #19) · G: audio de playlists + perfil A/V en la App (PR #22, aprobado con menores) · H espera a D |
 | 4 · T99 release | ✅ local (sin notarización, D19) |
 
 ## Tareas
@@ -40,7 +40,7 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 | G-real | G | UI con módulos reales | ✅ | feat/g-ui-real → main (PR #12, b5d4252) | |
 | T81 | F | Output externo (verificado con monitor real 2026-11-09) | ✅ | feat/f-output-persistence → main | |
 | T82 | F | Persistence | ✅ | feat/f-output-persistence → main | |
-| T90 | H | Estrés 1 h / 2 h | 🟨 | #30 → main | todo ✔ salvo 0 drops/30 min → C corrigiendo |
+| T90 | H | Estrés 1 h / 2 h | ✅ | #30 + #34 → main | todos los objetivos 10.2 ✔ (revalidado 2026-11-15 tras #34: 0 fotogramas perdidos en 3 h) |
 | T91 | G | Pulido UI | ✅ | feat/g-t91 → main (PR #16, df575ff) | pendiente verificación manual: atajos reales, VoiceOver, texto dinámico, cierre de ventana |
 | T99 | ORQ | Release local: firma (ad-hoc o «MiniMix Local»), DMG, instalación, README | ✅ | main | sin notarización (D19) |
 
@@ -157,9 +157,22 @@ Mantenido por el orquestador. Estados: ⬜ pendiente · 🟦 en curso · 🟨 en
 - ✅ #30 T90 (H): harness real + test A/V con claqueta. Resultado 10.2 (MacBook Neo, 1 h playlist / 2 h cuts):
   memoria ~210 MB sin fugas ✔ · CPU 18 % ✔ · GPU 7 % ✔ · latencia de Cut 0 fotogramas ✔ · térmico ≤ fair ✔ ·
   arranque 0,5 s ✔ · A/V |desfase| ≤ 16,7 ms ✔ (poco margen) · **fotogramas perdidos ✘** (131/267 en el peor 30 min).
-- 🟦 C: ticks saltados del MasterClock (~0,1 %) y fotogramas perdidos en clips 50/59,94p (hasta ~23 % en antena).
+- ✅ #34 (C) MasterClock con hilo de temporizador en tiempo real en lugar de CADisplayLink (e5c0b8a). Revalidado por H
+  en el MacBook Neo (2026-11-15, enchufado, sin dormir):
+  | Objetivo | 1 h playlist | 2 h cuts | Antes (#30) |
+  |---|---|---|---|
+  | Fotogramas perdidos (peor 30 min) | 0 | 0 | 131 / 267 |
+  | Saltos dentro de clips 50/59,94p | 10 | 14 | 12.819 / 15.029 |
+  | Memoria pico / deriva | 216 MB / −2,9 MB/h | 213 MB / +2,2 MB/h | 208 / 211 MB |
+  | CPU proceso | 19,8 % (con carga externa ~25 min) | 17,8 % | 18 % |
+  | GPU (nuestros fotogramas) | 7,8 % | 7,5 % | 6,5–6,9 % |
+  | Térmico | nominal (peor fair 3 min) | nominal | nominal / fair |
+  | Latencia de Cut | — | 0 fotogramas (900 cortes, p50 3,1 ms) | 0 fotogramas |
+  | Arranque en frío | 0,32 s | 0,43 s | 0,5 s |
+  A/V con claqueta: 4 pasadas de 30 s, |desfase| máx. 8,9 ms (antes 16,7 ms); AVSyncTests 3,2 ms ✔.
 - ✅ #31 (F) **bug** salida de Programa en negro en monitor externo 1×: la ventana nacía en la pantalla Retina y la capa Metal quedaba con contentsScale 0. Verificado por el usuario con un DELL S2421HN (2026-11-09). #32 (B) preventivo para MonitorView en curso.
-- Pendiente: margen A/V (corrección de ½ fotograma en `.playerTap`, E) tras los arreglos de C.
+- Opcional (E): corrección de ½ fotograma en `.playerTap`. Ya no hace falta para el objetivo (máx. 8,9 ms < 20 ms);
+  el desfase varía entre pasadas (−0,3…+8,7 ms) según dónde cae el primer tick, estable dentro de cada pasada.
 
 ## Deuda menor (no bloqueante, para Ola 3)
 
