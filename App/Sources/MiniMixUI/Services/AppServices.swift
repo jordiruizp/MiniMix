@@ -53,6 +53,19 @@ public struct RelinkOutcome: Sendable, Equatable {
     }
 }
 
+/// Salida de audio disponible (Preferencias › Audio). Espejo de `Audio.AudioOutputDevice`
+/// (la UI no importa Audio): `uid` es estable entre arranques y es lo que se guarda.
+public struct AudioOutputDeviceInfo: Sendable, Equatable, Identifiable {
+    public var uid: String
+    public var name: String
+    public var id: String { uid }
+
+    public init(uid: String, name: String) {
+        self.uid = uid
+        self.name = name
+    }
+}
+
 /// Uso de decodificadores de vídeo (barra de estado).
 public struct DecoderUsage: Sendable, Equatable {
     public var active: Int
@@ -113,6 +126,11 @@ public struct AppServices {
     public var relinkProject: (@MainActor (MediaReference, URL, Project, URL?) throws -> RelinkOutcome)?
     /// Compensación de latencia de la salida de audio en ms (`AudioEngine.setLatencyCompensation`).
     public var setLatencyCompensation: (@MainActor (Double) -> Void)?
+    /// Salidas de audio disponibles (`AudioOutputDevice.available()`); se consulta al arrancar.
+    public var availableAudioOutputs: (@MainActor () -> [AudioOutputDeviceInfo])?
+    /// Cambia el dispositivo de salida de audio (`AudioEngine.setOutputDevice(uid:)`);
+    /// nil = salida predeterminada del sistema. Los errores llegan por `serviceErrors`.
+    public var setAudioOutputDevice: (@MainActor (String?) -> Void)?
     /// Modo eficiencia del render (Preview a media frecuencia).
     public var setEfficiencyMode: (@MainActor (Bool) -> Void)?
     /// Decodificadores de vídeo activos y límite (`InputManager.activeDecoderIDs`, máx. 4).

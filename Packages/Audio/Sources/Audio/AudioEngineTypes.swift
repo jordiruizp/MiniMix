@@ -8,6 +8,8 @@ public enum AudioEngineError: Error, Equatable {
     case notInManualRenderingMode
     /// No se pudo instanciar la unidad de ganancia propia (`OSStatus`, p. ej. -3000).
     case audioUnitUnavailable(OSStatus)
+    /// La salida elegida (UID) ya no está conectada.
+    case outputDeviceUnavailable(String)
 }
 
 /// Eventos del ciclo de vida de `AudioEngine` (ver `AudioEngine.events`).

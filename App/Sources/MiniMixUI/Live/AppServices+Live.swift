@@ -99,6 +99,16 @@ extension AppServices {
                             graphChange: { change in audio.performGraphChange { _ in change() } })
     }
 
+    /// Cambia la salida física del motor; un error se registra y llega a la UI por `serviceErrors`.
+    private static func selectAudioOutput(_ uid: String?, audio: AudioEngine, inputs: LiveInputs) {
+        do {
+            try audio.setOutputDevice(uid: uid)
+        } catch {
+            LiveLog.app.error("No se pudo cambiar la salida de audio: \(error)")
+            inputs.report("No se pudo cambiar la salida de audio: \(error.localizedDescription)")
+        }
+    }
+
     public static func live(project: Project = Project(), playlists: Bool = true) throws -> (AppServices, LiveRuntime) {
         guard let context = MetalContext.shared else { throw LiveSetupError.noMetalDevice }
         let canvas = project.canvas.size
@@ -146,6 +156,10 @@ extension AppServices {
         }
         services.supportsPlaylists = playlists
         services.setLatencyCompensation = { audio.setLatencyCompensation(milliseconds: $0) }
+        services.availableAudioOutputs = {
+            AudioOutputDevice.available().map { AudioOutputDeviceInfo(uid: $0.uid, name: $0.name) }
+        }
+        services.setAudioOutputDevice = { Self.selectAudioOutput($0, audio: audio, inputs: inputs) }
         services.setEfficiencyMode = { renderer.efficiencyMode = $0 }
         services.decoderUsage = {
             DecoderUsage(active: manager.activeDecoderIDs.count, limit: manager.maxActiveVideoDecoders)

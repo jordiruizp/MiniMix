@@ -10,6 +10,11 @@ extension AppViewModel {
             services.setLatencyCompensation?(prefs.latencyCompensationMs)
         }
         if old?.efficiencyMode != prefs.efficiencyMode { services.setEfficiencyMode?(prefs.efficiencyMode) }
+        // Salida de audio: al arrancar (old == nil) solo si hay una elegida; con nil el motor ya
+        // sigue la predeterminada del sistema y fijarla ahora dejaría de seguir sus cambios.
+        let outputChanged = old.map { $0.audioOutputDeviceUID != prefs.audioOutputDeviceUID }
+            ?? (prefs.audioOutputDeviceUID != nil)
+        if outputChanged { services.setAudioOutputDevice?(prefs.audioOutputDeviceUID) }
         if old?.preventAppNapWhileLive != prefs.preventAppNapWhileLive { outputDisplaysChanged() }
     }
 

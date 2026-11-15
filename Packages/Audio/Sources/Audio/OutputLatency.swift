@@ -74,7 +74,8 @@ public struct OutputLatency: Sendable, Equatable {
 }
 
 /// Lecturas de propiedades del HAL que devuelven `OSStatus` (nunca lanzan).
-private enum HAL {
+/// Interno (no privado): `AudioOutputDevice` también lo usa.
+enum HAL {
     static func read<T: BitwiseCopyable>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector,
                                          scope: AudioObjectPropertyScope, into value: inout T) -> Bool {
         var address = AudioObjectPropertyAddress(mSelector: selector, mScope: scope,
@@ -99,15 +100,19 @@ private enum HAL {
     }
 
     static func name(_ device: AudioObjectID) -> String? {
-        var address = AudioObjectPropertyAddress(mSelector: kAudioObjectPropertyName,
+        string(device, kAudioObjectPropertyName)
+    }
+
+    static func string(_ device: AudioObjectID, _ selector: AudioObjectPropertySelector) -> String? {
+        var address = AudioObjectPropertyAddress(mSelector: selector,
                                                  mScope: kAudioObjectPropertyScopeGlobal,
                                                  mElement: kAudioObjectPropertyElementMain)
         var size = UInt32(MemoryLayout<CFString?>.size)
-        var name: Unmanaged<CFString>?
-        let status = withUnsafeMutablePointer(to: &name) { pointer in
+        var value: Unmanaged<CFString>?
+        let status = withUnsafeMutablePointer(to: &value) { pointer in
             AudioObjectGetPropertyData(device, &address, 0, nil, &size, pointer)
         }
-        guard status == noErr, let name else { return nil }
-        return name.takeRetainedValue() as String
+        guard status == noErr, let value else { return nil }
+        return value.takeRetainedValue() as String
     }
 }

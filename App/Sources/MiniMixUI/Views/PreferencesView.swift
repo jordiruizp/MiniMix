@@ -2,7 +2,7 @@ import Core
 import SwiftUI
 
 /// Escena Settings (⌘,): **valores por defecto** para proyectos nuevos (lienzo, fps, fundido),
-/// latencia de audio, eficiencia y App Nap. No modifica el proyecto abierto: su formato se cambia
+/// salida y latencia de audio, eficiencia y App Nap. No modifica el proyecto abierto: su formato se cambia
 /// en Proyecto › Formato… y su fundido en la barra de transición.
 public struct PreferencesView: View {
     let app: AppViewModel
@@ -47,6 +47,18 @@ public struct PreferencesView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Audio") {
+                let options = AudioOutputOptions(available: app.audioOutputs,
+                                                 selectedUID: app.preferences.audioOutputDeviceUID,
+                                                 selectedName: app.preferences.audioOutputDeviceName)
+                Picker("Salida de audio", selection: audioOutputSelection) {
+                    ForEach(options.entries) { entry in
+                        Text(entry.label).tag(entry.uid)
+                    }
+                }
+                Text("A qué dispositivo se envía la mezcla: la salida que use el sistema (p. ej. el HDMI "
+                     + "de la pantalla), el jack de auriculares, los altavoces… Las salidas se detectan "
+                     + "al arrancar MiniMix.")
+                    .font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Text("Compensación de latencia de salida")
                     Spacer()
@@ -71,6 +83,19 @@ public struct PreferencesView: View {
         .padding(.vertical, 8)
     }
 
+    /// Selección de la salida de audio: guarda también el nombre (para mostrar «no conectado»
+    /// si en otro arranque el dispositivo ya no está).
+    private var audioOutputSelection: Binding<String?> {
+        Binding(get: { app.preferences.audioOutputDeviceUID }, set: { uid in
+            var prefs = app.preferences
+            prefs.audioOutputDeviceUID = uid
+            prefs.audioOutputDeviceName = uid.flatMap { chosen in
+                app.audioOutputs.first { $0.uid == chosen }?.name ?? prefs.audioOutputDeviceName
+            }
+            app.preferences = prefs
+        })
+    }
+
     private func preference<Value>(_ keyPath: WritableKeyPath<Preferences, Value>) -> Binding<Value> {
         Binding(get: { app.preferences[keyPath: keyPath] }, set: { newValue in
             var prefs = app.preferences
@@ -78,6 +103,31 @@ public struct PreferencesView: View {
             prefs.latencyCompensationMs = Preferences.clamp(prefs.latencyCompensationMs, Preferences.latencyRange)
             app.preferences = prefs
         })
+    }
+}
+
+/// Opciones del picker de salida de audio: «Predeterminada del sistema», las salidas detectadas
+/// al arrancar y, si la elegida ya no está entre ellas, una entrada «(no conectado)» que conserva
+/// la elección hasta que el usuario cambie a otra.
+struct AudioOutputOptions {
+    struct Entry: Identifiable {
+        /// nil = salida predeterminada del sistema.
+        let uid: String?
+        let label: String
+        var id: String { uid ?? "" }
+    }
+
+    let available: [AudioOutputDeviceInfo]
+    let selectedUID: String?
+    let selectedName: String?
+
+    var entries: [Entry] {
+        var result = [Entry(uid: nil, label: "Predeterminada del sistema")]
+        result += available.map { Entry(uid: $0.uid, label: $0.name) }
+        if let selectedUID, !available.contains(where: { $0.uid == selectedUID }) {
+            result.append(Entry(uid: selectedUID, label: "\(selectedName ?? selectedUID) (no conectado)"))
+        }
+        return result
     }
 }
 

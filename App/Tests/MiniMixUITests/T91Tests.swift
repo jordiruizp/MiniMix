@@ -250,8 +250,16 @@ struct T91Tests {
         prefs.efficiencyMode = true
         prefs.preventAppNapWhileLive = false
         prefs.autoPlayVideoOnProgram = false
+        prefs.audioOutputDeviceUID = "uid-jack"
+        prefs.audioOutputDeviceName = "Auriculares externos"
         prefs.save(to: suite.defaults)
         #expect(Preferences.load(from: suite.defaults) == prefs)
+        prefs.audioOutputDeviceUID = nil
+        prefs.audioOutputDeviceName = nil
+        prefs.save(to: suite.defaults)
+        #expect(Preferences.load(from: suite.defaults).audioOutputDeviceUID == nil,
+                "volver a la predeterminada borra la elección guardada")
+        #expect(Preferences.load(from: suite.defaults).audioOutputDeviceName == nil)
         suite.defaults.set(9_999.0, forKey: Preferences.Key.latency)
         #expect(Preferences.load(from: suite.defaults).latencyCompensationMs == 500)
         #expect(Preferences.load(from: DefaultsSuite().defaults) == Preferences())
@@ -261,14 +269,23 @@ struct T91Tests {
         let latency = Box<[Double]>([])
         let efficiency = Box<[Bool]>([])
         let canvases = Box<[CanvasFormat]>([])
+        let outputs = Box<[String?]>([])
+        let jack = AudioOutputDeviceInfo(uid: "uid-jack", name: "Auriculares externos")
         let h = Harness(configure: { services in
             services.setLatencyCompensation = { latency.value.append($0) }
             services.setEfficiencyMode = { efficiency.value.append($0) }
             services.reconfigureCanvas = { canvases.value.append($0) }
+            services.availableAudioOutputs = { [jack] }
+            services.setAudioOutputDevice = { outputs.value.append($0) }
         })
         h.app.start()
         #expect(latency.value == [0])
         #expect(efficiency.value == [false])
+        #expect(h.app.audioOutputs == [jack], "las salidas se listan al arrancar")
+        #expect(outputs.value.isEmpty, "sin elección guardada, el motor ya sigue la predeterminada")
+        h.app.preferences.audioOutputDeviceUID = jack.uid
+        h.app.preferences.audioOutputDeviceUID = nil
+        #expect(outputs.value == [jack.uid, nil])
         h.app.preferences.latencyCompensationMs = 80
         h.app.preferences.efficiencyMode = true
         #expect(latency.value == [0, 80])
@@ -281,6 +298,32 @@ struct T91Tests {
         #expect(h.app.preferences.canvasPreset == .hd1080, "el formato del proyecto no cambia los valores por defecto")
         #expect(h.app.hasUnsavedChanges)
         h.app.stop()
+    }
+
+    @Test func savedAudioOutputIsAppliedAtLaunch() {
+        let outputs = Box<[String?]>([])
+        let h = Harness(configure: { services in
+            services.defaults.set("uid-jack", forKey: Preferences.Key.audioOutputUID)
+            services.defaults.set("Auriculares externos", forKey: Preferences.Key.audioOutputName)
+            services.setAudioOutputDevice = { outputs.value.append($0) }
+        })
+        #expect(h.app.preferences.audioOutputDeviceUID == "uid-jack")
+        h.app.start()
+        #expect(outputs.value == ["uid-jack"])
+        h.app.stop()
+    }
+
+    @Test func audioOutputPickerKeepsDisconnectedChoice() {
+        let jack = AudioOutputDeviceInfo(uid: "uid-jack", name: "Auriculares externos")
+        let hdmi = AudioOutputDeviceInfo(uid: "uid-hdmi", name: "HDMI")
+        let connected = AudioOutputOptions(available: [jack, hdmi], selectedUID: jack.uid, selectedName: jack.name)
+        #expect(connected.entries.map(\.uid) == [nil, jack.uid, hdmi.uid])
+        #expect(connected.entries.first?.label == "Predeterminada del sistema")
+        let disconnected = AudioOutputOptions(available: [hdmi], selectedUID: jack.uid, selectedName: jack.name)
+        #expect(disconnected.entries.map(\.uid) == [nil, hdmi.uid, jack.uid])
+        #expect(disconnected.entries.last?.label == "Auriculares externos (no conectado)")
+        let anonymous = AudioOutputOptions(available: [], selectedUID: "uid-x", selectedName: nil)
+        #expect(anonymous.entries.last?.label == "uid-x (no conectado)")
     }
 
     @Test func settingsDefaultsDoNotTouchTheOpenProject() {

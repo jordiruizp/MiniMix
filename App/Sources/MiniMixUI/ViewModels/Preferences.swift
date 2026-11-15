@@ -35,6 +35,11 @@ public struct Preferences: Equatable, Sendable {
     public var defaultFadeDuration: Double = 1
     /// Compensación de latencia de la salida de audio (ms, `AudioEngine.setLatencyCompensation`).
     public var latencyCompensationMs: Double = 0
+    /// UID del dispositivo de salida de audio elegido (`AudioOutputDevice.uid`); nil = la salida
+    /// predeterminada del sistema (p. ej. el HDMI activo).
+    public var audioOutputDeviceUID: String?
+    /// Nombre del dispositivo elegido cuando se guardó (para mostrarlo si ya no está conectado).
+    public var audioOutputDeviceName: String?
     /// Eficiencia: el monitor de Preview se compone a la mitad de fotogramas (Programa y la salida
     /// siguen a la frecuencia del proyecto).
     public var efficiencyMode = false
@@ -64,6 +69,8 @@ public struct Preferences: Equatable, Sendable {
         static let frameRate = "MiniMix.prefs.frameRate"
         static let fade = "MiniMix.prefs.defaultFade"
         static let latency = "MiniMix.prefs.latencyMs"
+        static let audioOutputUID = "MiniMix.prefs.audioOutputUID"
+        static let audioOutputName = "MiniMix.prefs.audioOutputName"
         static let efficiency = "MiniMix.prefs.efficiency"
         static let appNap = "MiniMix.prefs.preventAppNap"
         static let autoPlay = "MiniMix.prefs.autoPlayOnProgram"
@@ -81,6 +88,8 @@ public struct Preferences: Equatable, Sendable {
         if defaults.object(forKey: Key.latency) != nil {
             prefs.latencyCompensationMs = Self.clamp(defaults.double(forKey: Key.latency), Self.latencyRange)
         }
+        prefs.audioOutputDeviceUID = defaults.string(forKey: Key.audioOutputUID)
+        prefs.audioOutputDeviceName = defaults.string(forKey: Key.audioOutputName)
         prefs.efficiencyMode = defaults.bool(forKey: Key.efficiency)
         if defaults.object(forKey: Key.appNap) != nil { prefs.preventAppNapWhileLive = defaults.bool(forKey: Key.appNap) }
         if defaults.object(forKey: Key.autoPlay) != nil {
@@ -94,6 +103,13 @@ public struct Preferences: Equatable, Sendable {
         defaults.set("\(frameRate.numerator)/\(frameRate.denominator)", forKey: Key.frameRate)
         defaults.set(defaultFadeDuration, forKey: Key.fade)
         defaults.set(latencyCompensationMs, forKey: Key.latency)
+        if let uid = audioOutputDeviceUID {
+            defaults.set(uid, forKey: Key.audioOutputUID)
+            defaults.set(audioOutputDeviceName, forKey: Key.audioOutputName)
+        } else {
+            defaults.removeObject(forKey: Key.audioOutputUID)
+            defaults.removeObject(forKey: Key.audioOutputName)
+        }
         defaults.set(efficiencyMode, forKey: Key.efficiency)
         defaults.set(preventAppNapWhileLive, forKey: Key.appNap)
         defaults.set(autoPlayVideoOnProgram, forKey: Key.autoPlay)

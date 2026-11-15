@@ -226,7 +226,7 @@ public final class AudioEngine: AudioMixing, Sendable {
     /// ese momento). Si el dispositivo nuevo tiene otra frecuencia o canales, `mainMixerNode → output`
     /// se reconecta con el formato actual del hardware y es `mainMixerNode` quien convierte
     /// (SRC + canales) en ese único punto.
-    private static func reconnectOutput(_ engine: AVAudioEngine) {
+    static func reconnectOutput(_ engine: AVAudioEngine) {
         let hardware = engine.outputNode.outputFormat(forBus: 0)
         guard hardware.sampleRate > 0, hardware.channelCount > 0,
               let format = AVAudioFormat(standardFormatWithSampleRate: hardware.sampleRate,

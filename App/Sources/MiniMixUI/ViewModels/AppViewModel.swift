@@ -73,6 +73,9 @@ public final class AppViewModel {
     /// ignoran sus valores hasta `releaseTBar()` para que no arranque otra transición.
     @ObservationIgnored private var tbarLockedUntilRelease = false
 
+    /// Salidas de audio disponibles, capturadas al arrancar (Preferencias › Audio).
+    public internal(set) var audioOutputs: [AudioOutputDeviceInfo] = []
+
     /// Preferencias (escena Settings); se guardan y se aplican al cambiar.
     public var preferences: Preferences {
         didSet {
@@ -145,6 +148,7 @@ public final class AppViewModel {
         if let demo = services.demoStart { tasks.append(demo()) }
         if !inputsRegistered {
             inputsRegistered = true
+            audioOutputs = services.availableAudioOutputs?() ?? []
             applyPreferences(changedFrom: nil)
             track { await $0.registerAllInputs() }
             restoreProgramOutput()
