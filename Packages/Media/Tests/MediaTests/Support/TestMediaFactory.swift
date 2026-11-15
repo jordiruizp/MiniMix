@@ -13,6 +13,8 @@ actor TestMediaFactory {
         var width = 1920
         var height = 1080
         var fps: Int32 = 60
+        /// fps racional = fps / fpsDenominator (p. ej. 60000/1001 = 59,94).
+        var fpsDenominator: Int32 = 1
         var seconds: Double = 4
         var audio = false
         var audioSampleRate = 48_000
@@ -29,7 +31,7 @@ actor TestMediaFactory {
         var name: String {
             let ext = container == .mp4 ? "mp4" : container == .m4v ? "m4v" : "mov"
             let audioTag = audio ? "a\(audioSampleRate)\(clicks ? "c" : "")" : "na"
-            return "\(codec.rawValue)-\(width)x\(height)-\(fps)-\(seconds)-\(audioTag).\(ext)"
+            return "\(codec.rawValue)-\(width)x\(height)-\(fps)_\(fpsDenominator)-\(seconds)-\(audioTag).\(ext)"
         }
     }
 
@@ -148,7 +150,7 @@ actor TestMediaFactory {
 
         // Escritura entrelazada: AVAssetWriter deja de aceptar vídeo si el audio
         // se queda atrás (y viceversa).
-        let frames = Int(Double(spec.fps) * spec.seconds)
+        let frames = Int(Double(spec.fps) / Double(spec.fpsDenominator) * spec.seconds)
         let sampleRate = spec.audioSampleRate
         let totalSamples = audioInput == nil ? 0 : Int(spec.seconds * Double(sampleRate))
         var frame = 0
@@ -181,7 +183,8 @@ actor TestMediaFactory {
         CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
         guard let buffer else { throw CocoaError(.fileWriteUnknown) }
         fill(buffer, frame: frame, alpha: spec.codec == .hevcAlpha)
-        adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: spec.fps))
+        adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frame) * CMTimeValue(spec.fpsDenominator),
+                                                            timescale: spec.fps))
     }
 
     /// Color plano que cambia con el fotograma (escritura CPU solo para generar el medio de prueba).

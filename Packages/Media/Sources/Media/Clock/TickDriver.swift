@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import Darwin
 import Dispatch
 import Foundation
 import os
@@ -16,37 +17,104 @@ protocol TickDriver: AnyObject, Sendable {
     /// ancla entonces la rejilla medio fotograma antes del primer disparo para
     /// que el jitter no haga saltar/duplicar índices.
     var firesOffGrid: Bool { get }
+    /// Duración de un fotograma del proyecto (ns), para drivers que la usan en su
+    /// planificación (temporizador de tiempo real). Se llama al arrancar y en
+    /// `setFrameRate`.
+    func setFramePeriod(nanos: Int64)
 }
 
-/// Temporizador de alta precisión: un `DispatchSourceTimer` estricto, sin margen,
-/// en una cola de prioridad `userInteractive`, reprogramado a cada fotograma para
-/// el instante exacto que pide la rejilla (sin intervalo repetitivo que derive).
+extension TickDriver {
+    func setFramePeriod(nanos: Int64) {}
+}
+
+/// Temporizador de alta precisión: un hilo propio con política de **tiempo real**
+/// (`THREAD_TIME_CONSTRAINT_POLICY`, como los hilos de audio y de vídeo del sistema)
+/// que duerme con `mach_wait_until` hasta el instante exacto que pide la rejilla.
+///
+/// Sustituye al `DispatchSourceTimer` (cola `userInteractive`): en reposo, ese hilo
+/// sufría esperas ocasionales de hasta ~130 ms (planificación/coalescencia de
+/// temporizadores) que saltaban fotogramas de la rejilla (10 en 30 min). Un hilo con
+/// restricción de tiempo lo planifica el núcleo por delante del resto.
 final class TimerTickDriver: TickDriver {
-    private let queue = DispatchQueue(label: "minimix.clock.timer", qos: .userInteractive)
-    private let timer = OSAllocatedUnfairLock<DispatchSourceTimer?>(initialState: nil)
+    /// Generación actual: el hilo de una generación anterior termina en ≤ `maxSleepNanos`.
+    private let generation = OSAllocatedUnfairLock(initialState: 0)
+    /// Tope de cada espera: `stop()` surte efecto sin esperar al siguiente fotograma.
+    private static let maxSleepNanos: Int64 = 50_000_000
+    /// Periodo de la política de tiempo real (un fotograma del proyecto); el hilo la
+    /// vuelve a aplicar cuando cambia.
+    private let period = OSAllocatedUnfairLock<Int64>(initialState: 16_666_667)
+    private static let logger = Logger(subsystem: "MiniMix", category: "MasterClock")
+
+    var periodNanosForTesting: Int64 { period.withLock { $0 } }
+
+    func setFramePeriod(nanos: Int64) {
+        period.withLock { $0 = max(nanos, 1_000_000) }
+    }
 
     var firesOffGrid: Bool { false }
 
     func start(_ onFire: @escaping @Sendable (Int64) -> Int64) {
-        let source = DispatchSource.makeTimerSource(flags: .strict, queue: queue)
-        source.setEventHandler { [weak source] in
-            let next = onFire(HostClock.nowNanos())
-            source?.schedule(deadline: DispatchTime(uptimeNanoseconds: UInt64(max(next, 0))),
-                             repeating: .never, leeway: .nanoseconds(0))
+        let mine = generation.withLock { g -> Int in
+            g += 1
+            return g
         }
-        source.schedule(deadline: .now(), repeating: .never, leeway: .nanoseconds(0))
-        let previous = timer.withLock { current -> DispatchSourceTimer? in
-            defer { current = source }
-            return current
+        let generation = self.generation
+        let period = self.period
+        let thread = Thread {
+            var applied: Int64 = 0
+            var next = HostClock.nowNanos()
+            while generation.withLock({ $0 }) == mine {
+                let wanted = period.withLock { $0 }
+                if wanted != applied {
+                    Self.becomeRealtime(periodNanos: wanted)
+                    applied = wanted
+                }
+                let now = HostClock.nowNanos()
+                if now < next {
+                    mach_wait_until(Self.machTicks(nanos: min(next, now + Self.maxSleepNanos)))
+                    continue
+                }
+                next = onFire(HostClock.nowNanos())
+            }
         }
-        previous?.cancel()
-        source.activate()
+        thread.name = "minimix.clock.timer"
+        thread.qualityOfService = .userInteractive
+        thread.start()
     }
 
     func stop() {
-        timer.withLock { current in
-            current?.cancel()
-            current = nil
+        generation.withLock { $0 += 1 }
+    }
+
+    private static let timebase: mach_timebase_info_data_t = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return info
+    }()
+
+    /// ns del host → unidades de `mach_absolute_time`.
+    static func machTicks(nanos: Int64) -> UInt64 {
+        UInt64(max(0, Double(nanos) * Double(timebase.denom) / Double(timebase.numer)))
+    }
+
+    /// Política de tiempo real para el hilo actual: periodo de un fotograma, cómputo y
+    /// plazo de pocos ms (el trabajo de cada tick es mínimo: calcular el índice y avisar).
+    private static func becomeRealtime(periodNanos: Int64) {
+        var policy = thread_time_constraint_policy_data_t(
+            period: UInt32(machTicks(nanos: periodNanos)),
+            computation: UInt32(machTicks(nanos: 1_000_000)),
+            constraint: UInt32(machTicks(nanos: 2_000_000)),
+            preemptible: 1)
+        let count = mach_msg_type_number_t(MemoryLayout<thread_time_constraint_policy_data_t>.size
+                                           / MemoryLayout<integer_t>.size)
+        let status = withUnsafeMutablePointer(to: &policy) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                thread_policy_set(pthread_mach_thread_np(pthread_self()),
+                                  thread_policy_flavor_t(THREAD_TIME_CONSTRAINT_POLICY), $0, count)
+            }
+        }
+        if status != KERN_SUCCESS {
+            logger.error("thread_policy_set(TIME_CONSTRAINT) falló: \(status, privacy: .public); el reloj sigue sin tiempo real")
         }
     }
 }
@@ -230,6 +298,8 @@ final class DisplayLinkVSync: NSObject, VSyncSource, @unchecked Sendable {
     var frameNanos: Int64 { state.withLock { $0.frameNanos } }
 
     /// true si hay al menos una pantalla activa (consulta segura fuera del main actor).
+    /// Desde que `.automatic` usa el temporizador, solo lo usan los tests para omitir
+    /// las pruebas de `.displayLink` en máquinas sin pantalla.
     static var hasDisplay: Bool {
         var count: UInt32 = 0
         return CGGetActiveDisplayList(0, nil, &count) == .success && count > 0

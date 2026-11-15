@@ -9,9 +9,14 @@ import os
 ///   (`t0 + n · den/num`, aritmética entera), no «ahora». Si el consumidor o el
 ///   sistema llegan tarde se emite solo el fotograma más reciente y se cuenta
 ///   el salto en `stats.skippedTicks`.
-/// - Fuente de despertares: `CADisplayLink` (si hay pantalla) o un temporizador
-///   de alta precisión (headless/tests). Con display link, si el vsync se detiene
-///   más de 3 refrescos el reloj sigue con el temporizador y vuelve al vsync solo.
+/// - Fuente de despertares: por defecto (`.automatic`) un temporizador de alta
+///   precisión que despierta en el instante exacto de cada fotograma de la rejilla.
+///   El `CADisplayLink` (`.displayLink`) queda como opción explícita: atado al
+///   refresco de la pantalla (p. ej. 75 Hz o 59,9x Hz), salta fotogramas de la
+///   rejilla del proyecto cuando el refresco no es múltiplo exacto o hay jitter, y
+///   los ticks llegan tarde respecto a su tiempo, lo que hace saltar fotogramas a los
+///   vídeos de 50/59,94 fps (T90). Con display link, si el vsync se detiene más de 3
+///   refrescos el reloj sigue con el temporizador y vuelve al vsync solo.
 /// - `setFrameRate(_:)` cambia la cadencia en caliente: la rejilla nueva se ancla
 ///   en el siguiente límite de fotograma de la antigua (sin saltos ni retrocesos).
 ///
@@ -22,7 +27,7 @@ import os
 /// (`deinit`) también se terminan, así que ningún `for await` queda colgado.
 public final class MasterClock: MasterClockProtocol {
     public enum TickSource: Sendable, Equatable {
-        /// `CADisplayLink` si hay pantalla; si no, temporizador.
+        /// Temporizador de alta precisión (rejilla exacta del proyecto).
         case automatic
         case displayLink
         case timer
@@ -45,11 +50,14 @@ public final class MasterClock: MasterClockProtocol {
 
     private let state: OSAllocatedUnfairLock<State>
     private let driver: any TickDriver
+    /// Actividad de proceso mientras corre (`.latencyCritical`): sin App Nap ni
+    /// coalescencia de temporizadores aunque el proceso no tenga ventana (tests, harness).
+    private let activity = LockedState<NSObjectProtocol?>(nil)
     public let tickSource: TickSource
 
     public convenience init(frameRate: FrameRate = .fps60, tickSource: TickSource = .automatic) {
         let resolved: TickSource = switch tickSource {
-        case .automatic: DisplayLinkVSync.hasDisplay ? .displayLink : .timer
+        case .automatic: .timer
         default: tickSource
         }
         let driver: any TickDriver = resolved == .displayLink
@@ -68,6 +76,7 @@ public final class MasterClock: MasterClockProtocol {
 
     deinit {
         driver.stop()
+        if let token = activity.current { ProcessInfo.processInfo.endActivity(token) }
         let subscribers = state.withLock { s -> [AsyncStream<HostTime>.Continuation] in
             defer { s.subscribers.removeAll() }
             return Array(s.subscribers.values)
@@ -93,29 +102,49 @@ public final class MasterClock: MasterClockProtocol {
         return stream
     }
 
+    /// `start()` y `stop()` se serializan con el cerrojo de ciclo de vida (`activity`):
+    /// desde hilos distintos nunca queda una actividad abierta ni un hilo del driver
+    /// vivo tras el último `stop()`. Ese cerrojo no se toma en `fire` (el del estado sí).
     public func start() {
-        let shouldStart = state.withLock { s -> Bool in
-            guard !s.running else { return false }
-            s.running = true
-            s.grid = nil
-            s.lastIndex = -1
-            return true
-        }
-        guard shouldStart else { return }
-        let offGrid = driver.firesOffGrid
-        driver.start { [weak self] nowNanos in
-            self?.fire(nowNanos: nowNanos, offGrid: offGrid) ?? nowNanos + 1_000_000_000
+        activity.withLock { token in
+            let shouldStart = state.withLock { s -> Bool in
+                guard !s.running else { return false }
+                s.running = true
+                s.grid = nil
+                s.lastIndex = -1
+                return true
+            }
+            guard shouldStart else { return }
+            // Sin `idleSystemSleepDisabled`: con la App abierta y sin salida el Mac puede
+            // dormir por inactividad (OutputController bloquea el reposo con salida al aire).
+            token = ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical], reason: "MiniMix: reloj maestro")
+            driver.setFramePeriod(nanos: Self.frameNanos(frameRate))
+            let offGrid = driver.firesOffGrid
+            driver.start { [weak self] nowNanos in
+                self?.fire(nowNanos: nowNanos, offGrid: offGrid) ?? nowNanos + 1_000_000_000
+            }
         }
     }
 
     public func stop() {
-        driver.stop()
-        let subscribers = state.withLock { s -> [AsyncStream<HostTime>.Continuation] in
-            s.running = false
-            defer { s.subscribers.removeAll() }
-            return Array(s.subscribers.values)
+        let subscribers = activity.withLock { token -> [AsyncStream<HostTime>.Continuation] in
+            driver.stop()
+            if let current = token { ProcessInfo.processInfo.endActivity(current) }
+            token = nil
+            return state.withLock { s -> [AsyncStream<HostTime>.Continuation] in
+                s.running = false
+                defer { s.subscribers.removeAll() }
+                return Array(s.subscribers.values)
+            }
         }
         subscribers.forEach { $0.finish() }
+    }
+
+    var hasActivityForTesting: Bool { activity.withLock { $0 != nil } }
+
+    private static func frameNanos(_ rate: FrameRate) -> Int64 {
+        Int64((Double(rate.denominator) / Double(rate.numerator) * 1e9).rounded())
     }
 
     /// Cambia la frecuencia del proyecto en caliente.
@@ -124,6 +153,7 @@ public final class MasterClock: MasterClockProtocol {
         state.withLock { s in
             guard s.rate != rate else { return }
             s.rate = rate
+            driver.setFramePeriod(nanos: Self.frameNanos(rate))
             guard let grid = s.grid else { return }
             // El fotograma en curso conserva su duración; el nuevo n = 0 empieza
             // en el siguiente límite de la rejilla antigua.
