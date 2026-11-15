@@ -1,3 +1,4 @@
+import AVFAudio
 import Core
 import CoreMocks
 import Testing
@@ -65,6 +66,27 @@ import Testing
         #expect(maxEnvelopeJump(envelope(samples, window: 48)) < Self.maxJump)
         #expect(abs(peak(samples, last: 480) - 0.25) < 1e-3)
         #expect(engine.retiringCount == 0)
+    }
+
+    /// Baja de un canal cuya fuente es un mezclador sin entradas que nunca llegó a renderizar
+    /// (el `node` de una playlist sin items). Separar sus nodos aún conectados con el motor en
+    /// marcha reventaba dentro de AVFAudio (EXC_BAD_ACCESS en UpdateGraphAfterReconfig al
+    /// separar `input`): `teardown` debe desconectarlo todo antes de separar.
+    @Test func detachChannelWithNeverRenderedMixerSource() throws {
+        let engine = try makeOfflineEngine()
+        try engine.start()
+        for _ in 1...3 {
+            let mixer = AVAudioMixerNode()
+            let source = MockAudioSource(id: InputID(), node: mixer)
+            try engine.attach(source)
+            _ = try render(engine, frames: 2_048)
+            engine.detach(source.id)
+            // Rampa (20 ms) + margen (50 ms) a 48 kHz ≈ 3 360 muestras: el desmontaje
+            // diferido ocurre dentro de este render.
+            _ = try render(engine, frames: 9_600)
+            #expect(engine.retiringCount == 0)
+            #expect(mixer.engine == nil)
+        }
     }
 
     @Test func detachWhileStoppedIsImmediate() throws {

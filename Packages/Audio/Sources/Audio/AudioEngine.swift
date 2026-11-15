@@ -575,8 +575,19 @@ public final class AudioEngine: AudioMixing, Sendable {
         }
     }
 
-    private static func teardown(_ channel: Channel, in engine: AVAudioEngine) {
-        engine.disconnectNodeOutput(channel.source)
+}
+
+private extension AudioEngine {
+    static func teardown(_ channel: Channel, in engine: AVAudioEngine) {
+        // Primero cortar TODAS las conexiones y separar después nodos ya aislados: separar
+        // `input` todavía conectado al fader, con el motor en marcha y una fuente que nunca
+        // llegó a renderizar (el mezclador vacío de una playlist sin items), revienta dentro
+        // de AVFAudio (EXC_BAD_ACCESS en UpdateGraphAfterReconfig, determinista). El canal ya
+        // está a ganancia 0, así que desconectar aquí no produce clics.
+        for node in [channel.source] + channel.nodes {
+            engine.disconnectNodeInput(node)
+            engine.disconnectNodeOutput(node)
+        }
         channel.nodes.forEach(engine.detach)
         if channel.ownsSourceNode { engine.detach(channel.source) }
     }
