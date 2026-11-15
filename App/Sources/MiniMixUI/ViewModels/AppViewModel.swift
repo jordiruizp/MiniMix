@@ -264,10 +264,13 @@ public final class AppViewModel {
             project.program = program
             if oldProgram != program, transitionInputs == nil {
                 services.audio.transition(from: oldProgram, to: program, progress: 1)
+                autoPlayOnProgram(program)
+                autoPauseOffProgram(oldProgram)
             }
             updateVisibility()
         case let .transitionStarted(_, from, to, _):
             transitionInputs = (from, to)
+            autoPlayOnProgram(to)
             updateVisibility()
         case .transitionProgress(let progress):
             services.audio.transition(from: transitionInputs?.from, to: transitionInputs?.to, progress: progress)

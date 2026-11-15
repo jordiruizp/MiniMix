@@ -40,6 +40,11 @@ public struct Preferences: Equatable, Sendable {
     public var efficiencyMode = false
     /// Desactivar App Nap (y el reposo de pantalla) mientras la salida de Programa está en el aire.
     public var preventAppNapWhileLive = true
+    /// Reproducir automáticamente un vídeo en pausa al pasar a Programa (corte o inicio de
+    /// transición) y pausarlo al salir (corte o transición completada). Una playlist arranca
+    /// también si su item en curso (o en cola) es un vídeo; al terminar el item manda su
+    /// secuenciador, como siempre, y no se pausa al salir de Programa.
+    public var autoPlayVideoOnProgram = true
 
     public init() {}
 
@@ -61,6 +66,7 @@ public struct Preferences: Equatable, Sendable {
         static let latency = "MiniMix.prefs.latencyMs"
         static let efficiency = "MiniMix.prefs.efficiency"
         static let appNap = "MiniMix.prefs.preventAppNap"
+        static let autoPlay = "MiniMix.prefs.autoPlayOnProgram"
     }
 
     public static func load(from defaults: UserDefaults) -> Preferences {
@@ -77,6 +83,9 @@ public struct Preferences: Equatable, Sendable {
         }
         prefs.efficiencyMode = defaults.bool(forKey: Key.efficiency)
         if defaults.object(forKey: Key.appNap) != nil { prefs.preventAppNapWhileLive = defaults.bool(forKey: Key.appNap) }
+        if defaults.object(forKey: Key.autoPlay) != nil {
+            prefs.autoPlayVideoOnProgram = defaults.bool(forKey: Key.autoPlay)
+        }
         return prefs
     }
 
@@ -87,6 +96,7 @@ public struct Preferences: Equatable, Sendable {
         defaults.set(latencyCompensationMs, forKey: Key.latency)
         defaults.set(efficiencyMode, forKey: Key.efficiency)
         defaults.set(preventAppNapWhileLive, forKey: Key.appNap)
+        defaults.set(autoPlayVideoOnProgram, forKey: Key.autoPlay)
     }
 
     /// Rango de la compensación de latencia ofrecida en la interfaz.

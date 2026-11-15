@@ -249,6 +249,7 @@ struct T91Tests {
         prefs.latencyCompensationMs = 120
         prefs.efficiencyMode = true
         prefs.preventAppNapWhileLive = false
+        prefs.autoPlayVideoOnProgram = false
         prefs.save(to: suite.defaults)
         #expect(Preferences.load(from: suite.defaults) == prefs)
         suite.defaults.set(9_999.0, forKey: Preferences.Key.latency)

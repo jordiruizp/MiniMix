@@ -236,3 +236,133 @@ struct UtilityTests {
         #expect(Formatting.decibels(gain: 0) == "−∞ dB")
     }
 }
+
+@Suite("Auto-play al pasar a Programa")
+@MainActor
+struct AutoPlayOnProgramTests {
+    /// Deja el vídeo en Preview (en los datos de ejemplo arranca en Programa).
+    private func videoToPreview(_ h: Harness) {
+        h.app.send(.cut) // Programa: Imagen, Preview: Vídeo
+        #expect(h.project.preview == h.video)
+        #expect(!h.app.isPlaying(h.video))
+    }
+
+    @Test func cutStartsThePausedVideo() {
+        let h = Harness()
+        videoToPreview(h)
+        h.app.send(.cut)
+        #expect(h.project.program == h.video)
+        #expect(h.app.isPlaying(h.video))
+    }
+
+    @Test func fadeStartsTheVideoWhenTheTransitionBegins() {
+        let h = Harness()
+        videoToPreview(h)
+        h.app.send(.fade(duration: 1))
+        #expect(h.app.isPlaying(h.video), "arranca al empezar a verse, no al completar el fundido")
+        h.app.tick(at: HostTime(seconds: 1))
+        #expect(h.project.program == h.video)
+        #expect(h.app.isPlaying(h.video))
+    }
+
+    @Test func disabledPreferenceKeepsTheVideoPaused() {
+        let h = Harness()
+        h.app.preferences.autoPlayVideoOnProgram = false
+        videoToPreview(h)
+        h.app.send(.cut)
+        #expect(h.project.program == h.video)
+        #expect(!h.app.isPlaying(h.video))
+        h.app.send(.cut)
+        h.app.send(.fade(duration: 1))
+        #expect(!h.app.isPlaying(h.video))
+    }
+
+    @Test func alreadyPlayingVideoIsNotRestarted() {
+        let h = Harness()
+        videoToPreview(h)
+        h.app.send(.play(h.video))
+        h.advance(to: 10)
+        h.app.send(.cut)
+        #expect(h.app.remaining(for: h.video) == 85, "no reinicia ni toca el transporte")
+    }
+
+    @Test func playlistCuedOnAVideoStartsThroughItsSequencer() {
+        let h = Harness()
+        h.app.selectInput(h.playlist) // primer item: vídeo /tmp/a.mp4
+        h.app.send(.cut)
+        #expect(h.project.program == h.playlist)
+        #expect(h.app.isPlaying(h.playlist))
+        #expect(h.sequencerLog.events == [.play], "solo el .play canónico: al terminar manda el secuenciador")
+    }
+
+    @Test func playlistCuedOnAStillStaysPaused() {
+        let playlist = InputDescriptor(name: "PL", content: .playlist(Playlist(items: [
+            PlaylistItem(source: .image(MediaReference(path: "/tmp/x.png")), duration: 5),
+            PlaylistItem(source: .video(MediaReference(path: "/tmp/v.mp4")))
+        ])))
+        let color = InputDescriptor(name: "Color", content: .color(.black))
+        let h = Harness(project: Project(inputs: [playlist, color], preview: playlist.id, program: color.id))
+        h.app.send(.cut)
+        #expect(h.project.program == playlist.id)
+        #expect(h.sequencerLog.events.isEmpty, "el item en cola no es un vídeo: la playlist no arranca")
+        #expect(!h.app.isPlaying(playlist.id))
+    }
+
+    @Test func nonVideoInputsAreIgnored() {
+        let h = Harness()
+        h.app.send(.cut) // Programa: Imagen
+        #expect(!h.app.isPlaying(h.image))
+        h.app.selectInput(h.music)
+        h.app.send(.cut)
+        #expect(!h.app.isPlaying(h.music))
+    }
+
+    @Test func cutPausesTheOutgoingVideo() {
+        let h = Harness()
+        h.app.send(.play(h.video)) // Vídeo está en Programa en los datos de ejemplo
+        h.advance(to: 5)
+        h.app.send(.cut)
+        #expect(h.project.preview == h.video)
+        #expect(h.app.playback[h.video]?.state == .paused)
+        #expect(h.app.remaining(for: h.video) == 90, "se pausa donde estaba, sin rebobinar")
+    }
+
+    @Test func fadePausesTheOutgoingVideoOnlyOnCompletion() {
+        let h = Harness()
+        h.app.send(.play(h.video))
+        h.app.send(.fade(duration: 1))
+        h.app.tick(at: HostTime(seconds: 0.5))
+        #expect(h.app.isPlaying(h.video), "mientras se ve, sigue reproduciéndose")
+        h.app.tick(at: HostTime(seconds: 1))
+        #expect(h.project.program == h.image)
+        #expect(h.app.playback[h.video]?.state == .paused)
+    }
+
+    @Test func cancelledTransitionDoesNotPause() {
+        let h = Harness()
+        h.app.send(.play(h.video))
+        h.app.moveTBar(to: 0.5)
+        h.app.moveTBar(to: 0) // cancela: Vídeo sigue en Programa
+        #expect(h.project.program == h.video)
+        #expect(h.app.isPlaying(h.video))
+    }
+
+    @Test func disabledPreferenceDoesNotPauseOnExit() {
+        let h = Harness()
+        h.app.preferences.autoPlayVideoOnProgram = false
+        h.app.send(.play(h.video))
+        h.app.send(.cut)
+        #expect(h.project.preview == h.video)
+        #expect(h.app.isPlaying(h.video))
+    }
+
+    @Test func endedVideoRestartsOnCut() {
+        let h = Harness()
+        h.app.send(.play(h.video))
+        h.advance(to: 200) // /tmp/clip.mov dura 95 s en los mocks
+        #expect(h.app.playback[h.video]?.state == .ended)
+        videoToPreview(h)
+        h.app.send(.cut)
+        #expect(h.app.isPlaying(h.video))
+    }
+}

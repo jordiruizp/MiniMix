@@ -87,6 +87,17 @@ public final class PlaylistViewModel {
         return sequencers[id]?.upcomingIndex
     }
 
+    /// Item que empezaría a sonar si la playlist recibiera `.play` ahora: el actual, el que está
+    /// en cola en una espera, o el primero habilitado si está parada o terminada.
+    public func itemAboutToPlay(for id: InputID) -> PlaylistItem? {
+        guard let playlist = playlist(for: id) else { return nil }
+        return switch state(for: id) {
+        case .playing(let index): playlist.items[safe: index]
+        case .held(_, let cued): cued.flatMap { playlist.items[safe: $0] }
+        case .idle, .ended: playlist.items.first(where: \.enabled)
+        }
+    }
+
     public func isHeld(_ id: InputID) -> Bool {
         if case .held = state(for: id) { return true }
         return false

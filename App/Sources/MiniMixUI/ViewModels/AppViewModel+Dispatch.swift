@@ -110,6 +110,32 @@ extension AppViewModel {
         return min(max(volume, ModelLimits.volume.lowerBound), ModelLimits.volume.upperBound)
     }
 
+    /// Si la preferencia está activa, arranca el vídeo que entra en Programa (corte o inicio de
+    /// transición). Entradas de vídeo, y playlists cuyo item en curso (o en cola) es un vídeo;
+    /// en ese caso el `.play` va al secuenciador, que al terminar el item sigue mandando
+    /// (modo, bucle, parar después…). El resto de tipos no tienen transporte.
+    func autoPlayOnProgram(_ id: InputID?) {
+        guard preferences.autoPlayVideoOnProgram, let id, !isPlaying(id) else { return }
+        switch descriptor(id)?.kind {
+        case .video:
+            break
+        case .playlist:
+            guard case .video = playlists.itemAboutToPlay(for: id)?.source else { return }
+        default:
+            return
+        }
+        dispatch(.play(id))
+    }
+
+    /// Contraparte del auto-play: un vídeo que sale de Programa reproduciéndose se pausa cuando
+    /// el cambio de bus se consuma (un corte, o el final de una transición; una cancelada no
+    /// cambia los buses y no pausa nada). Solo vídeos: las playlists siguen su curso.
+    func autoPauseOffProgram(_ id: InputID?) {
+        guard preferences.autoPlayVideoOnProgram, let id,
+              descriptor(id)?.kind == .video, isPlaying(id) else { return }
+        dispatch(.pause(id))
+    }
+
     /// Pone a reproducir una entrada sin pasar por el secuenciador (p. ej. una playlist que estaba
     /// en espera y salta a otro item con siguiente/anterior/saltar).
     func startPlayback(_ id: InputID) {

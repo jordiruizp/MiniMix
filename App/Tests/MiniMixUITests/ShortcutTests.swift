@@ -46,7 +46,8 @@ struct ShortcutTests {
         #expect(harness.project.program == harness.playlist)
         #expect(harness.app.commands(for: .programPlaylistNext) == [.playlistNext(harness.playlist)])
         #expect(harness.app.commands(for: .programPlaylistPrevious) == [.playlistPrevious(harness.playlist)])
-        harness.app.send(.play(harness.playlist))
+        // El corte ya arrancó la playlist (auto-play: su primer item es un vídeo).
+        #expect(harness.app.isPlaying(harness.playlist))
         harness.app.perform(.programPlaylistNext)
         #expect(harness.sequencerLog.events == [.play, .next])
     }

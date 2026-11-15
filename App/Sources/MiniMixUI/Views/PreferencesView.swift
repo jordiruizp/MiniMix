@@ -35,6 +35,17 @@ public struct PreferencesView: View {
                      + "Para el proyecto abierto usa Proyecto › Formato…")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section {
+                Toggle("Reproducir vídeos automáticamente al pasar a Programa (y pausarlos al salir)",
+                       isOn: preference(\.autoPlayVideoOnProgram))
+            } header: {
+                Text("Reproducción")
+            } footer: {
+                Text("Al cortar o iniciar una transición hacia un vídeo en pausa, se pone en marcha solo; "
+                     + "al salir de Programa se pausa cuando la transición termina. Una playlist arranca "
+                     + "también si su item en curso es un vídeo; al terminar, siguen mandando sus opciones.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Audio") {
                 HStack {
                     Text("Compensación de latencia de salida")
