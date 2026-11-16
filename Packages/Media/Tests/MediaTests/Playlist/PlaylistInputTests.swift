@@ -146,6 +146,29 @@ extension MediaSerialTests {
             #expect(abs((input.itemRemainingTime ?? 0) - (5 - (input.currentTime ?? 0))) < 0.05)
         }
 
+        /// Stop de la UI (pausa + reiniciar item): vuelve al inicio del item sin reanudar.
+        @Test func restartItemWhilePausedRewindsWithoutResuming() async throws {
+            let palette = [Kit.red, Kit.green]
+            let (input, initial) = try await make(Playlist(items: Kit.colors(palette)))
+            var driver = initial
+            input.play()
+            await input.settle()
+            await driver.run(30)
+            input.pause()
+            input.restartItem()
+            await input.settle()
+            #expect(input.playbackState == .paused)
+            #expect((input.currentTime ?? 1) < 0.1)
+            let seen = await runs(&driver, ticks: 120, palette: palette)
+            #expect(seen.map(\.0) == [0])
+            input.play()
+            await input.settle()
+            let resumed = await runs(&driver, ticks: 70, palette: palette)
+            #expect(resumed.map(\.0) == [0, 1])
+            // El primer item vuelve a durar ~1 s entera: se reinició, no una mera reanudación.
+            #expect((resumed.first?.1 ?? 0) >= 59)
+        }
+
         @Test func pauseFreezesStillTimer() async throws {
             let palette = [Kit.red, Kit.green]
             let (input, initial) = try await make(Playlist(items: Kit.colors(palette)))

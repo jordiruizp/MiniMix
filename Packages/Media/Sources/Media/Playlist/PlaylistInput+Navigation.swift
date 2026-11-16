@@ -78,9 +78,12 @@ extension PlaylistInput {
         let time = referenceTime
         let outcome = state.withLock { s -> (index: Int, restart: Bool)? in
             let before = s.sequencer.currentIndex
+            let paused = s.userPaused
             s.sequencer.handle(event)
             guard case .playing(let index) = s.sequencer.state else { return nil }
-            s.userPaused = false
+            // Reiniciar el item estando en pausa (el stop de la UI: pausa + reinicio) vuelve
+            // al inicio sin reanudar; el resto de la navegación sí reanuda.
+            s.userPaused = paused && event == .restartItem
             let same = index == s.active?.index
             if same, s.sequencer.lastEventRestartsItem || before == nil || event == .play {
                 return (index, true)
@@ -172,11 +175,11 @@ extension PlaylistInput {
                 } else if let audio = source as? AudioInput {
                     await audio.restart()
                 }
-                // Un teardown mientras volvía al In no debe dejar un play tardío.
-                guard !self.state.withLock({ $0.tornDown }) else { return }
+                // Un teardown (o una pausa) mientras volvía al In no debe dejar un play tardío.
+                guard !self.state.withLock({ $0.tornDown || $0.userPaused }) else { return }
                 source.play()
             }
-        } else {
+        } else if !state.withLock({ $0.userPaused }) {
             source.play()
         }
         emitStarted(slot)

@@ -64,6 +64,16 @@ struct MonitorTransportTests {
         #expect(harness.sequencerLog.events.contains(.restartItem))
     }
 
+    @Test func stopOnHeldOrEndedPlaylistDoesNotRestartIt() {
+        let harness = Harness()
+        harness.app.togglePlayback(harness.playlist)
+        harness.app.playback[harness.playlist]?.state = .held
+        harness.app.stopPlayback(harness.playlist)
+        harness.app.playback[harness.playlist]?.state = .ended
+        harness.app.stopPlayback(harness.playlist)
+        #expect(!harness.sequencerLog.events.contains(.restartItem))
+    }
+
     @Test func playlistGoToStartRestartsCurrentItem() {
         let harness = Harness()
         harness.app.togglePlayback(harness.playlist)

@@ -17,7 +17,11 @@ extension AppViewModel {
 
     /// Para la entrada: pausa y vuelve al inicio (en una playlist, al inicio del item actual).
     public func stopPlayback(_ id: InputID) {
-        if isPlaying(id) { send(.pause(id)) }
+        let wasPlaying = isPlaying(id)
+        if wasPlaying { send(.pause(id)) }
+        // Una playlist en espera o terminada ya está parada: reiniciarla arrancaría el item
+        // en cola (regla M2 del secuenciador), justo lo contrario de un stop.
+        if descriptor(id)?.kind == .playlist, !wasPlaying, playback[id]?.state != .paused { return }
         send(.restart(id))
     }
 
