@@ -77,6 +77,37 @@ struct RemainingTimeLabel: View {
     }
 }
 
+/// Barra de tiempos sobre el vídeo de Programa: `transcurrido / -restante.frames` centrados
+/// (en playlists, del item actual) sobre una franja negra al 70 % pegada al borde inferior.
+/// Se redibuja sola con su `TimelineView` a los fps del proyecto; el resto de la interfaz
+/// sigue a 4 Hz. La cuenta atrás avisa del final: naranja < 10 s y rojo < 5 s.
+struct ProgramTimeOverlay: View {
+    let app: AppViewModel
+    let id: InputID
+
+    var body: some View {
+        if app.hasTransport(id) {
+            let fps = app.project.canvas.frameRate.fps
+            // Reloj propio al ritmo del proyecto: los frames avanzan suaves sin subir el
+            // refresco global (solo se redibuja esta fila de texto, coste inapreciable).
+            TimelineView(.periodic(from: .now, by: 1 / max(fps, 1))) { _ in
+                let remaining = app.currentItemRemaining(for: id)
+                HStack(spacing: 8) {
+                    Text(Formatting.elapsed(app.elapsed(for: id)))
+                    Text("/").foregroundStyle(.white.opacity(0.55))
+                    Text(Formatting.remaining(remaining, fps: fps))
+                        .foregroundStyle(Theme.countdown(remaining: remaining) ?? .white)
+                }
+                .font(.system(size: 20, design: .monospaced))
+                .foregroundStyle(.white)
+                .padding(.vertical, 5)
+                .frame(maxWidth: .infinity)
+                .background(.black.opacity(0.7))
+            }
+        }
+    }
+}
+
 /// Monitor PVW o PGM con cabecera de color (verde/rojo) a 16:9.
 struct MonitorPane: View {
     let app: AppViewModel
@@ -96,6 +127,9 @@ struct MonitorPane: View {
             app.monitorFactory.make(content)
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .frame(maxWidth: .infinity)
+                .overlay(alignment: .bottom) {
+                    if bus == .program, let id = input?.id { ProgramTimeOverlay(app: app, id: id) }
+                }
                 .overlay(RoundedRectangle(cornerRadius: 2).stroke(tint, lineWidth: 3))
                 .accessibilityElement()
                 .accessibilityLabel(bus == .preview ? "Monitor de Preview" : "Monitor de Programa")

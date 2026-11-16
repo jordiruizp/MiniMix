@@ -19,6 +19,20 @@ public enum Theme {
     /// Errores graves (térmico crítico).
     public static let critical = program
 
+    /// Naranja y rojo de la cuenta atrás del monitor de Programa. Van sobre su barra negra,
+    /// que no cambia con claro/oscuro, así que son fijos (y legibles sobre negro).
+    public static let countdownWarning = Color(red: 1.0, green: 0.72, blue: 0.25)
+    public static let countdownCritical = Color(red: 1.0, green: 0.33, blue: 0.30)
+
+    /// Color de aviso de la cuenta atrás de Programa: naranja por debajo de 10 s, rojo por
+    /// debajo de 5 s; `nil` (color normal) en el resto, incluida una duración desconocida.
+    public static func countdown(remaining: Double?) -> Color? {
+        guard let remaining else { return nil }
+        if remaining < 5 { return countdownCritical }
+        if remaining < 10 { return countdownWarning }
+        return nil
+    }
+
     /// Componentes sRGB de un color de tema en una apariencia (tests de contraste).
     struct RGB: Equatable {
         var red: Double

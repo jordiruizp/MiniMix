@@ -126,6 +126,22 @@ public final class PlaylistViewModel {
         return isHeld(id) ? 0 : max(0, total - itemElapsed(for: id))
     }
 
+    /// Tiempo transcurrido del item actual, o `nil` si no hay item en curso
+    /// (en modo real se deduce: duración útil del item menos su tiempo restante).
+    public func currentItemElapsed(for id: InputID) -> Double? {
+        if let live = liveSource(for: id) {
+            _ = app?.now // se refresca con la interfaz (~4 Hz)
+            guard let remaining = live.itemRemainingTime,
+                  let index = index(of: live.currentItemID, in: id),
+                  let item = playlist(for: id)?.items[safe: index],
+                  let total = duration(of: item) else { return nil }
+            return max(0, total - remaining)
+        }
+        guard let index = currentIndex(for: id), let item = playlist(for: id)?.items[safe: index] else { return nil }
+        let elapsed = itemElapsed(for: id)
+        return duration(of: item).map { min(elapsed, $0) } ?? elapsed
+    }
+
     /// Tiempo restante de la playlist: item actual + items habilitados posteriores (sin bucle).
     public func playlistRemaining(for id: InputID) -> Double? {
         if let live = liveSource(for: id) {

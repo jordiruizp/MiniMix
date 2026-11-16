@@ -342,6 +342,7 @@ public final class AppViewModel {
 
     /// Tiempo restante de una entrada (vídeo/audio: clip; playlist: playlist entera).
     public func remaining(for id: InputID) -> Double? {
+        _ = now // las vistas de tiempos se reevalúan con el refresco (~4 Hz), también con fuente real
         guard let input = descriptor(id) else { return nil }
         if input.kind == .playlist { return playlists.playlistRemaining(for: id) }
         // Con fuente real: fin útil (Out o duración del archivo) menos la posición actual.
@@ -351,6 +352,24 @@ public final class AppViewModel {
         }
         guard let total = duration(of: input) else { return nil }
         return max(0, total - (playback[id]?.elapsed(at: now) ?? 0))
+    }
+
+    /// Tiempo transcurrido de una entrada (vídeo/audio: clip; playlist: item actual).
+    public func elapsed(for id: InputID) -> Double? {
+        _ = now // las vistas de tiempos se reevalúan con el refresco (~4 Hz), también con fuente real
+        guard let input = descriptor(id) else { return nil }
+        if input.kind == .playlist { return playlists.currentItemElapsed(for: id) }
+        guard input.kind == .video || input.kind == .audio else { return nil }
+        // Con fuente real: posición actual menos el In (la fuente cuenta desde el archivo).
+        if let position = sourcePosition(id) { return max(0, position - (input.inPoint ?? 0)) }
+        let elapsed = playback[id]?.elapsed(at: now) ?? 0
+        return duration(of: input).map { min(elapsed, $0) } ?? elapsed
+    }
+
+    /// Cuenta atrás del vídeo en emisión: el clip en vídeo/audio y, en playlists, el item
+    /// actual (no la playlist entera, que es lo que da `remaining(for:)`).
+    public func currentItemRemaining(for id: InputID) -> Double? {
+        descriptor(id)?.kind == .playlist ? playlists.itemRemaining(for: id) : remaining(for: id)
     }
 
     /// Registra una duración conocida (en T80, desde `SourceEvent.durationKnown`).
