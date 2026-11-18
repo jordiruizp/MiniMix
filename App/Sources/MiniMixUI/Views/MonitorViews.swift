@@ -17,36 +17,57 @@ public struct MonitorPlaceholder: View {
     }
 }
 
-/// Miniatura de una entrada: color sólido o degradado con icono y nombre.
+/// Miniatura de una entrada: su color, su imagen o el primer fotograma del vídeo (en playlists,
+/// del primer vídeo). Mientras se genera, o si no hay nada visual, degradado con icono.
 struct InputThumbnail: View {
     let input: InputDescriptor?
     var large = false
+    private var store: ThumbnailStore { .shared }
 
     var body: some View {
+        let source = input?.thumbnailSource
         ZStack {
-            background
-            if let input, input.kind != .color {
-                VStack(spacing: large ? 8 : 2) {
-                    Image(systemName: input.kind.symbolName)
-                        .font(large ? .system(size: 40) : .title3)
-                    if large { Text(input.name).font(.title3.weight(.semibold)) }
+            switch source {
+            case .color(let color):
+                color.swiftUIColor
+            case .media(let key):
+                if let image = store.image(for: key) {
+                    Color.black
+                    picture(image)
+                } else {
+                    placeholder
                 }
-                .foregroundStyle(.white.opacity(0.85))
-            } else if input == nil, large {
-                Text("Sin señal").foregroundStyle(.secondary)
+            case nil:
+                placeholder
             }
         }
         .clipped()
+        .task(id: source) {
+            if case .media(let key) = source { await store.load(key) }
+        }
     }
 
-    @ViewBuilder private var background: some View {
-        switch input?.content {
-        case .color(let color):
-            color.swiftUIColor
-        case .some(let content):
-            LinearGradient(colors: Self.gradient(for: content.kind), startPoint: .topLeading, endPoint: .bottomTrailing)
-        case nil:
+    @ViewBuilder private func picture(_ image: CGImage) -> some View {
+        let picture = Image(decorative: image, scale: 1).resizable()
+        switch input?.fit ?? .fit {
+        case .fit: picture.scaledToFit()
+        case .fill: picture.scaledToFill()
+        case .stretch: picture
+        }
+    }
+
+    @ViewBuilder private var placeholder: some View {
+        if let input {
+            LinearGradient(colors: Self.gradient(for: input.kind), startPoint: .topLeading, endPoint: .bottomTrailing)
+            VStack(spacing: large ? 8 : 2) {
+                Image(systemName: input.kind.symbolName)
+                    .font(large ? .system(size: 40) : .title3)
+                if large { Text(input.name).font(.title3.weight(.semibold)) }
+            }
+            .foregroundStyle(.white.opacity(0.85))
+        } else {
             Color.black
+            if large { Text("Sin señal").foregroundStyle(.secondary) }
         }
     }
 
